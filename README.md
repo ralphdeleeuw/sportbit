@@ -1,6 +1,11 @@
 # SportBit Auto Sign-Up
 
-Automatically signs up for CrossFit Hilversum WOD classes on **Monday and Thursday at 20:00** via the SportBit API. Runs daily at midnight (Amsterdam time) through GitHub Actions.
+Automatically signs up for CrossFit Hilversum WOD classes via the SportBit API. Runs daily at midnight (Amsterdam time) through GitHub Actions.
+
+Default schedule:
+- **Monday** at 20:00
+- **Wednesday** at 08:00
+- **Thursday** at 20:00
 
 ## Setup
 
@@ -18,7 +23,7 @@ Automatically signs up for CrossFit Hilversum WOD classes on **Monday and Thursd
 
 3. **Test it** — go to the Actions tab > "CrossFit Auto Sign-Up" > "Run workflow" to trigger manually
 
-The workflow runs every night at midnight and signs up for any Mon/Thu 20:00 classes in the next 7 days. If you're already signed up, it skips. Results are visible in the Actions log.
+The workflow runs every night at midnight and signs up for any scheduled classes in the next 7 days. If you're already signed up, it skips. Results are visible in the Actions log.
 
 ## Local usage
 
@@ -38,15 +43,18 @@ SPORTBIT_USERNAME=you@email.com SPORTBIT_PASSWORD=yourpass python3 autosignup.py
 |------|---------|-------------|
 | `--live` | off | Actually sign up (default is dry-run) |
 | `--days N` | 7 | How many days to look ahead |
-| `--time HH:MM` | 20:00 | Target class time |
 | `--username` | env var | SportBit username |
 | `--password` | env var | SportBit password |
 
 ## Customization
 
-To change the target days or time, edit the constants at the top of `autosignup.py`:
+To change the schedule, edit the `SCHEDULE` list at the top of `autosignup.py`:
 
 ```python
-TARGET_WEEKDAYS = {0: "Monday", 3: "Thursday"}  # Python weekday numbers
-TARGET_TIME = "20:00"
+# Weekday numbers: 0=Mon, 1=Tue, 2=Wed, 3=Thu, 4=Fri, 5=Sat, 6=Sun
+SCHEDULE = [
+    (0, "20:00"),  # Monday 20:00
+    (2, "08:00"),  # Wednesday 08:00
+    (3, "20:00"),  # Thursday 20:00
+]
 ```

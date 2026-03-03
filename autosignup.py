@@ -2,18 +2,16 @@
 """
 SportBit Auto Sign-Up for CrossFit Hilversum
 
-Automatically signs up for Monday and Thursday 20:00 WOD classes.
+Automatically signs up for WOD classes on a weekly schedule.
 Run via cron or manually. Dry-run mode enabled by default.
 
 Usage:
     python3 autosignup.py                  # dry-run (default)
     python3 autosignup.py --live           # actually sign up
     python3 autosignup.py --days 7         # look ahead 7 days (default: 7)
-    python3 autosignup.py --time 19:00     # target a different time slot
 """
 
 import argparse
-import json
 import logging
 import sys
 from datetime import datetime, timedelta
@@ -30,9 +28,15 @@ BASE_URL = "https://crossfithilversum.sportbitapp.nl/cbm/api/"
 # Rooster (schedule) ID: 1 = Hilversum
 ROOSTER_ID = 1
 
-# Target schedule: 0=Monday, 3=Thursday (Python weekday numbers)
-TARGET_WEEKDAYS = {0: "Monday", 3: "Thursday"}
-TARGET_TIME = "20:00"
+# Weekly schedule: list of (weekday_number, time) pairs
+# Weekday numbers: 0=Mon, 1=Tue, 2=Wed, 3=Thu, 4=Fri, 5=Sat, 6=Sun
+SCHEDULE = [
+    (0, "20:00"),  # Monday 20:00
+    (2, "08:00"),  # Wednesday 08:00
+    (3, "20:00"),  # Thursday 20:00
+]
+
+DAY_NAMES = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
 
 # ──────────────────────────────────────────────────────────────
 # Logging
@@ -130,18 +134,21 @@ class SportBitClient:
 # Core Logic
 # ──────────────────────────────────────────────────────────────
 
-def find_target_dates(days_ahead: int) -> list[datetime]:
-    """Return upcoming Monday and Thursday dates within the look-ahead window."""
+def find_target_slots(days_ahead: int) -> list[tuple]:
+    """Return (date, time) pairs for scheduled classes within the look-ahead window."""
     today = datetime.now().date()
-    dates = []
+    target_weekdays = {weekday for weekday, _ in SCHEDULE}
+    slots = []
     for offset in range(days_ahead):
         d = today + timedelta(days=offset)
-        if d.weekday() in TARGET_WEEKDAYS:
-            dates.append(d)
-    return dates
+        if d.weekday() in target_weekdays:
+            for weekday, time in SCHEDULE:
+                if d.weekday() == weekday:
+                    slots.append((d, time))
+    return slots
 
 
-def find_target_event(events: list[dict], target_time: str) -> dict | None:
+def find_event_at_time(events: list[dict], target_time: str) -> dict | None:
     """Find the WOD event matching the target time (e.g. '20:00')."""
     for event in events:
         start = event.get("start", "")
@@ -151,37 +158,44 @@ def find_target_event(events: list[dict], target_time: str) -> dict | None:
     return None
 
 
-def run(username: str, password: str, dry_run: bool, days_ahead: int, target_time: str):
+def run(username: str, password: str, dry_run: bool, days_ahead: int):
     client = SportBitClient(username, password)
 
     if not client.login():
         log.error("Aborting: login failed.")
         sys.exit(1)
 
-    target_dates = find_target_dates(days_ahead)
-    if not target_dates:
-        log.info("No target days (Mon/Thu) in the next %d days.", days_ahead)
+    slots = find_target_slots(days_ahead)
+    if not slots:
+        log.info("No scheduled classes in the next %d days.", days_ahead)
         return
 
     log.info(
-        "Checking %d date(s): %s",
-        len(target_dates),
-        ", ".join(d.strftime("%a %Y-%m-%d") for d in target_dates),
+        "Checking %d slot(s): %s",
+        len(slots),
+        ", ".join(f"{DAY_NAMES[d.weekday()]} {d} {t}" for d, t in slots),
     )
 
     results = {"signed_up": [], "already": [], "full_waitlist": [], "not_found": [], "failed": []}
 
-    for date in target_dates:
-        date_str = date.strftime("%Y-%m-%d")
-        day_name = TARGET_WEEKDAYS[date.weekday()]
-        log.info("--- %s %s ---", day_name, date_str)
+    # Cache events per date to avoid duplicate API calls
+    events_cache: dict[str, list[dict]] = {}
 
-        events = client.get_events(date_str)
-        event = find_target_event(events, target_time)
+    for date, target_time in slots:
+        date_str = date.strftime("%Y-%m-%d")
+        day_name = DAY_NAMES[date.weekday()]
+        label = f"{day_name} {date_str} {target_time}"
+        log.info("--- %s ---", label)
+
+        if date_str not in events_cache:
+            events_cache[date_str] = client.get_events(date_str)
+        events = events_cache[date_str]
+
+        event = find_event_at_time(events, target_time)
 
         if not event:
             log.warning("No %s class found on %s.", target_time, date_str)
-            results["not_found"].append(date_str)
+            results["not_found"].append(label)
             continue
 
         eid = event["id"]
@@ -192,12 +206,12 @@ def run(username: str, password: str, dry_run: bool, days_ahead: int, target_tim
 
         if already:
             log.info("Already signed up for %s at %s (%s) [%s].", title, target_time, spots, eid)
-            results["already"].append(date_str)
+            results["already"].append(label)
             continue
 
         if on_waitlist:
             log.info("Already on waitlist for %s at %s (%s) [%s].", title, target_time, spots, eid)
-            results["full_waitlist"].append(date_str)
+            results["full_waitlist"].append(label)
             continue
 
         full = event["aantalDeelnemers"] >= event["maxDeelnemers"]
@@ -208,13 +222,13 @@ def run(username: str, password: str, dry_run: bool, days_ahead: int, target_tim
                 "[DRY RUN] Would sign up for %s at %s (%s, %s) [%s].",
                 title, target_time, spots, status, eid,
             )
-            results["signed_up"].append(f"{date_str} (dry-run)")
+            results["signed_up"].append(f"{label} (dry-run)")
         else:
             log.info("Signing up for %s at %s (%s, %s) [%s] ...", title, target_time, spots, status, eid)
             if client.signup(eid):
-                results["signed_up"].append(date_str)
+                results["signed_up"].append(label)
             else:
-                results["failed"].append(date_str)
+                results["failed"].append(label)
 
     # Summary
     log.info("=== Summary ===")
@@ -238,7 +252,6 @@ def main():
     parser = argparse.ArgumentParser(description="SportBit auto sign-up for CrossFit Hilversum")
     parser.add_argument("--live", action="store_true", help="Actually sign up (default: dry-run)")
     parser.add_argument("--days", type=int, default=7, help="Days to look ahead (default: 7)")
-    parser.add_argument("--time", default=TARGET_TIME, help=f"Target class time (default: {TARGET_TIME})")
     parser.add_argument("--username", "-u", help="SportBit username (or set SPORTBIT_USERNAME env var)")
     parser.add_argument("--password", "-p", help="SportBit password (or set SPORTBIT_PASSWORD env var)")
     args = parser.parse_args()
@@ -255,7 +268,7 @@ def main():
     if dry_run:
         log.info("DRY RUN mode - no sign-ups will be made. Use --live to actually sign up.")
 
-    run(username, password, dry_run, args.days, args.time)
+    run(username, password, dry_run, args.days)
 
 
 if __name__ == "__main__":
