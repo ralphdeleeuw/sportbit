@@ -2,10 +2,10 @@ name: CrossFit Auto Sign-Up
 
 on:
   schedule:
-    # Midnight Amsterdam time = 23:00 UTC (winter/CET) or 22:00 UTC (summer/CEST)
+    # 00:01 Amsterdam time = 23:01 UTC (winter/CET) or 22:01 UTC (summer/CEST)
     # Run at both to cover the DST switch
-    - cron: "0 22 * * *"
-    - cron: "0 23 * * *"
+    - cron: "1 22 * * *"
+    - cron: "1 23 * * *"
   workflow_dispatch: # Allow manual trigger from GitHub UI
 
 jobs:
