@@ -78,11 +78,8 @@ class SportBitClient:
         """Authenticate and establish session."""
         log.info("Logging in as %s ...", self.username)
 
-        # First, visit the site to get initial cookies (XSRF-TOKEN)
-        self.session.get(
-            "https://crossfithilversum.sportbitapp.nl/web/nl/login",
-            allow_redirects=True,
-        )
+        # Hit heartbeat endpoint to get XSRF-TOKEN cookie and session cookies
+        self.session.get(self._url("data/heartbeat/"))
         self._set_xsrf_header()
 
         resp = self.session.post(
