@@ -122,7 +122,7 @@ class SportBitClient:
             self._url(f"data/events/{event_id}/deelname/"),
             json={},
         )
-        if resp.status_code == 200:
+        if resp.status_code in (200, 204):
             log.info("Signed up for event %d.", event_id)
             return True
 
