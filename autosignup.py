@@ -32,7 +32,6 @@ ROOSTER_ID = 1
 # Weekday numbers: 0=Mon, 1=Tue, 2=Wed, 3=Thu, 4=Fri, 5=Sat, 6=Sun
 SCHEDULE = [
     (0, "20:00"),  # Monday 20:00
-    (2, "08:00"),  # Wednesday 08:00
     (3, "20:00"),  # Thursday 20:00
 ]
 
