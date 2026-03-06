@@ -162,7 +162,7 @@ def create_calendar_event(event: dict, date: datetime.date, sync_calendar: bool)
             "summary": title,
             "description": f"SportBit Event ID: {event.get('id')}",
             "start": {"dateTime": start_time},
-            "end": {"dateTime": start_time},  # Same time for now; adjust as needed
+            "end": {"dateTime": end_dt.isoformat()},  # Same time for now; adjust as needed
         }
 
         # Create the event
