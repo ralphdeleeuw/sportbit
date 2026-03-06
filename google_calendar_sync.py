@@ -1,1 +1,47 @@
-import os\nfrom google.oauth2 import service_account\nfrom googleapiclient.discovery import build\n\n# Function to sync events with Google Calendar\ndef sync_events_to_google_calendar(event_data):\n    # Load service account credentials\n    SCOPES = ['https://www.googleapis.com/auth/calendar']\n    SERVICE_ACCOUNT_FILE = os.path.join(os.getcwd(), 'path/to/credentials.json')\n\n    credentials = service_account.Credentials.from_service_account_file(\n        SERVICE_ACCOUNT_FILE, scopes=SCOPES)\n    \n    service = build('calendar', 'v3', credentials=credentials)\n\n    # Iterate through events and add to Google Calendar\n    for event in event_data:\n        event_body = {\n            'summary': event['title'],\n            'start': {\n                'dateTime': event['start_time'],\n                'timeZone': 'UTC',\n            },\n            'end': {\n                'dateTime': event['end_time'],\n                'timeZone': 'UTC',\n            },\n        }\n        service.events().insert(calendarId='primary', body=event_body).execute()\n\n# Example usage\nif __name__ == '__main__':\n    # Sample event data\n    event_data = [\n        {'title': 'SportBit Event 1', 'start_time': '2026-03-07T10:00:00Z', 'end_time': '2026-03-07T12:00:00Z'},\n        {'title': 'SportBit Event 2', 'start_time': '2026-03-08T14:00:00Z', 'end_time': '2026-03-08T16:00:00Z'},\n    ]\n    sync_events_to_google_calendar(event_data)
+import os
+import sys
+import json
+from google.oauth2 import service_account
+from google_auth_oauthlib.flow import InstalledAppFlow
+from googleapiclient.discovery import build
+
+# Define the scopes required for Google Calendar API
+SCOPES = ['https://www.googleapis.com/auth/calendar']
+
+class GoogleCalendarSync:
+    def __init__(self, creds_json=None, token_json='token.json'):
+        self.creds = self.get_credentials(creds_json, token_json)
+        self.service = build('calendar', 'v3', credentials=self.creds)
+
+    def get_credentials(self, creds_json, token_json):
+        if creds_json:
+            # If a service account JSON key is provided
+            credentials = service_account.Credentials.from_service_account_file(
+                creds_json, scopes=SCOPES)
+        else:
+            # If using OAuth2 flow
+            flow = InstalledAppFlow.from_client_secrets_file(token_json, SCOPES)
+            credentials = flow.run_local_server(port=0)
+        return credentials
+
+    def list_events(self, calendar_id='primary'):  
+        events_result = self.service.events().list(calendarId=calendar_id, maxResults=10, singleEvents=True,
+                                                   orderBy='startTime').execute()
+        events = events_result.get('items', [])
+        return events
+
+    def create_event(self, calendar_id='primary', event_details=None):
+        if event_details is None:
+            raise ValueError('Event details must be provided.')
+        event = self.service.events().insert(calendarId=calendar_id, body=event_details).execute()
+        return event
+
+if __name__ == '__main__':
+    creds_file = None
+    if len(sys.argv) > 1:
+        creds_file = sys.argv[1]  # Expect the first argument to be the service account credentials file
+    sync = GoogleCalendarSync(creds_json=creds_file)
+    events = sync.list_events()
+    for event in events:
+        print(event['summary'], event['start'])
+        
