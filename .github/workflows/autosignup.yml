@@ -21,12 +21,9 @@ jobs:
       - name: Install dependencies
         run: pip install -r requirements.txt
 
-      - name: Run auto sign-up
+      - name: Run auto sign-up with calendar sync
         env:
-  GOOGLE_CREDENTIALS: ${{ secrets.GOOGLE_CREDENTIALS }}
-
-- name: Run auto sign-up with calendar sync
-  env:
-    SPORTBIT_USERNAME: ${{ secrets.SPORTBIT_USERNAME }}
-    SPORTBIT_PASSWORD: ${{ secrets.SPORTBIT_PASSWORD }}
-  run: python3 autosignup.py --live --sync-calendar
+          SPORTBIT_USERNAME: ${{ secrets.SPORTBIT_USERNAME }}
+          SPORTBIT_PASSWORD: ${{ secrets.SPORTBIT_PASSWORD }}
+          GOOGLE_CREDENTIALS: ${{ secrets.GOOGLE_CREDENTIALS }}
+        run: python3 autosignup.py --live --sync-calendar
