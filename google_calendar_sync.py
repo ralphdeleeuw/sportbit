@@ -45,6 +45,15 @@ class GoogleCalendarSync:
         event = self.service.events().insert(
             calendarId=calendar_id, body=event_details
         ).execute()
+
+        # DEBUG: print full event response to GitHub Actions logs
+        print('DEBUG - Event created:')
+        print('  Status:',    event.get('status'))
+        print('  Organizer:', event.get('organizer'))
+        print('  Creator:',   event.get('creator'))
+        print('  Start:',     event.get('start'))
+        print('  HTML Link:', event.get('htmlLink'))
+
         return event
 
 if __name__ == '__main__':
