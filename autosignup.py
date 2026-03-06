@@ -9,15 +9,20 @@ Usage:
     python3 autosignup.py                  # dry-run (default)
     python3 autosignup.py --live           # actually sign up
     python3 autosignup.py --days 7         # look ahead 7 days (default: 7)
+    python3 autosignup.py --live --sync-calendar  # sign up and sync to Google Calendar
 """
 
 import argparse
 import logging
+import os
 import sys
 from datetime import datetime, timedelta
 from urllib.parse import urljoin
 
 import requests
+
+# Import Google Calendar sync
+from google_calendar_sync import GoogleCalendarSync
 
 # ──────────────────────────────────────────────────────────────
 # Configuration
@@ -37,7 +42,7 @@ SCHEDULE = [
 
 DAY_NAMES = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
 
-# ──────────────────────────────────────────────────────────────
+# ────────────────────────────────────────────────���─────────────
 # Logging
 # ──────────────────────────────────────────────────────────────
 
@@ -130,6 +135,47 @@ class SportBitClient:
 
 
 # ──────────────────────────────────────────────────────────────
+# Google Calendar Helper
+# ──────────────────────────────────────────────────────────────
+
+def create_calendar_event(event: dict, date: datetime.date, sync_calendar: bool) -> bool:
+    """Create a Google Calendar event for a SportBit signup."""
+    if not sync_calendar:
+        return True
+
+    try:
+        # Get Google credentials from environment
+        creds_json = os.environ.get("GOOGLE_CREDENTIALS")
+        if not creds_json:
+            log.warning("GOOGLE_CREDENTIALS not set; skipping calendar sync.")
+            return True
+
+        # Initialize Google Calendar sync
+        cal_sync = GoogleCalendarSync(creds_json=creds_json)
+
+        # Extract event details
+        title = event.get("titel", "CrossFit WOD")
+        start_time = event.get("start", "")  # e.g., "2026-03-02T20:00:00+01:00"
+
+        # Build Google Calendar event
+        event_details = {
+            "summary": title,
+            "description": f"SportBit Event ID: {event.get('id')}",
+            "start": {"dateTime": start_time},
+            "end": {"dateTime": start_time},  # Same time for now; adjust as needed
+        }
+
+        # Create the event
+        result = cal_sync.create_event(calendar_id="primary", event_details=event_details)
+        log.info("Created Google Calendar event: %s", result.get("id"))
+        return True
+
+    except Exception as e:
+        log.error("Failed to create Google Calendar event: %s", str(e))
+        return False
+
+
+# ──────────────────────────────────────────────────────────────
 # Core Logic
 # ──────────────────────────────────────────────────────────────
 
@@ -157,7 +203,7 @@ def find_event_at_time(events: list[dict], target_time: str) -> dict | None:
     return None
 
 
-def run(username: str, password: str, dry_run: bool, days_ahead: int):
+def run(username: str, password: str, dry_run: bool, days_ahead: int, sync_calendar: bool):
     client = SportBitClient(username, password)
 
     if not client.login():
@@ -226,6 +272,9 @@ def run(username: str, password: str, dry_run: bool, days_ahead: int):
             log.info("Signing up for %s at %s (%s, %s) [%s] ...", title, target_time, spots, status, eid)
             if client.signup(eid):
                 results["signed_up"].append(label)
+                # Sync to Google Calendar if enabled
+                if not create_calendar_event(event, date, sync_calendar):
+                    log.warning("Calendar sync failed for %s, but signup was successful.", label)
             else:
                 results["failed"].append(label)
 
@@ -245,17 +294,17 @@ def run(username: str, password: str, dry_run: bool, days_ahead: int):
 
 # ──────────────────────────────────────────────────────────────
 # CLI
-# ──────────────────────────────────────────────────────────────
+# ─────────────────────��────────────────────────────────────────
 
 def main():
     parser = argparse.ArgumentParser(description="SportBit auto sign-up for CrossFit Hilversum")
     parser.add_argument("--live", action="store_true", help="Actually sign up (default: dry-run)")
     parser.add_argument("--days", type=int, default=7, help="Days to look ahead (default: 7)")
+    parser.add_argument("--sync-calendar", action="store_true", help="Sync successful signups to Google Calendar")
     parser.add_argument("--username", "-u", help="SportBit username (or set SPORTBIT_USERNAME env var)")
     parser.add_argument("--password", "-p", help="SportBit password (or set SPORTBIT_PASSWORD env var)")
     args = parser.parse_args()
 
-    import os
     username = args.username or os.environ.get("SPORTBIT_USERNAME")
     password = args.password or os.environ.get("SPORTBIT_PASSWORD")
 
@@ -267,7 +316,7 @@ def main():
     if dry_run:
         log.info("DRY RUN mode - no sign-ups will be made. Use --live to actually sign up.")
 
-    run(username, password, dry_run, args.days)
+    run(username, password, dry_run, args.days, args.sync_calendar)
 
 
 if __name__ == "__main__":
