@@ -166,7 +166,7 @@ def create_calendar_event(event: dict, date: datetime.date, sync_calendar: bool)
         }
 
         # Create the event
-        result = cal_sync.create_event(calendar_id="primary", event_details=event_details)
+        result = cal_sync.create_event(calendar_id=os.environ.get("CALENDAR_ID", "primary"), event_details=event_details)
         log.info("Created Google Calendar event: %s", result.get("id"))
         return True
 
