@@ -42,7 +42,7 @@ SCHEDULE = [
 
 DAY_NAMES = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
 
-# ────────────────────────────────────────────────���─────────────
+# ──────────────────────────────────────────────────────────────
 # Logging
 # ──────────────────────────────────────────────────────────────
 
@@ -157,16 +157,23 @@ def create_calendar_event(event: dict, date: datetime.date, sync_calendar: bool)
         title = event.get("titel", "CrossFit WOD")
         start_time = event.get("start", "")  # e.g., "2026-03-02T20:00:00+01:00"
 
+        # Calculate end time: start + 1 hour  <-- FIX
+        start_dt = datetime.fromisoformat(start_time)
+        end_dt = start_dt + timedelta(hours=1)
+
         # Build Google Calendar event
         event_details = {
             "summary": title,
             "description": f"SportBit Event ID: {event.get('id')}",
             "start": {"dateTime": start_time},
-            "end": {"dateTime": end_dt.isoformat()},  # Same time for now; adjust as needed
+            "end": {"dateTime": end_dt.isoformat()},  # <-- now 1 hour after start
         }
 
         # Create the event
-        result = cal_sync.create_event(calendar_id=os.environ.get("CALENDAR_ID", "primary"), event_details=event_details)
+        result = cal_sync.create_event(
+            calendar_id=os.environ.get("CALENDAR_ID", "primary"),
+            event_details=event_details
+        )
         log.info("Created Google Calendar event: %s", result.get("id"))
         return True
 
@@ -294,7 +301,7 @@ def run(username: str, password: str, dry_run: bool, days_ahead: int, sync_calen
 
 # ──────────────────────────────────────────────────────────────
 # CLI
-# ─────────────────────��────────────────────────────────────────
+# ──────────────────────────────────────────────────────────────
 
 def main():
     parser = argparse.ArgumentParser(description="SportBit auto sign-up for CrossFit Hilversum")
