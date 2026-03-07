@@ -45,7 +45,6 @@ SCHEDULE = [
     (2, "08:00"),  # Wednesday 08:00
     (3, "20:00"),  # Thursday 20:00
     (5, "09:00"),  # Saturday 09:00
-    (6, "09:00"),  # Sunday 09:00
 ]
 
 DAY_NAMES = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
@@ -318,6 +317,38 @@ def create_calendar_event(event: dict, date: datetime, sync_calendar: bool) -> b
 
 
 # ──────────────────────────────────────────────────────────────
+# Pushover Notifications
+# ──────────────────────────────────────────────────────────────
+
+def send_pushover_notification(message: str) -> bool:
+    """Send a push notification via Pushover."""
+    user_key = os.environ.get("PUSHOVER_USER_KEY")
+    api_token = os.environ.get("PUSHOVER_API_TOKEN")
+
+    if not user_key or not api_token:
+        log.warning("PUSHOVER_USER_KEY or PUSHOVER_API_TOKEN not set; skipping notification.")
+        return False
+
+    try:
+        resp = requests.post(
+            "https://api.pushover.net/1/messages.json",
+            json={
+                "token": api_token,
+                "user": user_key,
+                "title": "CrossFit Inschrijving ✅",
+                "message": message,
+            },
+            timeout=10,
+        )
+        resp.raise_for_status()
+        log.info("Pushover notification sent.")
+        return True
+    except Exception as e:
+        log.error("Failed to send Pushover notification: %s", e)
+        return False
+
+
+# ──────────────────────────────────────────────────────────────
 # Core Logic
 # ──────────────────────────────────────────────────────────────
 
@@ -434,6 +465,9 @@ def run(username: str, password: str, dry_run: bool, days_ahead: int, sync_calen
                 results["signed_up"].append(label)
                 if state:
                     state.mark_signed_up(eid, date_str, target_time, title)
+                send_pushover_notification(
+                    f"Ingeschreven voor {title} op {day_name} {date_str} om {target_time} 💪"
+                )
                 if not create_calendar_event(event, date, sync_calendar):
                     log.warning("Calendar sync failed for %s, but signup was successful.", label)
             else:
