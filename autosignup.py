@@ -500,7 +500,14 @@ def main():
     parser.add_argument("--sync-calendar", action="store_true", help="Sync successful signups to Google Calendar")
     parser.add_argument("--username", "-u", help="SportBit username (or set SPORTBIT_USERNAME env var)")
     parser.add_argument("--password", "-p", help="SportBit password (or set SPORTBIT_PASSWORD env var)")
+    parser.add_argument("--test-notification", action="store_true", help="Stuur een testnotificatie via Pushover en stop")
     args = parser.parse_args()
+
+    # Test notification mode: geen credentials nodig
+    if args.test_notification:
+        log.info("Sending test Pushover notification...")
+        success = send_pushover_notification("Dit is een testbericht van SportBit 🎉")
+        sys.exit(0 if success else 1)
 
     username = args.username or os.environ.get("SPORTBIT_USERNAME")
     password = args.password or os.environ.get("SPORTBIT_PASSWORD")
