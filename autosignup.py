@@ -193,7 +193,7 @@ def find_target_slots(days_ahead: int) -> list[tuple]:
     today = datetime.now().date()
     target_weekdays = {weekday for weekday, _ in SCHEDULE}
     slots = []
-    for offset in range(days_ahead):
+    for offset in range(days_ahead +1):
         d = today + timedelta(days=offset)
         if d.weekday() in target_weekdays:
             for weekday, time in SCHEDULE:
