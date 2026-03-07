@@ -1,60 +1,65 @@
-# SportBit Auto Sign-Up
+# SportBit Auto Sign-Up for CrossFit Hilversum
 
-Automatically signs up for CrossFit Hilversum WOD classes via the SportBit API. Runs daily at midnight (Amsterdam time) through GitHub Actions.
+Automated sign-up system for CrossFit classes at CrossFit Hilversum using the SportBit platform. The system automatically registers for predefined weekly training sessions and syncs them to Google Calendar.
 
-Default schedule:
-- **Monday** at 20:00
-- **Wednesday** at 08:00
-- **Thursday** at 20:00
+## Project Description
 
-## Setup
+This project automates the process of signing up for CrossFit WOD (Workout of the Day) classes through the SportBit platform. It's designed for members of CrossFit Hilversum who want to secure their spots in popular classes without manually checking and registering each time.
 
-1. **Fork or clone this repo**
+### Key Features
 
-2. **Add your credentials as GitHub Actions secrets** (Settings > Secrets and variables > Actions > New repository secret):
-   - `SPORTBIT_USERNAME` — your SportBit login email/username
-   - `SPORTBIT_PASSWORD` — your SportBit password
+- **Automatic sign-up** for predefined weekly training schedule
+- **State management** to track signed-up classes and prevent re-registration of manually cancelled sessions
+- **Google Calendar integration** to automatically create calendar events for successful registrations
+- **Push notifications** via Pushover when successfully signed up
+- **Dry-run mode** for testing without making actual bookings
+- **GitHub Actions automation** for daily execution
 
-   Or via CLI:
-   ```bash
-   gh secret set SPORTBIT_USERNAME
-   gh secret set SPORTBIT_PASSWORD
-   ```
+## Configuration
 
-3. **Test it** — go to the Actions tab > "CrossFit Auto Sign-Up" > "Run workflow" to trigger manually
+The following environment variables/secrets need to be configured:
 
-The workflow runs every night at midnight and signs up for any scheduled classes in the next 7 days. If you're already signed up, it skips. Results are visible in the Actions log.
+### SportBit Authentication
+- **`SPORTBIT_USERNAME`** - Your SportBit login username (email address)
+- **`SPORTBIT_PASSWORD`** - Your SportBit account password
 
-## Local usage
+### Google Calendar Integration
+- **`GOOGLE_CREDENTIALS`** - Google service account credentials JSON (entire JSON content as a string). This should be a service account with Calendar API access
+- **`CALENDAR_ID`** - Target Google Calendar ID where events will be created (use "primary" for your main calendar)
 
-```bash
-pip install requests
+### State Management
+- **`GIST_ID`** - GitHub Gist ID for storing state between runs (tracks signed-up and manually cancelled classes)
+- **`GIST_TOKEN`** - GitHub Personal Access Token with gist scope for reading/writing the state file
 
-# Dry run (no sign-ups, just shows what it would do)
-SPORTBIT_USERNAME=you@email.com SPORTBIT_PASSWORD=yourpass python3 autosignup.py
+### Push Notifications
+- **`PUSHOVER_USER_KEY`** - Your Pushover user key for receiving notifications
+- **`PUSHOVER_API_TOKEN`** - Pushover application API token
 
-# Actually sign up
-SPORTBIT_USERNAME=you@email.com SPORTBIT_PASSWORD=yourpass python3 autosignup.py --live
-```
+### README Generation
+- **`ANTHROPIC_API_KEY`** - Anthropic API key for automatic README generation (used in the update_readme workflow)
 
-### Options
+## Schedule
 
-| Flag | Default | Description |
-|------|---------|-------------|
-| `--live` | off | Actually sign up (default is dry-run) |
-| `--days N` | 7 | How many days to look ahead |
-| `--username` | env var | SportBit username |
-| `--password` | env var | SportBit password |
+The auto sign-up workflow runs daily via GitHub Actions at:
+- **00:01 CET** (Amsterdam winter time) - via cron `1 23 * * *`
+- **00:01 CEST** (Amsterdam summer time) - via cron `1 22 * * *`
 
-## Customization
+The script looks ahead 8 days and attempts to register for the following weekly schedule:
+- **Monday 20:00**
+- **Wednesday 08:00**
+- **Thursday 20:00**
+- **Saturday 09:00**
 
-To change the schedule, edit the `SCHEDULE` list at the top of `autosignup.py`:
+### How it Works
 
-```python
-# Weekday numbers: 0=Mon, 1=Tue, 2=Wed, 3=Thu, 4=Fri, 5=Sat, 6=Sun
-SCHEDULE = [
-    (0, "20:00"),  # Monday 20:00
-    (2, "08:00"),  # Wednesday 08:00
-    (3, "20:00"),  # Thursday 20:00
-]
-```
+1. The workflow triggers automatically every night at 00:01 Amsterdam time
+2. The script logs into SportBit using provided credentials
+3. It checks for available classes matching the predefined schedule in the next 8 days
+4. For each matching class:
+   - Skip if already registered or manually cancelled
+   - Attempt to sign up (including waitlist if class is full)
+   - Create a Google Calendar event on success
+   - Send a push notification via Pushover
+5. State is persisted to a GitHub Gist to track registrations and manual cancellations
+
+The workflow can also be triggered manually from the GitHub Actions tab for immediate execution.
