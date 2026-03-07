@@ -1,65 +1,61 @@
 # SportBit Auto Sign-Up for CrossFit Hilversum
 
-Automated sign-up system for CrossFit classes at CrossFit Hilversum using the SportBit platform. The system automatically registers for predefined weekly training sessions and syncs them to Google Calendar.
+A GitHub Actions workflow that automatically signs up for CrossFit WOD classes at CrossFit Hilversum through the SportBit platform. The system runs daily, checks for scheduled classes up to 8 days ahead, and handles sign-ups with state management, Google Calendar integration, and push notifications.
 
 ## Project Description
 
-This project automates the process of signing up for CrossFit WOD (Workout of the Day) classes through the SportBit platform. It's designed for members of CrossFit Hilversum who want to secure their spots in popular classes without manually checking and registering each time.
+This project automates the repetitive task of signing up for CrossFit classes on SportBit. It's designed for CrossFit Hilversum members who attend classes on a regular weekly schedule and want to ensure they secure their spots without manual intervention.
 
-### Key Features
-
-- **Automatic sign-up** for predefined weekly training schedule
-- **State management** to track signed-up classes and prevent re-registration of manually cancelled sessions
-- **Google Calendar integration** to automatically create calendar events for successful registrations
+Key features:
+- **Automated sign-ups** for predefined weekly schedule
+- **State management** to track signed-up classes and respect manual cancellations
+- **Google Calendar sync** to automatically add confirmed classes to your calendar
 - **Push notifications** via Pushover when successfully signed up
-- **Dry-run mode** for testing without making actual bookings
-- **GitHub Actions automation** for daily execution
- 
+- **Dry-run mode** for testing without making actual sign-ups
+
 ## Configuration
 
-The following environment variables/secrets need to be configured:
+The following secrets need to be configured in your GitHub repository settings:
 
-### SportBit Authentication
-- **`SPORTBIT_USERNAME`** - Your SportBit login username (email address)
-- **`SPORTBIT_PASSWORD`** - Your SportBit account password
+### SportBit Credentials
+- **`SPORTBIT_USERNAME`** — Your SportBit login username (email address)
+- **`SPORTBIT_PASSWORD`** — Your SportBit login password
 
 ### Google Calendar Integration
-- **`GOOGLE_CREDENTIALS`** - Google service account credentials JSON (entire JSON content as a string). This should be a service account with Calendar API access
-- **`CALENDAR_ID`** - Target Google Calendar ID where events will be created (use "primary" for your main calendar)
+- **`GOOGLE_CREDENTIALS`** — Google service account credentials in JSON format. This should be the full JSON content of your service account key file, which enables the workflow to create calendar events
+- **`CALENDAR_ID`** — The ID of the Google Calendar where events should be created. Use `"primary"` for your main calendar, or a specific calendar ID like `"abc123@group.calendar.google.com"`
 
 ### State Management
-- **`GIST_ID`** - GitHub Gist ID for storing state between runs (tracks signed-up and manually cancelled classes)
-- **`GIST_TOKEN`** - GitHub Personal Access Token with gist scope for reading/writing the state file
+- **`GIST_ID`** — The ID of a GitHub Gist used to persist state between workflow runs. Create a private Gist and copy its ID from the URL
+- **`GIST_TOKEN`** — A GitHub personal access token with `gist` scope to read/write the state Gist
 
 ### Push Notifications
-- **`PUSHOVER_USER_KEY`** - Your Pushover user key for receiving notifications
-- **`PUSHOVER_API_TOKEN`** - Pushover application API token
+- **`PUSHOVER_USER_KEY`** — Your Pushover user key for receiving notifications
+- **`PUSHOVER_API_TOKEN`** — Your Pushover application API token
 
 ### README Generation
-- **`ANTHROPIC_API_KEY`** - Anthropic API key for automatic README generation (used in the update_readme workflow)
+- **`ANTHROPIC_API_KEY`** — Claude API key for automatically generating and updating the README documentation
 
 ## Schedule
 
-The auto sign-up workflow runs daily via GitHub Actions at:
-- **00:01 CET** (Amsterdam winter time) - via cron `1 23 * * *`
-- **00:01 CEST** (Amsterdam summer time) - via cron `1 22 * * *`
+The workflow runs automatically via GitHub Actions on the following schedule:
 
-The script looks ahead 8 days and attempts to register for the following weekly schedule:
-- **Monday 20:00**
-- **Wednesday 08:00**
-- **Thursday 20:00**
-- **Saturday 09:00**
+- **Daily at 00:01 Amsterdam time** — The workflow is configured with two cron schedules to handle daylight saving time:
+  - `"1 23 * * *"` — 00:01 CET (Central European Time - winter)
+  - `"1 22 * * *"` — 00:01 CEST (Central European Summer Time)
 
-### How it Works
+When triggered, the workflow:
+1. Checks for classes in the next 8 days that match your weekly schedule
+2. Detects any manual cancellations (classes you cancelled after the script signed you up)
+3. Signs up for available classes that haven't been manually cancelled
+4. Sends push notifications for successful sign-ups
+5. Creates Google Calendar events for each confirmed class
 
-1. The workflow triggers automatically every night at 00:01 Amsterdam time
-2. The script logs into SportBit using provided credentials
-3. It checks for available classes matching the predefined schedule in the next 8 days
-4. For each matching class:
-   - Skip if already registered or manually cancelled
-   - Attempt to sign up (including waitlist if class is full)
-   - Create a Google Calendar event on success
-   - Send a push notification via Pushover
-5. State is persisted to a GitHub Gist to track registrations and manual cancellations
+The weekly class schedule is defined in the code as:
+- Monday 20:00
+- Wednesday 08:00
+- Thursday 20:00
+- Saturday 09:00
+- Sunday 09:00
 
-The workflow can also be triggered manually from the GitHub Actions tab for immediate execution.
+You can also trigger the workflow manually through the GitHub Actions UI using the "workflow_dispatch" event.
