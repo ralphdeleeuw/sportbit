@@ -1,0 +1,456 @@
+<!DOCTYPE html>
+<html lang="nl">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>CrossFit Hilversum — Mijn Inschrijvingen</title>
+  <link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=DM+Sans:wght@300;400;500&display=swap" rel="stylesheet" />
+  <style>
+    :root {
+      --bg: #0d0d0d;
+      --surface: #161616;
+      --surface2: #1e1e1e;
+      --accent: #e8ff3c;
+      --accent2: #ff4c2b;
+      --text: #f0f0f0;
+      --muted: #666;
+      --border: #2a2a2a;
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: 'DM Sans', sans-serif;
+      min-height: 100vh;
+      padding: 2rem 1rem;
+    }
+
+    /* Grain overlay */
+    body::before {
+      content: '';
+      position: fixed;
+      inset: 0;
+      background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.04'/%3E%3C/svg%3E");
+      pointer-events: none;
+      z-index: 0;
+      opacity: 0.4;
+    }
+
+    .container {
+      max-width: 640px;
+      margin: 0 auto;
+      position: relative;
+      z-index: 1;
+    }
+
+    header {
+      margin-bottom: 3rem;
+      animation: fadeDown 0.6s ease both;
+    }
+
+    .label {
+      font-size: 0.7rem;
+      letter-spacing: 0.2em;
+      text-transform: uppercase;
+      color: var(--accent);
+      font-weight: 500;
+      margin-bottom: 0.4rem;
+    }
+
+    h1 {
+      font-family: 'Bebas Neue', sans-serif;
+      font-size: clamp(3rem, 10vw, 5.5rem);
+      line-height: 0.9;
+      letter-spacing: 0.02em;
+      color: var(--text);
+    }
+
+    h1 span {
+      color: var(--accent);
+    }
+
+    .subtitle {
+      margin-top: 0.8rem;
+      color: var(--muted);
+      font-size: 0.85rem;
+      font-weight: 300;
+    }
+
+    /* Config bar */
+    .config {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 1rem 1.2rem;
+      margin-bottom: 2rem;
+      display: flex;
+      gap: 0.8rem;
+      align-items: center;
+      animation: fadeUp 0.6s 0.1s ease both;
+    }
+
+    .config input {
+      flex: 1;
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 0.6rem 0.9rem;
+      color: var(--text);
+      font-family: 'DM Sans', sans-serif;
+      font-size: 0.85rem;
+      outline: none;
+      transition: border-color 0.2s;
+    }
+
+    .config input::placeholder { color: var(--muted); }
+    .config input:focus { border-color: var(--accent); }
+
+    .config button {
+      background: var(--accent);
+      color: #000;
+      border: none;
+      border-radius: 8px;
+      padding: 0.6rem 1.2rem;
+      font-family: 'DM Sans', sans-serif;
+      font-size: 0.85rem;
+      font-weight: 500;
+      cursor: pointer;
+      transition: opacity 0.2s, transform 0.1s;
+      white-space: nowrap;
+    }
+
+    .config button:hover { opacity: 0.85; }
+    .config button:active { transform: scale(0.97); }
+
+    /* Stats row */
+    .stats {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 0.8rem;
+      margin-bottom: 2rem;
+      animation: fadeUp 0.6s 0.2s ease both;
+    }
+
+    .stat {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 1rem;
+      text-align: center;
+    }
+
+    .stat-number {
+      font-family: 'Bebas Neue', sans-serif;
+      font-size: 2.2rem;
+      line-height: 1;
+      color: var(--accent);
+    }
+
+    .stat-label {
+      font-size: 0.7rem;
+      color: var(--muted);
+      text-transform: uppercase;
+      letter-spacing: 0.1em;
+      margin-top: 0.3rem;
+    }
+
+    /* Sections */
+    .section-title {
+      font-family: 'Bebas Neue', sans-serif;
+      font-size: 1.4rem;
+      letter-spacing: 0.05em;
+      color: var(--muted);
+      margin-bottom: 0.8rem;
+      display: flex;
+      align-items: center;
+      gap: 0.6rem;
+    }
+
+    .section-title::after {
+      content: '';
+      flex: 1;
+      height: 1px;
+      background: var(--border);
+    }
+
+    /* Cards */
+    .cards {
+      display: flex;
+      flex-direction: column;
+      gap: 0.6rem;
+      margin-bottom: 2rem;
+    }
+
+    .card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 1rem 1.2rem;
+      display: flex;
+      align-items: center;
+      gap: 1rem;
+      animation: fadeUp 0.4s ease both;
+      transition: border-color 0.2s;
+    }
+
+    .card:hover { border-color: #3a3a3a; }
+
+    .card.cancelled {
+      opacity: 0.5;
+      border-color: var(--border);
+    }
+
+    .card-dot {
+      width: 10px;
+      height: 10px;
+      border-radius: 50%;
+      flex-shrink: 0;
+    }
+
+    .dot-active { background: var(--accent); box-shadow: 0 0 8px var(--accent); }
+    .dot-cancelled { background: var(--accent2); }
+
+    .card-info { flex: 1; }
+
+    .card-title {
+      font-weight: 500;
+      font-size: 0.95rem;
+      margin-bottom: 0.2rem;
+    }
+
+    .card-meta {
+      font-size: 0.75rem;
+      color: var(--muted);
+      display: flex;
+      gap: 1rem;
+    }
+
+    .card-date {
+      font-family: 'Bebas Neue', sans-serif;
+      font-size: 1.1rem;
+      color: var(--accent);
+      letter-spacing: 0.05em;
+      text-align: right;
+      flex-shrink: 0;
+    }
+
+    .card-date.cancelled-date { color: var(--accent2); }
+
+    /* Empty / loading states */
+    .empty {
+      text-align: center;
+      padding: 3rem 1rem;
+      color: var(--muted);
+      font-size: 0.9rem;
+      animation: fadeUp 0.4s ease both;
+    }
+
+    .empty-icon {
+      font-size: 2.5rem;
+      margin-bottom: 0.8rem;
+      display: block;
+    }
+
+    .loader {
+      display: flex;
+      justify-content: center;
+      padding: 3rem;
+      animation: fadeUp 0.4s ease both;
+    }
+
+    .spinner {
+      width: 28px;
+      height: 28px;
+      border: 2px solid var(--border);
+      border-top-color: var(--accent);
+      border-radius: 50%;
+      animation: spin 0.7s linear infinite;
+    }
+
+    .error-msg {
+      background: #2a1010;
+      border: 1px solid #5a2020;
+      border-radius: 12px;
+      padding: 1rem 1.2rem;
+      color: #ff8a7a;
+      font-size: 0.85rem;
+      animation: fadeUp 0.4s ease both;
+    }
+
+    /* Footer */
+    footer {
+      text-align: center;
+      color: var(--muted);
+      font-size: 0.75rem;
+      margin-top: 3rem;
+      padding-top: 1.5rem;
+      border-top: 1px solid var(--border);
+      animation: fadeUp 0.6s 0.4s ease both;
+    }
+
+    /* Animations */
+    @keyframes fadeDown {
+      from { opacity: 0; transform: translateY(-16px); }
+      to   { opacity: 1; transform: translateY(0); }
+    }
+
+    @keyframes fadeUp {
+      from { opacity: 0; transform: translateY(12px); }
+      to   { opacity: 1; transform: translateY(0); }
+    }
+
+    @keyframes spin {
+      to { transform: rotate(360deg); }
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <header>
+      <div class="label">CrossFit Hilversum</div>
+      <h1>Mijn<br/><span>Lessen</span></h1>
+      <p class="subtitle">Automatisch bijgehouden via SportBit</p>
+    </header>
+
+    <div class="config">
+      <input type="text" id="gistId" placeholder="Jouw Gist ID" />
+      <button onclick="loadData()">Laden</button>
+    </div>
+
+    <div id="stats" class="stats" style="display:none">
+      <div class="stat">
+        <div class="stat-number" id="statUpcoming">—</div>
+        <div class="stat-label">Aankomend</div>
+      </div>
+      <div class="stat">
+        <div class="stat-number" id="statTotal">—</div>
+        <div class="stat-label">Totaal</div>
+      </div>
+      <div class="stat">
+        <div class="stat-number" id="statCancelled">—</div>
+        <div class="stat-label">Geannuleerd</div>
+      </div>
+    </div>
+
+    <div id="content"></div>
+
+    <footer>
+      Bijgewerkt door SportBit Auto Sign-Up · <span id="lastUpdated">—</span>
+    </footer>
+  </div>
+
+  <script>
+    const DAY_NL = ['Zo', 'Ma', 'Di', 'Wo', 'Do', 'Vr', 'Za'];
+    const MONTH_NL = ['jan', 'feb', 'mrt', 'apr', 'mei', 'jun', 'jul', 'aug', 'sep', 'okt', 'nov', 'dec'];
+
+    // Load saved Gist ID
+    const savedGistId = localStorage.getItem('sportbit_gist_id');
+    if (savedGistId) {
+      document.getElementById('gistId').value = savedGistId;
+      loadData();
+    }
+
+    function formatDate(dateStr) {
+      const d = new Date(dateStr + 'T00:00:00');
+      return `${DAY_NL[d.getDay()]} ${d.getDate()} ${MONTH_NL[d.getMonth()]}`;
+    }
+
+    function isUpcoming(dateStr) {
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
+      return new Date(dateStr + 'T00:00:00') >= today;
+    }
+
+    function renderCard(item, type, delay) {
+      const upcoming = isUpcoming(item.date);
+      const cancelled = type === 'cancelled';
+      return `
+        <div class="card ${cancelled ? 'cancelled' : ''}" style="animation-delay: ${delay}s">
+          <div class="card-dot ${cancelled ? 'dot-cancelled' : 'dot-active'}"></div>
+          <div class="card-info">
+            <div class="card-title">${item.title}</div>
+            <div class="card-meta">
+              <span>${item.time}</span>
+              ${cancelled ? `<span>Uitgeschreven op ${item.cancelled_at?.slice(0, 10) ?? '—'}</span>` : ''}
+              ${!cancelled && item.signed_up_at ? `<span>Ingeschreven op ${item.signed_up_at.slice(0, 10)}</span>` : ''}
+            </div>
+          </div>
+          <div class="card-date ${cancelled ? 'cancelled-date' : ''}">${formatDate(item.date)}</div>
+        </div>`;
+    }
+
+    async function loadData() {
+      const gistId = document.getElementById('gistId').value.trim();
+      if (!gistId) return;
+
+      localStorage.setItem('sportbit_gist_id', gistId);
+
+      const content = document.getElementById('content');
+      content.innerHTML = `<div class="loader"><div class="spinner"></div></div>`;
+      document.getElementById('stats').style.display = 'none';
+
+      try {
+        const resp = await fetch(`https://api.github.com/gists/${gistId}`);
+        if (!resp.ok) throw new Error(`GitHub API fout: ${resp.status}`);
+        const gist = await resp.json();
+
+        const file = gist.files['sportbit_state.json'];
+        if (!file) throw new Error('sportbit_state.json niet gevonden in Gist');
+
+        const state = JSON.parse(file.content);
+        const signedUp = Object.values(state.signed_up || {});
+        const cancelled = Object.values(state.cancelled || {});
+
+        // Sort by date
+        signedUp.sort((a, b) => a.date.localeCompare(b.date));
+        cancelled.sort((a, b) => b.date.localeCompare(a.date));
+
+        const upcoming = signedUp.filter(e => isUpcoming(e.date));
+        const past = signedUp.filter(e => !isUpcoming(e.date));
+
+        // Stats
+        document.getElementById('statUpcoming').textContent = upcoming.length;
+        document.getElementById('statTotal').textContent = signedUp.length;
+        document.getElementById('statCancelled').textContent = cancelled.length;
+        document.getElementById('stats').style.display = 'grid';
+
+        // Last updated
+        document.getElementById('lastUpdated').textContent =
+          new Date(gist.updated_at).toLocaleString('nl-NL');
+
+        let html = '';
+
+        // Upcoming
+        html += `<div class="section-title">Aankomend</div><div class="cards">`;
+        if (upcoming.length === 0) {
+          html += `<div class="empty"><span class="empty-icon">🏋️</span>Geen aankomende inschrijvingen</div>`;
+        } else {
+          upcoming.forEach((e, i) => html += renderCard(e, 'active', i * 0.05));
+        }
+        html += `</div>`;
+
+        // Cancelled
+        if (cancelled.length > 0) {
+          html += `<div class="section-title">Uitgeschreven</div><div class="cards">`;
+          cancelled.forEach((e, i) => html += renderCard(e, 'cancelled', i * 0.05));
+          html += `</div>`;
+        }
+
+        // Past
+        if (past.length > 0) {
+          html += `<div class="section-title">Eerder</div><div class="cards">`;
+          past.slice(-5).reverse().forEach((e, i) => html += renderCard(e, 'past', i * 0.05));
+          html += `</div>`;
+        }
+
+        content.innerHTML = html;
+
+      } catch (e) {
+        content.innerHTML = `<div class="error-msg">❌ ${e.message}</div>`;
+      }
+    }
+  </script>
+</body>
+</html>
