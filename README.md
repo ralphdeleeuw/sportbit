@@ -14,7 +14,7 @@ This project automates the process of signing up for CrossFit WOD (Workout of th
 - **Push notifications** via Pushover when successfully signed up
 - **Dry-run mode** for testing without making actual bookings
 - **GitHub Actions automation** for daily execution
-
+ 
 ## Configuration
 
 The following environment variables/secrets need to be configured:
