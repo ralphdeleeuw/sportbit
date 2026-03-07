@@ -8,7 +8,7 @@ Run via cron or manually. Dry-run mode enabled by default.
 Usage:
     python3 autosignup.py                  # dry-run (default)
     python3 autosignup.py --live           # actually sign up
-    python3 autosignup.py --days 7         # look ahead 7 days (default: 7)
+    python3 autosignup.py --days 8         # look ahead 8 days (default: 7)
     python3 autosignup.py --live --sync-calendar  # sign up and sync to Google Calendar
 """
 
