@@ -22,6 +22,6 @@ jobs:
           SPORTBIT_PASSWORD: ${{ secrets.SPORTBIT_PASSWORD }}
           GOOGLE_CREDENTIALS: ${{ secrets.GOOGLE_CREDENTIALS }}
           CALENDAR_ID: ${{ secrets.CALENDAR_ID }}  # Your personal Gmail address
-GIST_ID: ${{ secrets.GIST_ID }}
-  GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GIST_ID: ${{ secrets.GIST_ID }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: python3 autosignup.py --live --sync-calendar
