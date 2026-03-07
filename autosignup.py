@@ -45,6 +45,7 @@ SCHEDULE = [
     (2, "08:00"),  # Wednesday 08:00
     (3, "20:00"),  # Thursday 20:00
     (5, "09:00"),  # Saturday 09:00
+    (6, "09:00"),  # Sunday 09:00
 ]
 
 DAY_NAMES = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
