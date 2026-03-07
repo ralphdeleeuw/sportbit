@@ -1,27 +1,35 @@
 name: CrossFit Auto Sign-Up
+
 on:
   schedule:
     - cron: "1 23 * * *"   # 00:01 Amsterdam wintertijd (CET)
     - cron: "1 22 * * *"   # 00:01 Amsterdam zomertijd (CEST)
   workflow_dispatch: # Allow manual trigger from GitHub UI
+
 permissions:
   gists: write
+  contents: read
+  actions: read
+
 jobs:
   signup:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
+
       - name: Install dependencies
         run: pip install -r requirements.txt
+
       - name: Run auto sign-up with calendar sync
         env:
           SPORTBIT_USERNAME: ${{ secrets.SPORTBIT_USERNAME }}
           SPORTBIT_PASSWORD: ${{ secrets.SPORTBIT_PASSWORD }}
           GOOGLE_CREDENTIALS: ${{ secrets.GOOGLE_CREDENTIALS }}
-          CALENDAR_ID: ${{ secrets.CALENDAR_ID }}  # Your personal Gmail address
+          CALENDAR_ID: ${{ secrets.CALENDAR_ID }}
           GIST_ID: ${{ secrets.GIST_ID }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: python3 autosignup.py --live --sync-calendar
