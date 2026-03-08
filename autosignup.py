@@ -10,6 +10,7 @@ Usage:
     python3 autosignup.py --live           # actually sign up
     python3 autosignup.py --days 8         # look ahead 8 days (default: 8)
     python3 autosignup.py --live --sync-calendar  # sign up and sync to Google Calendar
+    python3 autosignup.py --live --force   # skip timezone check (for manual runs)
 
 State management:
     A GitHub Gist is used to persist state between runs (signed up / manually cancelled events).
@@ -23,6 +24,7 @@ import os
 import sys
 from datetime import datetime, timedelta
 from urllib.parse import urljoin
+from zoneinfo import ZoneInfo
 
 import requests
 
@@ -52,6 +54,9 @@ DAY_NAMES = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday",
 # Gist filename for state storage
 GIST_FILENAME = "sportbit_state.json"
 
+# Amsterdam timezone
+AMS = ZoneInfo("Europe/Amsterdam")
+
 # ──────────────────────────────────────────────────────────────
 # Logging
 # ──────────────────────────────────────────────────────────────
@@ -62,6 +67,20 @@ logging.basicConfig(
     datefmt="%Y-%m-%d %H:%M:%S",
 )
 log = logging.getLogger("sportbit")
+
+
+# ──────────────────────────────────────────────────────────────
+# Timezone check
+# ──────────────────────────────────────────────────────────────
+
+def is_after_midnight_amsterdam() -> bool:
+    """
+    Returns True if the current Amsterdam time is between 00:00 and 00:30.
+    This ensures the script only runs once per day just after midnight,
+    regardless of summer/winter time (CET/CEST).
+    """
+    now = datetime.now(AMS)
+    return now.hour == 0 and now.minute < 30
 
 
 # ──────────────────────────────────────────────────────────────
@@ -115,7 +134,6 @@ class GistStateManager:
             if GIST_FILENAME in files:
                 content = files[GIST_FILENAME].get("content", "{}")
                 self.state = json.loads(content)
-                # Ensure both keys exist
                 self.state.setdefault("signed_up", {})
                 self.state.setdefault("cancelled", {})
                 log.info(
@@ -143,15 +161,12 @@ class GistStateManager:
             log.error("Failed to save state to Gist: %s", e)
 
     def is_cancelled(self, event_id: int) -> bool:
-        """Check if an event was manually cancelled."""
         return str(event_id) in self.state["cancelled"]
 
     def is_signed_up_by_script(self, event_id: int) -> bool:
-        """Check if the script previously signed up for this event."""
         return str(event_id) in self.state["signed_up"]
 
     def mark_signed_up(self, event_id: int, date: str, time: str, title: str):
-        """Record a successful signup."""
         self.state["signed_up"][str(event_id)] = {
             "date": date,
             "time": time,
@@ -161,23 +176,16 @@ class GistStateManager:
         self._save()
 
     def mark_cancelled(self, event_id: int, date: str, time: str, title: str):
-        """Mark an event as manually cancelled (will never be re-signed-up)."""
         self.state["cancelled"][str(event_id)] = {
             "date": date,
             "time": time,
             "title": title,
             "cancelled_at": datetime.now().isoformat(timespec="seconds"),
         }
-        # Remove from signed_up if present
         self.state["signed_up"].pop(str(event_id), None)
         self._save()
 
     def detect_manual_cancellations(self, events: list[dict]):
-        """
-        Compare current API state with script's history.
-        If the script signed up for an event but the API now shows
-        aangemeld=False, the user manually cancelled → record it.
-        """
         newly_cancelled = []
         for event in events:
             eid = str(event["id"])
@@ -222,13 +230,11 @@ class SportBitClient:
         return urljoin(BASE_URL, path)
 
     def _set_xsrf_header(self):
-        """Angular's HttpXsrfInterceptor sends XSRF-TOKEN cookie as X-XSRF-TOKEN header."""
         token = self.session.cookies.get("XSRF-TOKEN")
         if token:
             self.session.headers["X-XSRF-TOKEN"] = token
 
     def login(self) -> bool:
-        """Authenticate and establish session."""
         log.info("Logging in as %s ...", self.username)
         self.session.get(self._url("data/heartbeat/"))
         self._set_xsrf_header()
@@ -247,7 +253,6 @@ class SportBitClient:
         return False
 
     def get_events(self, date: str) -> list[dict]:
-        """Fetch all events for a given date (YYYY-MM-DD)."""
         resp = self.session.get(
             self._url("data/events/"),
             params={"datum": date, "rooster": ROOSTER_ID},
@@ -262,7 +267,6 @@ class SportBitClient:
         return events
 
     def signup(self, event_id: int) -> bool:
-        """Sign up for an event by ID."""
         self._set_xsrf_header()
         resp = self.session.post(
             self._url(f"data/events/{event_id}/deelname/"),
@@ -281,7 +285,6 @@ class SportBitClient:
 # ──────────────────────────────────────────────────────────────
 
 def create_calendar_event(event: dict, date: datetime, sync_calendar: bool) -> bool:
-    """Create a Google Calendar event for a SportBit signup."""
     if not sync_calendar:
         return True
 
@@ -321,7 +324,6 @@ def create_calendar_event(event: dict, date: datetime, sync_calendar: bool) -> b
 # ──────────────────────────────────────────────────────────────
 
 def send_pushover_notification(message: str) -> bool:
-    """Send a push notification via Pushover."""
     user_key = os.environ.get("PUSHOVER_USER_KEY")
     api_token = os.environ.get("PUSHOVER_API_TOKEN")
 
@@ -354,7 +356,7 @@ def send_pushover_notification(message: str) -> bool:
 
 def find_target_slots(days_ahead: int) -> list[tuple]:
     """Return (date, time) pairs for scheduled classes within the look-ahead window."""
-    today = datetime.now().date()
+    today = datetime.now(AMS).date()
     target_weekdays = {weekday for weekday, _ in SCHEDULE}
     slots = []
     for offset in range(1, days_ahead + 1):  # Start bij 1 om vandaag over te slaan
@@ -367,7 +369,6 @@ def find_target_slots(days_ahead: int) -> list[tuple]:
 
 
 def find_event_at_time(events: list[dict], target_time: str) -> dict | None:
-    """Find the WOD event matching the target time (e.g. '20:00')."""
     for event in events:
         start = event.get("start", "")
         if f"T{target_time}:00" in start:
@@ -431,7 +432,6 @@ def run(username: str, password: str, dry_run: bool, days_ahead: int, sync_calen
         already = event.get("aangemeld", False)
         on_waitlist = event.get("opWachtlijst", False)
 
-        # Check if manually cancelled → skip permanently
         if state and state.is_cancelled(eid):
             log.info("Skipping %s at %s — manually cancelled. [%s]", title, target_time, eid)
             results["skipped"].append(f"{label} (manually cancelled)")
@@ -440,7 +440,6 @@ def run(username: str, password: str, dry_run: bool, days_ahead: int, sync_calen
         if already:
             log.info("Already signed up for %s at %s (%s) [%s].", title, target_time, spots, eid)
             results["already"].append(label)
-            # Make sure it's recorded in state
             if state and not state.is_signed_up_by_script(eid):
                 state.mark_signed_up(eid, date_str, target_time, title)
             continue
@@ -476,17 +475,17 @@ def run(username: str, password: str, dry_run: bool, days_ahead: int, sync_calen
     # Summary
     log.info("=== Summary ===")
     if results["signed_up"]:
-        log.info("Signed up:          %s", ", ".join(results["signed_up"]))
+        log.info("Signed up:           %s", ", ".join(results["signed_up"]))
     if results["already"]:
-        log.info("Already in:         %s", ", ".join(results["already"]))
+        log.info("Already in:          %s", ", ".join(results["already"]))
     if results["full_waitlist"]:
-        log.info("On waitlist:        %s", ", ".join(results["full_waitlist"]))
+        log.info("On waitlist:         %s", ", ".join(results["full_waitlist"]))
     if results["skipped"]:
-        log.info("Skipped (cancelled):%s", ", ".join(results["skipped"]))
+        log.info("Skipped (cancelled): %s", ", ".join(results["skipped"]))
     if results["not_found"]:
-        log.info("Not found:          %s", ", ".join(results["not_found"]))
+        log.info("Not found:           %s", ", ".join(results["not_found"]))
     if results["failed"]:
-        log.error("Failed:             %s", ", ".join(results["failed"]))
+        log.error("Failed:              %s", ", ".join(results["failed"]))
 
 
 # ──────────────────────────────────────────────────────────────
@@ -501,6 +500,7 @@ def main():
     parser.add_argument("--username", "-u", help="SportBit username (or set SPORTBIT_USERNAME env var)")
     parser.add_argument("--password", "-p", help="SportBit password (or set SPORTBIT_PASSWORD env var)")
     parser.add_argument("--test-notification", action="store_true", help="Stuur een testnotificatie via Pushover en stop")
+    parser.add_argument("--force", action="store_true", help="Sla tijdzone check over (voor handmatige runs)")
     args = parser.parse_args()
 
     # Test notification mode: geen credentials nodig
@@ -508,6 +508,18 @@ def main():
         log.info("Sending test Pushover notification...")
         success = send_pushover_notification("Dit is een testbericht van SportBit 🎉")
         sys.exit(0 if success else 1)
+
+    # Tijdzone check: alleen uitvoeren net na middernacht Amsterdam tijd
+    if not args.force:
+        if not is_after_midnight_amsterdam():
+            now = datetime.now(AMS)
+            log.info(
+                "Huidige Amsterdam tijd is %s — niet na middernacht. Gebruik --force om dit over te slaan.",
+                now.strftime("%H:%M"),
+            )
+            sys.exit(0)
+        else:
+            log.info("Amsterdam tijd check OK: %s", datetime.now(AMS).strftime("%H:%M"))
 
     username = args.username or os.environ.get("SPORTBIT_USERNAME")
     password = args.password or os.environ.get("SPORTBIT_PASSWORD")
