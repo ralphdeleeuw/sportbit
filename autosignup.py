@@ -134,6 +134,7 @@ class GistStateManager:
             if GIST_FILENAME in files:
                 content = files[GIST_FILENAME].get("content", "{}")
                 self.state = json.loads(content)
+                # Ensure both keys exist
                 self.state.setdefault("signed_up", {})
                 self.state.setdefault("cancelled", {})
                 log.info(
@@ -161,12 +162,15 @@ class GistStateManager:
             log.error("Failed to save state to Gist: %s", e)
 
     def is_cancelled(self, event_id: int) -> bool:
+        """Check if an event was manually cancelled."""
         return str(event_id) in self.state["cancelled"]
 
     def is_signed_up_by_script(self, event_id: int) -> bool:
+        """Check if the script previously signed up for this event."""
         return str(event_id) in self.state["signed_up"]
 
     def mark_signed_up(self, event_id: int, date: str, time: str, title: str):
+        """Record a successful signup."""
         self.state["signed_up"][str(event_id)] = {
             "date": date,
             "time": time,
@@ -176,16 +180,23 @@ class GistStateManager:
         self._save()
 
     def mark_cancelled(self, event_id: int, date: str, time: str, title: str):
+        """Mark an event as manually cancelled (will never be re-signed-up)."""
         self.state["cancelled"][str(event_id)] = {
             "date": date,
             "time": time,
             "title": title,
             "cancelled_at": datetime.now().isoformat(timespec="seconds"),
         }
+        # Remove from signed_up if present
         self.state["signed_up"].pop(str(event_id), None)
         self._save()
 
     def detect_manual_cancellations(self, events: list[dict]):
+        """
+        Compare current API state with script's history.
+        If the script signed up for an event but the API now shows
+        aangemeld=False, the user manually cancelled → record it.
+        """
         newly_cancelled = []
         for event in events:
             eid = str(event["id"])
@@ -230,11 +241,13 @@ class SportBitClient:
         return urljoin(BASE_URL, path)
 
     def _set_xsrf_header(self):
+        """Angular's HttpXsrfInterceptor sends XSRF-TOKEN cookie as X-XSRF-TOKEN header."""
         token = self.session.cookies.get("XSRF-TOKEN")
         if token:
             self.session.headers["X-XSRF-TOKEN"] = token
 
     def login(self) -> bool:
+        """Authenticate and establish session."""
         log.info("Logging in as %s ...", self.username)
         self.session.get(self._url("data/heartbeat/"))
         self._set_xsrf_header()
@@ -253,6 +266,7 @@ class SportBitClient:
         return False
 
     def get_events(self, date: str) -> list[dict]:
+        """Fetch all events for a given date (YYYY-MM-DD)."""
         resp = self.session.get(
             self._url("data/events/"),
             params={"datum": date, "rooster": ROOSTER_ID},
@@ -267,6 +281,7 @@ class SportBitClient:
         return events
 
     def signup(self, event_id: int) -> bool:
+        """Sign up for an event by ID."""
         self._set_xsrf_header()
         resp = self.session.post(
             self._url(f"data/events/{event_id}/deelname/"),
@@ -285,6 +300,7 @@ class SportBitClient:
 # ──────────────────────────────────────────────────────────────
 
 def create_calendar_event(event: dict, date: datetime, sync_calendar: bool) -> bool:
+    """Create a Google Calendar event for a SportBit signup."""
     if not sync_calendar:
         return True
 
@@ -324,6 +340,7 @@ def create_calendar_event(event: dict, date: datetime, sync_calendar: bool) -> b
 # ──────────────────────────────────────────────────────────────
 
 def send_pushover_notification(message: str) -> bool:
+    """Send a push notification via Pushover."""
     user_key = os.environ.get("PUSHOVER_USER_KEY")
     api_token = os.environ.get("PUSHOVER_API_TOKEN")
 
@@ -369,6 +386,7 @@ def find_target_slots(days_ahead: int) -> list[tuple]:
 
 
 def find_event_at_time(events: list[dict], target_time: str) -> dict | None:
+    """Find the WOD event matching the target time (e.g. '20:00')."""
     for event in events:
         start = event.get("start", "")
         if f"T{target_time}:00" in start:
@@ -432,6 +450,7 @@ def run(username: str, password: str, dry_run: bool, days_ahead: int, sync_calen
         already = event.get("aangemeld", False)
         on_waitlist = event.get("opWachtlijst", False)
 
+        # Check if manually cancelled → skip permanently
         if state and state.is_cancelled(eid):
             log.info("Skipping %s at %s — manually cancelled. [%s]", title, target_time, eid)
             results["skipped"].append(f"{label} (manually cancelled)")
@@ -440,6 +459,7 @@ def run(username: str, password: str, dry_run: bool, days_ahead: int, sync_calen
         if already:
             log.info("Already signed up for %s at %s (%s) [%s].", title, target_time, spots, eid)
             results["already"].append(label)
+            # Make sure it's recorded in state
             if state and not state.is_signed_up_by_script(eid):
                 state.mark_signed_up(eid, date_str, target_time, title)
             continue
