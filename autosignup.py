@@ -376,6 +376,78 @@ def find_event_at_time(events: list[dict], target_time: str) -> dict | None:
     return None
 
 
+def send_weekly_summary(username: str, password: str):
+    client = SportBitClient(username, password)
+    if not client.login():
+        log.error("Aborting: login failed.")
+        sys.exit(1)
+
+    today = datetime.now(AMS).date()
+    lines = []
+    for offset in range(1, 8):
+        d = today + timedelta(days=offset)
+        for weekday, time in SCHEDULE:
+            if d.weekday() != weekday:
+                continue
+            date_str = d.strftime("%Y-%m-%d")
+            events = client.get_events(date_str)
+            event = find_event_at_time(events, time)
+            if not event:
+                continue
+            title = event.get("titel", "CrossFit WOD")
+            spots = f"{event['aantalDeelnemers']}/{event['maxDeelnemers']}"
+            already = event.get("aangemeld", False)
+            on_waitlist = event.get("opWachtlijst", False)
+            full = event["aantalDeelnemers"] >= event["maxDeelnemers"]
+
+            if already:
+                status = "✅ ingeschreven"
+            elif on_waitlist:
+                status = "⏳ wachtlijst"
+            elif full:
+                status = "🔴 vol"
+            else:
+                status = "🟢 open"
+
+            day_name_nl = ["Ma", "Di", "Wo", "Do", "Vr", "Za", "Zo"][d.weekday()]
+            lines.append(f"{day_name_nl} {d.strftime('%d/%m')} {time} — {title} ({spots}) {status}")
+
+    if not lines:
+        log.info("Geen lessen gevonden voor de komende week.")
+        return
+
+    message = "Komende week:\n" + "\n".join(lines)
+    log.info("Weekly summary:\n%s", message)
+    send_pushover_notification_summary(message)
+
+
+def send_pushover_notification_summary(message: str) -> bool:
+    user_key = os.environ.get("PUSHOVER_USER_KEY")
+    api_token = os.environ.get("PUSHOVER_API_TOKEN")
+
+    if not user_key or not api_token:
+        log.warning("PUSHOVER_USER_KEY or PUSHOVER_API_TOKEN not set; skipping notification.")
+        return False
+
+    try:
+        resp = requests.post(
+            "https://api.pushover.net/1/messages.json",
+            json={
+                "token": api_token,
+                "user": user_key,
+                "title": "CrossFit week overzicht 📅",
+                "message": message,
+            },
+            timeout=10,
+        )
+        resp.raise_for_status()
+        log.info("Pushover weekly summary sent.")
+        return True
+    except Exception as e:
+        log.error("Failed to send Pushover notification: %s", e)
+        return False
+
+
 def run(username: str, password: str, dry_run: bool, days_ahead: int, sync_calendar: bool,
         state: GistStateManager | None):
     client = SportBitClient(username, password)
@@ -501,7 +573,18 @@ def main():
     parser.add_argument("--password", "-p", help="SportBit password (or set SPORTBIT_PASSWORD env var)")
     parser.add_argument("--test-notification", action="store_true", help="Stuur een testnotificatie via Pushover en stop")
     parser.add_argument("--force", action="store_true", help="Sla tijdzone check over (voor handmatige runs)")
+    parser.add_argument("--weekly-summary", action="store_true", help="Stuur een weekoverzicht via Pushover en stop")
     args = parser.parse_args()
+
+    # Weekly summary mode
+    if args.weekly_summary:
+        username = args.username or os.environ.get("SPORTBIT_USERNAME")
+        password = args.password or os.environ.get("SPORTBIT_PASSWORD")
+        if not username or not password:
+            log.error("Provide credentials via --username/--password or SPORTBIT_USERNAME/SPORTBIT_PASSWORD env vars.")
+            sys.exit(1)
+        send_weekly_summary(username, password)
+        sys.exit(0)
 
     # Test notification mode: geen credentials nodig
     if args.test_notification:
