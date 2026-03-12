@@ -2,8 +2,10 @@ name: CrossFit Auto Sign-Up
 
 on:
   schedule:
-    - cron: "30 22 * * *"   # 23:30 Amsterdam wintertijd (CET) — 30 min voor middernacht als buffer
-    - cron: "30 21 * * *"   # 23:30 Amsterdam zomertijd (CEST) — 30 min voor middernacht als buffer
+    - cron: "1 23 * * *"    # 00:01 Amsterdam wintertijd (CET)
+    - cron: "1 22 * * *"    # 00:01 Amsterdam zomertijd (CEST)
+    - cron: "20 23 * * *"   # 00:20 Amsterdam wintertijd (CET) — backup als eerste run vertraagd was
+    - cron: "20 22 * * *"   # 00:20 Amsterdam zomertijd (CEST) — backup als eerste run vertraagd was
   workflow_dispatch: # Allow manual trigger from GitHub UI
 
 permissions:
@@ -22,22 +24,6 @@ jobs:
 
       - name: Install dependencies
         run: pip install -r requirements.txt
-
-      - name: Wacht op 00:01 Amsterdam tijd
-        run: |
-          python3 -c "
-          import time
-          from datetime import datetime
-          from zoneinfo import ZoneInfo
-          AMS = ZoneInfo('Europe/Amsterdam')
-          while True:
-              now = datetime.now(AMS)
-              if now.hour == 0 and now.minute >= 1:
-                  print(f'Start inschrijving om {now.strftime(\"%H:%M:%S\")} Amsterdam tijd')
-                  break
-              print(f'Wachten... huidige tijd: {now.strftime(\"%H:%M:%S\")} Amsterdam')
-              time.sleep(10)
-          "
 
       - name: Run auto sign-up with calendar sync
         env:
