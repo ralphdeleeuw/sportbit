@@ -2,8 +2,10 @@ name: CrossFit Auto Sign-Up
 
 on:
   schedule:
-    - cron: "1 23 * * *"   # 00:01 Amsterdam wintertijd (CET)
-    - cron: "1 22 * * *"   # 00:01 Amsterdam zomertijd (CEST)
+    - cron: "1 23 * * *"    # 00:01 Amsterdam wintertijd (CET)
+    - cron: "1 22 * * *"    # 00:01 Amsterdam zomertijd (CEST)
+    - cron: "20 23 * * *"   # 00:20 Amsterdam wintertijd (CET) — backup als eerste run vertraagd was
+    - cron: "20 22 * * *"   # 00:20 Amsterdam zomertijd (CEST) — backup als eerste run vertraagd was
   workflow_dispatch: # Allow manual trigger from GitHub UI
 
 permissions:

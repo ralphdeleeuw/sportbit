@@ -1,0 +1,42 @@
+name: Auto-merge Claude branches
+
+on:
+  push:
+    branches:
+      - "claude/**"
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  auto-merge:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Create and merge PR
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          BRANCH="${GITHUB_REF#refs/heads/}"
+
+          # Maak PR aan als die nog niet bestaat
+          PR_URL=$(gh pr list --head "$BRANCH" --json url -q '.[0].url')
+
+          if [ -z "$PR_URL" ]; then
+            PR_URL=$(gh pr create \
+              --title "Auto: $BRANCH" \
+              --body "Automatisch aangemaakt door Claude." \
+              --base main \
+              --head "$BRANCH")
+            echo "PR aangemaakt: $PR_URL"
+          else
+            echo "Bestaande PR gevonden: $PR_URL"
+          fi
+
+          # Wacht even en merge
+          sleep 3
+          gh pr merge "$PR_URL" --merge --delete-branch
