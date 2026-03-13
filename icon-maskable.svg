@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <!-- Full bleed background for maskable icons -->
+  <rect width="512" height="512" fill="#0d0d0d"/>
+  <!-- Barbell (centered within safe zone ~80px padding) -->
+  <rect x="128" y="236" width="256" height="40" rx="8" fill="#e8ff3c"/>
+  <!-- Left weight outer -->
+  <rect x="112" y="192" width="36" height="128" rx="10" fill="#e8ff3c"/>
+  <!-- Right weight outer -->
+  <rect x="364" y="192" width="36" height="128" rx="10" fill="#e8ff3c"/>
+  <!-- Left weight inner -->
+  <rect x="160" y="208" width="28" height="96" rx="6" fill="#e8ff3c"/>
+  <!-- Right weight inner -->
+  <rect x="324" y="208" width="28" height="96" rx="6" fill="#e8ff3c"/>
+</svg>
