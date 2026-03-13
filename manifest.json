@@ -1,7 +1,7 @@
 {
   "name": "CrossFit Hilversum — Mijn Lessen",
-  "short_name": "SportBit",
-  "description": "Bekijk je CrossFit Hilversum inschrijvingen, bijgehouden via SportBit.",
+  "short_name": "CrossFit",
+  "description": "Bekijk je CrossFit Hilversum inschrijvingen, automatisch bijgehouden.",
   "start_url": "/",
   "display": "standalone",
   "background_color": "#0d0d0d",
