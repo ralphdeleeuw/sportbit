@@ -6,8 +6,7 @@ on:
     - cron: "1 22 * * *"    # 00:01 Amsterdam zomertijd (CEST)
     - cron: "20 23 * * *"   # 00:20 Amsterdam wintertijd (CET) — backup als eerste run vertraagd was
     - cron: "20 22 * * *"   # 00:20 Amsterdam zomertijd (CEST) — backup als eerste run vertraagd was
-    - cron: "0 17 * * 0"    # 18:00 Amsterdam wintertijd (CET) op zondag — weekoverzicht
-    - cron: "0 16 * * 0"    # 18:00 Amsterdam zomertijd (CEST) op zondag — weekoverzicht
+    - cron: "0 17 * * 0"    # 18:00 Amsterdam op zondag — weekoverzicht
   workflow_dispatch: # Allow manual trigger from GitHub UI
 
 permissions:
@@ -28,7 +27,7 @@ jobs:
         run: pip install -r requirements.txt
 
       - name: Run auto sign-up with calendar sync
-        if: github.event.schedule != '0 17 * * 0' && github.event.schedule != '0 16 * * 0'
+        if: github.event.schedule != '0 17 * * 0'
         env:
           SPORTBIT_USERNAME: ${{ secrets.SPORTBIT_USERNAME }}
           SPORTBIT_PASSWORD: ${{ secrets.SPORTBIT_PASSWORD }}
@@ -41,7 +40,7 @@ jobs:
         run: python3 autosignup.py --live --sync-calendar --force
 
       - name: Stuur weekoverzicht
-        if: github.event.schedule == '0 17 * * 0' || github.event.schedule == '0 16 * * 0'
+        if: github.event.schedule == '0 17 * * 0'
         env:
           SPORTBIT_USERNAME: ${{ secrets.SPORTBIT_USERNAME }}
           SPORTBIT_PASSWORD: ${{ secrets.SPORTBIT_PASSWORD }}
