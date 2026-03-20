@@ -285,6 +285,82 @@
       animation: fadeUp 0.4s ease both;
     }
 
+    /* WOD card */
+    .wod-card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 1.2rem;
+      margin-bottom: 2rem;
+      animation: fadeUp 0.6s 0.15s ease both;
+    }
+
+    .wod-date-badge {
+      display: inline-block;
+      background: var(--accent);
+      color: #000;
+      font-family: 'Bebas Neue', sans-serif;
+      font-size: 0.9rem;
+      letter-spacing: 0.1em;
+      padding: 0.15rem 0.6rem;
+      border-radius: 6px;
+      margin-bottom: 0.6rem;
+    }
+
+    .wod-title {
+      font-weight: 500;
+      font-size: 0.95rem;
+      margin-bottom: 0.6rem;
+      color: var(--text);
+    }
+
+    .wod-description {
+      font-size: 0.82rem;
+      color: var(--muted);
+      white-space: pre-wrap;
+      line-height: 1.6;
+    }
+
+    .wod-description a { color: var(--accent); text-decoration: none; }
+
+    .wod-nav {
+      display: flex;
+      gap: 0.5rem;
+      margin-bottom: 0.8rem;
+      overflow-x: auto;
+      padding-bottom: 0.2rem;
+    }
+
+    .wod-nav-btn {
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 0.35rem 0.8rem;
+      font-family: 'DM Sans', sans-serif;
+      font-size: 0.78rem;
+      color: var(--muted);
+      cursor: pointer;
+      white-space: nowrap;
+      transition: border-color 0.2s, color 0.2s;
+      flex-shrink: 0;
+    }
+
+    .wod-nav-btn.active {
+      border-color: var(--accent);
+      color: var(--accent);
+    }
+
+    .wod-link {
+      display: inline-block;
+      margin-top: 0.8rem;
+      font-size: 0.75rem;
+      color: var(--accent);
+      text-decoration: none;
+      opacity: 0.7;
+    }
+
+    .wod-link:hover { opacity: 1; }
+
     /* Footer */
     footer {
       text-align: center;
@@ -319,6 +395,13 @@
       <h1>Mijn<br/><span>Lessen</span></h1>
       <p class="subtitle">Automatisch bijgehouden via CrossFit Hilversum</p>
     </header>
+
+    <!-- SugarWOD sectie -->
+    <div id="wodSection" style="display:none">
+      <div class="section-title">WOD</div>
+      <div id="wodNav" class="wod-nav"></div>
+      <div id="wodContent" class="wod-card"></div>
+    </div>
 
     <div id="stats" class="stats" style="display:none">
       <div class="stat">
@@ -392,6 +475,85 @@
       navigator.serviceWorker.register('/sw.js');
     }
 
+    // ── SugarWOD ──────────────────────────────────────────────
+
+    let wodWorkouts = [];
+    let activeWodIndex = 0;
+
+    function stripHtml(html) {
+      const div = document.createElement('div');
+      div.innerHTML = html;
+      return div.textContent || div.innerText || '';
+    }
+
+    function formatWodDate(dateStr) {
+      if (!dateStr) return '—';
+      const d = new Date(dateStr + 'T00:00:00');
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
+      const diff = Math.round((d - today) / 86400000);
+      if (diff === 0) return 'Vandaag';
+      if (diff === 1) return 'Morgen';
+      if (diff === -1) return 'Gisteren';
+      return `${DAY_NL[d.getDay()]} ${d.getDate()} ${MONTH_NL[d.getMonth()]}`;
+    }
+
+    function renderWod(index) {
+      const wod = wodWorkouts[index];
+      if (!wod) return;
+      activeWodIndex = index;
+
+      // Update nav buttons
+      document.querySelectorAll('.wod-nav-btn').forEach((btn, i) => {
+        btn.classList.toggle('active', i === index);
+      });
+
+      const desc = wod.description ? stripHtml(wod.description).trim() : 'Geen beschrijving beschikbaar.';
+      const linkHtml = wod.link
+        ? `<a class="wod-link" href="${wod.link}" target="_blank" rel="noopener">Bekijk op SugarWOD →</a>`
+        : '';
+
+      document.getElementById('wodContent').innerHTML = `
+        <div class="wod-date-badge">${formatWodDate(wod.date)}</div>
+        <div class="wod-title">${wod.title || 'Workout of the Day'}</div>
+        <div class="wod-description">${desc}</div>
+        ${linkHtml}
+      `;
+    }
+
+    async function loadWod(gistId) {
+      try {
+        const resp = await fetch(`https://api.github.com/gists/${gistId}`);
+        if (!resp.ok) return;
+        const gist = await resp.json();
+        const file = gist.files['sugarwod_wod.json'];
+        if (!file) return;
+
+        const data = JSON.parse(file.content);
+        wodWorkouts = (data.workouts || []).filter(w => w.date || w.title);
+        if (wodWorkouts.length === 0) return;
+
+        // Sort by date ascending, put today/future first
+        const today = new Date().toISOString().slice(0, 10);
+        wodWorkouts.sort((a, b) => (a.date || '').localeCompare(b.date || ''));
+
+        // Build nav
+        const nav = document.getElementById('wodNav');
+        nav.innerHTML = wodWorkouts.map((w, i) =>
+          `<button class="wod-nav-btn" onclick="renderWod(${i})">${formatWodDate(w.date)}</button>`
+        ).join('');
+
+        // Show today or first future workout
+        const todayIdx = wodWorkouts.findIndex(w => w.date >= today);
+        renderWod(todayIdx >= 0 ? todayIdx : 0);
+        document.getElementById('wodSection').style.display = 'block';
+      } catch (_) {
+        // WOD data not yet available — silently skip
+      }
+    }
+
+    // ── Sign-up data ──────────────────────────────────────────
+
     async function loadData() {
       const gistId = document.getElementById('gistId').value.trim();
       if (!gistId) return;
@@ -430,6 +592,9 @@
         // Last updated
         document.getElementById('lastUpdated').textContent =
           new Date(gist.updated_at).toLocaleString('nl-NL');
+
+        // Load WOD from the same Gist
+        await loadWod(gistId);
 
         let html = '';
 

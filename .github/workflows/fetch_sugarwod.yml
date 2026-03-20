@@ -1,0 +1,28 @@
+name: Fetch SugarWOD
+
+on:
+  schedule:
+    # Dagelijks om 06:00 UTC (08:00 Amsterdam zomertijd / 07:00 wintertijd)
+    - cron: '0 6 * * *'
+  workflow_dispatch:
+
+jobs:
+  fetch-wod:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install dependencies
+        run: pip install requests
+
+      - name: Fetch SugarWOD data and save to Gist
+        env:
+          SUGARWOD_GYM_ID: ${{ secrets.SUGARWOD_GYM_ID }}
+          GIST_ID: ${{ secrets.GIST_ID }}
+          GITHUB_TOKEN: ${{ secrets.GIST_TOKEN }}
+        run: python3 fetch_sugarwod.py
