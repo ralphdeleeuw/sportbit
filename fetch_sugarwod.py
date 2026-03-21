@@ -1649,6 +1649,72 @@ def main() -> int:
         log.warning("GIST_ID or GITHUB_TOKEN not set — printing to stdout")
         print(json.dumps(wod_data, indent=2, ensure_ascii=False))
 
+    # ── GitHub Actions step summary ───────────────────────────────────────
+    step_summary = os.environ.get("GITHUB_STEP_SUMMARY", "")
+    if step_summary:
+        upcoming_dates = sorted(w["date"] for w in workouts if w.get("date", "") >= today.isoformat())
+        past_dates = sorted((w["date"] for w in workouts if w.get("date", "") < today.isoformat()), reverse=True)
+        pr_count = len(personal_records)
+        bm_count = len(benchmark_workouts)
+        barbell_count = len(barbell_lifts)
+        bm_cats = sorted({b.get("category", "?") for b in benchmark_workouts}) if benchmark_workouts else []
+        pr_preview = "\n".join(
+            f"| {p.get('workout', '?')} | {p.get('notes', '')} | {p.get('date', '')} |"
+            for p in sorted(personal_records, key=lambda p: p.get("date", ""), reverse=True)[:10]
+        )
+        bm_preview = "\n".join(
+            f"| {b.get('name', '?')} | {b.get('result', '')} | {b.get('category', '')} | {b.get('date', '')} |"
+            for b in sorted(benchmark_workouts, key=lambda b: b.get("date", ""), reverse=True)[:10]
+        )
+        lines = [
+            "## SugarWOD fetch resultaat",
+            "",
+            f"**Datum:** {today.isoformat()}",
+            "",
+            "### Workouts",
+            f"- Aankomend: {len(upcoming_dates)} dag(en) — {', '.join(upcoming_dates) or '—'}",
+            f"- Verleden (in gist): {len(past_dates)} dag(en)",
+            "",
+            "### Barbell lifts",
+            f"- {barbell_count} bewegingen geladen" if barbell_count else "- ⚠️ Geen barbell lifts gevonden",
+            "",
+            "### Personal Records",
+            f"- **{pr_count}** PRs gevonden" if pr_count else "- ⚠️ Geen PRs gevonden (fetch mislukt?)",
+        ]
+        if pr_count:
+            lines += [
+                "",
+                "| Workout | Notes | Datum |",
+                "|---------|-------|-------|",
+                pr_preview,
+                f"{'_(en meer…)_' if pr_count > 10 else ''}",
+            ]
+        lines += [
+            "",
+            "### Benchmark Workouts",
+            f"- **{bm_count}** benchmarks gevonden in {len(bm_cats)} categorie(ën): {', '.join(bm_cats)}" if bm_count
+            else "- ⚠️ Geen benchmarks gevonden (fetch mislukt?)",
+        ]
+        if bm_count:
+            lines += [
+                "",
+                "| Naam | Resultaat | Categorie | Datum |",
+                "|------|-----------|-----------|-------|",
+                bm_preview,
+                f"{'_(en meer…)_' if bm_count > 10 else ''}",
+            ]
+        lines += [
+            "",
+            "### Coach advies",
+            "- ✅ Gegenereerd" if recovery_advice else "- ⚠️ Niet gegenereerd",
+        ]
+        try:
+            with open(step_summary, "a", encoding="utf-8") as f:
+                f.write("\n".join(lines) + "\n")
+            log.info("Step summary written")
+        except Exception as exc:
+            log.warning("Failed to write step summary: %s", exc)
+
     return 0
 
 
