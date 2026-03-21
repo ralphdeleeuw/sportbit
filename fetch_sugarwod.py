@@ -561,6 +561,8 @@ def fetch_all_workouts_playwright(
     email: str,
     password: str,
     weeks: list[datetime],
+    gist_id: str = "",
+    token: str = "",
 ) -> dict | None:
     """
     Use a headless Chromium browser to log in via the real HTML form and then
@@ -861,24 +863,61 @@ def fetch_all_workouts_playwright(
             try:
                 four_weeks_ago = (datetime.now(AMS) - timedelta(weeks=4)).strftime("%Y%m%d")
                 today_str = datetime.now(AMS).strftime("%Y%m%d")
+                # Navigate away first so the SPA re-fetches data
+                page.goto(f"{SUGARWOD_BASE}/workouts", wait_until="domcontentloaded", timeout=15000)
+                captured.clear()
                 page.goto(
                     f"{SUGARWOD_BASE}/athletes/me?date_from={four_weeks_ago}&date_to={today_str}#logbook",
                     wait_until="networkidle",
                     timeout=30000,
                 )
-                athlete_logbook = _extract_logbook_from_page(page)
+                log.info("[browser] Captured %d XHRs on logbook page; URLs: %s",
+                         len(captured), [c["url"] for c in captured])
+
+                # Strategy 1: URL-keyword match
+                for item in captured:
+                    url_lower = item["url"].lower()
+                    if any(k in url_lower for k in ("logbook", "/logs", "/log", "athlete_log", "results")):
+                        log.info("[browser] Logbook data found by URL: %s", item["url"])
+                        data = item["data"]
+                        arr = data if isinstance(data, list) else (
+                            data.get("data") or data.get("results") or data.get("logs") or []
+                        )
+                        for r in arr:
+                            athlete_logbook.append({
+                                "date": str(r.get("date") or r.get("performed_at") or r.get("logged_at") or r.get("scheduledDate") or r.get("scheduledDateInteger") or ""),
+                                "workout": r.get("workout") or r.get("workout_name") or r.get("title") or r.get("name") or "",
+                                "result": str(r.get("result") or r.get("score") or r.get("notes") or ""),
+                            })
+                        if athlete_logbook:
+                            break
+
+                # Strategy 2: DOM scraping (table-based fallback)
+                if not athlete_logbook:
+                    log.info("[browser] XHR scan empty; falling back to DOM scraping for logbook")
+                    athlete_logbook = _extract_logbook_from_page(page)
+
+                # Save debug HTML if logbook still empty
+                if not athlete_logbook:
+                    try:
+                        debug_html["logbook"] = page.content()[:80000]
+                    except Exception:
+                        pass
+
                 log.info("[browser] Extracted %d logbook entries", len(athlete_logbook))
             except Exception as exc:
                 log.warning("[browser] Athlete logbook fetch failed: %s", exc)
 
-            # Save debug HTML to gist if PRs or benchmarks are still empty
-            if debug_html and (not personal_records or not benchmark_workouts):
+            # Save debug HTML to gist if PRs, benchmarks, or logbook are still empty
+            if debug_html and (not personal_records or not benchmark_workouts or not athlete_logbook):
                 try:
                     debug_payload: dict = {}
                     if not personal_records and "prs" in debug_html:
                         debug_payload["debug_prs.html"] = {"content": debug_html["prs"]}
                     if not benchmark_workouts and "benchmarks" in debug_html:
                         debug_payload["debug_benchmarks.html"] = {"content": debug_html["benchmarks"]}
+                    if not athlete_logbook and "logbook" in debug_html:
+                        debug_payload["debug_logbook.html"] = {"content": debug_html["logbook"]}
                     if debug_payload and gist_id and token:
                         r = requests.patch(
                             f"https://api.github.com/gists/{gist_id}",
@@ -1612,7 +1651,7 @@ def main() -> int:
     benchmark_workouts: list[dict] = []
     athlete_logbook: list[dict] = []
 
-    playwright_result = fetch_all_workouts_playwright(email, password, weeks)
+    playwright_result = fetch_all_workouts_playwright(email, password, weeks, gist_id, token)
     if playwright_result is not None:
         workouts = playwright_result["workouts"]
         barbell_lifts = playwright_result.get("barbell_lifts", {})
