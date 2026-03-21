@@ -296,16 +296,26 @@ def _fetch_via_parse_api(
     session_token: str,
 ) -> list[dict] | None:
     """
-    Query the SugarWOD Parse Server backend directly.
+    Query the SugarWOD custom JSON workouts API.
 
-    SugarWOD is built on Parse Server. After login the response contains a
-    sessionToken that can be used for authenticated API calls.
+    Known endpoint variants based on the /public/api/v1/login pattern.
     """
     week_start = monday.strftime("%Y-%m-%dT00:00:00.000Z")
     week_end = (monday + timedelta(days=6)).strftime("%Y-%m-%dT23:59:59.999Z")
 
+    base_headers = {
+        "Accept": "application/json",
+        "X-Requested-With": "XMLHttpRequest",
+        "Origin": SUGARWOD_BASE,
+        "Referer": f"{SUGARWOD_BASE}/workouts",
+        "X-Parse-Session-Token": session_token,
+    }
+
     endpoints_to_try = [
-        # Parse Server at /parse
+        # Custom REST-style API paths (same base as login endpoint)
+        (f"{SUGARWOD_BASE}/public/api/v1/workouts", {"week": week_str, "track": "workout-of-the-day"}),
+        (f"{SUGARWOD_BASE}/public/api/v1/workouts", {"startDate": week_start, "endDate": week_end}),
+        # Parse Server at alternate paths (send browser-like headers to bypass Cloudflare)
         (f"{SUGARWOD_BASE}/parse/classes/TBWorkout", {
             "where": json.dumps({
                 "scheduledDate": {
@@ -316,39 +326,30 @@ def _fetch_via_parse_api(
             "limit": 50,
             "order": "scheduledDate",
         }),
-        # Alternate Parse path
-        (f"{SUGARWOD_BASE}/parse/classes/Workout", {
-            "where": json.dumps({
-                "scheduledDate": {
-                    "$gte": {"__type": "Date", "iso": week_start},
-                    "$lte": {"__type": "Date", "iso": week_end},
-                }
-            }),
-            "limit": 50,
-        }),
     ]
 
     for url, params in endpoints_to_try:
-        log.info("Trying Parse API: %s", url)
+        log.info("Trying API: %s", url)
         try:
-            resp = session.get(
-                url,
-                params=params,
-                headers={
-                    "X-Parse-Session-Token": session_token,
-                    "Accept": "application/json",
-                },
-                timeout=30,
-            )
-            log.info("  → HTTP %d | %s", resp.status_code, resp.text[:120])
-            if resp.status_code == 200:
+            resp = session.get(url, params=params, headers=base_headers, timeout=30)
+            log.info("  → HTTP %d, Content-Type: %s | %s",
+                     resp.status_code,
+                     resp.headers.get("Content-Type", ""),
+                     resp.text[:200])
+            if resp.status_code == 200 and "json" in resp.headers.get("Content-Type", ""):
                 data = resp.json()
-                results = data.get("results", [])
+                results = (
+                    data.get("results")
+                    or data.get("workouts")
+                    or data.get("data")
+                    or (data if isinstance(data, list) else None)
+                )
                 if results:
-                    log.info("Parse API returned %d workouts", len(results))
+                    log.info("API returned %d workouts", len(results))
                     return _parse_parse_workouts(results)
+                log.info("API returned 200 JSON but no workout list: %s", list(data.keys()) if isinstance(data, dict) else type(data))
         except Exception as exc:
-            log.warning("Parse API error: %s", exc)
+            log.warning("API error: %s", exc)
 
     return None
 
@@ -423,8 +424,14 @@ def _fetch_via_html(
              resp.status_code, resp.headers.get("Content-Type", ""))
     resp.raise_for_status()
 
-    # Log a snippet to aid debugging
-    log.info("HTML snippet (first 2000 chars):\n%s", resp.text[:2000])
+    # Log body text to aid debugging (skip <head> boilerplate)
+    soup_debug = BeautifulSoup(resp.text, "html.parser")
+    body = soup_debug.find("body")
+    if body:
+        body_text = body.get_text(separator="\n", strip=True)
+        log.info("Body text (first 3000 chars):\n%s", body_text[:3000])
+    else:
+        log.info("HTML snippet (first 2000 chars):\n%s", resp.text[:2000])
 
     return _parse_workouts_html(resp.text, monday)
 
@@ -507,13 +514,34 @@ def _parse_workouts_json(data, monday: datetime) -> list[dict]:
 
 def _parse_workouts_html(html: str, monday: datetime) -> list[dict]:
     """
-    Parse an HTML fragment returned by the workouts XHR endpoint.
-    Falls back to the full-page text-slice approach.
+    Parse a full Whiteboard Calendar HTML page or XHR fragment.
     """
     soup = BeautifulSoup(html, "html.parser")
+
+    # ── 1. JSON embedded in <script> tags ───────────────────────────────
+    import re as _re
+    for script in soup.find_all("script"):
+        text = script.string or ""
+        # Look for a JSON object/array that mentions workouts
+        if not any(k in text for k in ("workout", "WOD", "scheduledDate", "TBWorkout")):
+            continue
+        # Try to extract JSON blobs
+        for m in _re.finditer(r'(\{[^<]{20,}\}|\[[^<]{20,}\])', text):
+            try:
+                data = json.loads(m.group(0))
+                results = (
+                    (data.get("workouts") or data.get("results") or data.get("data"))
+                    if isinstance(data, dict) else data if isinstance(data, list) else None
+                )
+                if results and isinstance(results, list) and len(results) > 0:
+                    log.info("Found %d workouts in <script> JSON", len(results))
+                    return _parse_parse_workouts(results)
+            except (ValueError, AttributeError):
+                pass
+
     workouts = []
 
-    # Try data-date elements
+    # ── 2. data-date elements ────────────────────────────────────────────
     day_elements = soup.find_all(attrs={"data-date": True})
     if day_elements:
         for el in day_elements[:7]:
