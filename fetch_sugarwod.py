@@ -92,75 +92,42 @@ def login(session: requests.Session, email: str, password: str) -> str | None:
     csrf = _extract_csrf(session, resp)
     log.info("CSRF token before login: %s", csrf[:20] + "…" if csrf else "none")
 
-    # Step 2: POST credentials — try multiple formats until one succeeds
-    #
-    # SugarWOD's login API at /public/api/v1/login accepts JSON.
-    # The CSRF token can be sent as X-CSRF-Token header or _csrf query param.
-    login_attempts = [
-        # (description, kwargs)
-        ("JSON + X-CSRF-Token header", dict(
-            json={"email": email, "password": password},
-            headers={"X-CSRF-Token": csrf, "Accept": "application/json"},
-        )),
-        ("JSON + _csrf query param", dict(
-            json={"email": email, "password": password},
-            params={"_csrf": csrf},
-            headers={"Accept": "application/json"},
-        )),
-        ("form athlete[] + _csrf body", dict(
-            data={"athlete[email]": email, "athlete[password]": password, "_csrf": csrf},
-        )),
-        ("form email/password + _csrf body", dict(
-            data={"email": email, "password": password, "_csrf": csrf},
-        )),
-    ]
-
-    resp = None
-    for desc, kwargs in login_attempts:
-        log.info("Trying login: %s", desc)
-        r = session.post(LOGIN_URL, timeout=30, **kwargs)
-        log.info("  → HTTP %d | %s", r.status_code, r.text[:120])
-        if r.status_code in (200, 201, 302):
-            resp = r
-            break
-        if r.status_code == 401 and "Missing Credentials" not in r.text:
-            # A 401 with a different error might still tell us something
-            resp = r
-            break
-
-    if resp is None:
-        resp = r  # last attempt
+    # Step 2: POST credentials as JSON — login endpoint is CSRF-exempt.
+    # Adding any CSRF token to this request breaks body parsing ("Missing
+    # Credentials"), so we send only the credentials here.
+    log.info("Posting credentials to %s", LOGIN_URL)
+    resp = session.post(
+        LOGIN_URL,
+        json={"email": email, "password": password},
+        headers={"Accept": "application/json"},
+        timeout=30,
+    )
     log.info("Login response: HTTP %d, Content-Type: %s",
              resp.status_code, resp.headers.get("Content-Type", ""))
-    log.info("Login response body (first 300): %s", resp.text[:300])
+    log.info("Login response body: %s", resp.text[:300])
     log.info("Cookies after login: %s", dict(session.cookies))
-
-    try:
-        body = resp.json()
-        # If success is explicitly False, the credentials are wrong
-        if isinstance(body, dict) and body.get("success") is False:
-            log.error("Login rejected by server: %s", body.get("message", ""))
-            return None
-    except ValueError:
-        pass
 
     if resp.status_code not in (200, 201):
         log.error("Login failed with HTTP %d", resp.status_code)
         return None
 
-    # Step 3: find CSRF after login (cookie, JSON, header, HTML)
-    new_csrf = _extract_csrf(session, resp)
+    try:
+        body = resp.json()
+        if isinstance(body, dict) and body.get("success") is False:
+            log.error("Login rejected: %s", body.get("message", ""))
+            return None
+        log.info("Login JSON: %s", body)
+    except ValueError:
+        pass
 
-    # Also check response headers for token
-    for header in ("X-CSRF-Token", "X-CSRFToken", "csrf-token"):
-        if resp.headers.get(header):
-            new_csrf = resp.headers[header]
-            log.info("Got CSRF from response header '%s'", header)
-            break
+    # Step 3: regenerate CSRF from the (now authenticated) _sw_session cookie
+    new_csrf = _generate_csrf_from_session(session)
+    if new_csrf:
+        log.info("CSRF token after login: %s", new_csrf[:20] + "…")
+        return new_csrf
 
-    final_csrf = new_csrf or csrf
-    log.info("CSRF token after login: %s", final_csrf[:20] + "…" if final_csrf else "none")
-    return final_csrf
+    log.warning("Could not generate CSRF token after login")
+    return None
 
 
 def _generate_csrf_from_session(session: requests.Session) -> str | None:
