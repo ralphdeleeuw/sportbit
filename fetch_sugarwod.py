@@ -383,73 +383,177 @@ def _extract_prs_from_page(page) -> list[dict]:
         return []
 
 
-def _extract_benchmarks_from_page(page) -> list[dict]:
-    """Extract all Benchmark Workouts from the athlete benchmarks page.
+def _scrape_benchmark_table_js(page, category: str) -> list[dict]:
+    """Scrape the currently-visible benchmark table and tag rows with the given category."""
+    try:
+        return page.evaluate("""
+        (category) => {
+            const tables = document.querySelectorAll('table');
+            for (const table of tables) {
+                const headers = [...table.querySelectorAll('th')]
+                    .map(th => th.textContent.trim().toLowerCase());
+                if (!headers.some(h => /benchmark|workout/i.test(h))) continue;
+                const rows = [...table.querySelectorAll('tbody tr')];
+                return rows.map(row => {
+                    const cells = [...row.querySelectorAll('td')];
+                    return {
+                        name:    (cells[0] || {textContent: ''}).textContent.trim(),
+                        date:    (cells[1] || {textContent: ''}).textContent.trim(),
+                        scaling: (cells[2] || {textContent: ''}).textContent.trim(),
+                        result:  (cells[3] || {textContent: ''}).textContent.trim(),
+                        category: category,
+                    };
+                }).filter(r => r.name);
+            }
+            return [];
+        }
+        """, category)
+    except Exception as exc:
+        log.warning("[browser] _scrape_benchmark_table_js error: %s", exc)
+        return []
 
-    The page contains a dropdown to filter by category (Girls, Heroes, Open, …).
-    We iterate every <option> value so we capture all categories in one pass.
-    Falls back to scraping whatever table is visible if the dropdown isn't found.
+
+def _extract_benchmarks_from_page(page) -> list[dict]:
+    """Extract all Benchmark Workouts by iterating through each category.
+
+    Uses proper Playwright click interactions so React re-renders the table
+    between category switches.  Falls back to scraping only the visible
+    category if the dropdown cannot be found/clicked.
     """
     try:
         page.wait_for_selector("table", timeout=10000)
     except Exception:
         log.warning("[browser] No table found on benchmarks page")
         return []
+
+    all_benchmarks: list[dict] = []
+    seen: set[str] = set()
+
+    def add_rows(rows: list[dict]) -> None:
+        for r in rows:
+            key = f"{r['name']}|{r['date']}"
+            if key not in seen:
+                seen.add(key)
+                all_benchmarks.append(r)
+
+    # ── Strategy 1: native <select> element ────────────────────────────────
     try:
-        result = page.evaluate("""
-        () => {
-            // Helper: read one table into a list of row objects
-            function readTable(category) {
-                const tables = document.querySelectorAll('table');
-                for (const table of tables) {
-                    const headers = [...table.querySelectorAll('th')]
-                        .map(th => th.textContent.trim().toLowerCase());
-                    if (!headers.some(h => /benchmark|workout/i.test(h))) continue;
-                    const rows = [...table.querySelectorAll('tbody tr')];
-                    return rows.map(row => {
-                        const cells = [...row.querySelectorAll('td')];
-                        return {
-                            name:    (cells[0] || {textContent: ''}).textContent.trim(),
-                            date:    (cells[1] || {textContent: ''}).textContent.trim(),
-                            scaling: (cells[2] || {textContent: ''}).textContent.trim(),
-                            result:  (cells[3] || {textContent: ''}).textContent.trim(),
-                            category: category,
-                        };
-                    }).filter(r => r.name);
-                }
-                return [];
-            }
-
-            // Try to find the category dropdown and iterate all options
-            const select = document.querySelector('select');
-            if (select) {
-                const options = [...select.querySelectorAll('option')];
-                const all = [];
-                for (const opt of options) {
-                    select.value = opt.value;
-                    select.dispatchEvent(new Event('change', {bubbles: true}));
-                    // Give React/Vue a tick to re-render (synchronous evaluate, best-effort)
-                    all.push(...readTable(opt.text.trim() || opt.value));
-                }
-                // Deduplicate by name+date
-                const seen = new Set();
-                return all.filter(r => {
-                    const key = r.name + '|' + r.date;
-                    if (seen.has(key)) return false;
-                    seen.add(key);
-                    return true;
-                });
-            }
-
-            // Fallback: just read whatever is on screen
-            return readTable('Unknown');
-        }
-        """)
-        benchmarks = result or []
-        log.info("[browser] Extracted %d benchmark entries (JS pass)", len(benchmarks))
-        return benchmarks
+        select_el = page.query_selector("select")
+        if select_el:
+            options = page.evaluate(
+                "() => [...document.querySelectorAll('select option')]"
+                ".map(o => ({value: o.value, text: o.text.trim()}))"
+            )
+            log.info("[browser] Benchmark native select: %d options", len(options))
+            for opt in options:
+                try:
+                    page.select_option("select", value=opt["value"])
+                    page.wait_for_timeout(700)
+                    add_rows(_scrape_benchmark_table_js(page, opt["text"] or opt["value"]))
+                except Exception as exc:
+                    log.warning("[browser] select option %s failed: %s", opt, exc)
+            if all_benchmarks:
+                log.info("[browser] Benchmarks via native select: %d", len(all_benchmarks))
+                return all_benchmarks
     except Exception as exc:
-        log.warning("[browser] Failed to extract benchmarks table: %s", exc)
+        log.warning("[browser] Native select benchmark approach failed: %s", exc)
+
+    # ── Strategy 2: custom React/Bootstrap dropdown ─────────────────────────
+    try:
+        # First scrape the default (already-visible) category
+        current_label = page.evaluate(
+            "() => {"
+            "  const candidates = [...document.querySelectorAll('button')];"
+            "  for (const b of candidates) {"
+            "    if (/girls|heroes|open|named|other/i.test(b.textContent)) return b.textContent.trim();"
+            "  }"
+            "  return 'Unknown';"
+            "}"
+        )
+        add_rows(_scrape_benchmark_table_js(page, current_label))
+        log.info("[browser] Default category '%s': %d rows", current_label, len(all_benchmarks))
+
+        # Find the dropdown trigger and collect all option texts
+        trigger_sel = (
+            "button[class*='dropdown'], button[class*='filter'], "
+            "div[class*='dropdown'] button, [class*='Dropdown'] button"
+        )
+        trigger = page.query_selector(trigger_sel)
+        if not trigger:
+            # Broader fallback: any button whose text matches a known category
+            trigger = page.evaluate_handle(
+                "() => [...document.querySelectorAll('button')]"
+                ".find(b => /girls|heroes|open|named|other/i.test(b.textContent)) || null"
+            )
+
+        if trigger:
+            trigger.click()
+            page.wait_for_timeout(500)
+            item_sel = (
+                "[class*='dropdown-item'], [class*='dropdown-menu'] li, "
+                "[role='option'], [role='menuitem'], [class*='DropdownItem']"
+            )
+            items = page.query_selector_all(item_sel)
+            option_texts = [i.inner_text().strip() for i in items if i.inner_text().strip()]
+            log.info("[browser] Benchmark dropdown options: %s", option_texts)
+            page.keyboard.press("Escape")
+            page.wait_for_timeout(300)
+
+            for text in option_texts:
+                if text == current_label:
+                    continue
+                try:
+                    trigger.click()
+                    page.wait_for_timeout(400)
+                    for item in page.query_selector_all(item_sel):
+                        if item.inner_text().strip() == text:
+                            item.click()
+                            page.wait_for_timeout(800)
+                            add_rows(_scrape_benchmark_table_js(page, text))
+                            break
+                except Exception as exc:
+                    log.warning("[browser] Clicking benchmark option '%s' failed: %s", text, exc)
+    except Exception as exc:
+        log.warning("[browser] Custom dropdown benchmark approach failed: %s", exc)
+
+    log.info("[browser] Total benchmark entries: %d", len(all_benchmarks))
+    return all_benchmarks
+
+
+def _extract_logbook_from_page(page) -> list[dict]:
+    """Scrape the Athlete Logbook table (workouts athlete actually logged a score for).
+
+    Returns a list of dicts with keys: date, workout, result.
+    """
+    try:
+        page.wait_for_selector("table", timeout=8000)
+    except Exception:
+        log.warning("[browser] No table found on logbook page")
+        return []
+    try:
+        return page.evaluate("""
+        () => {
+            const tables = document.querySelectorAll('table');
+            for (const table of tables) {
+                const headers = [...table.querySelectorAll('th')]
+                    .map(th => th.textContent.trim().toLowerCase());
+                // Logbook has a date column and a workout/wod column
+                if (!headers.some(h => /date|datum/i.test(h))) continue;
+                const rows = [...table.querySelectorAll('tbody tr')];
+                return rows.map(row => {
+                    const cells = [...row.querySelectorAll('td')];
+                    return {
+                        date:    (cells[0] || {textContent: ''}).textContent.trim(),
+                        workout: (cells[1] || {textContent: ''}).textContent.trim(),
+                        result:  (cells[2] || {textContent: ''}).textContent.trim(),
+                    };
+                }).filter(r => r.date && r.workout);
+            }
+            return [];
+        }
+        """) or []
+    except Exception as exc:
+        log.warning("[browser] Failed to extract logbook: %s", exc)
         return []
 
 
@@ -669,6 +773,22 @@ def fetch_all_workouts_playwright(
             except Exception as exc:
                 log.warning("[browser] Benchmark workouts fetch failed: %s", exc)
 
+            # ── 6. Scrape athlete logbook (actual attended workouts) ──────────
+            athlete_logbook: list[dict] = []
+            log.info("[browser] Navigating to athlete logbook page")
+            try:
+                four_weeks_ago = (datetime.now(AMS) - timedelta(weeks=4)).strftime("%Y%m%d")
+                today_str = datetime.now(AMS).strftime("%Y%m%d")
+                page.goto(
+                    f"{SUGARWOD_BASE}/athletes/me?date_from={four_weeks_ago}&date_to={today_str}#logbook",
+                    wait_until="networkidle",
+                    timeout=30000,
+                )
+                athlete_logbook = _extract_logbook_from_page(page)
+                log.info("[browser] Extracted %d logbook entries", len(athlete_logbook))
+            except Exception as exc:
+                log.warning("[browser] Athlete logbook fetch failed: %s", exc)
+
             browser.close()
 
             # ── 3. Direct API calls for each week ────────────────────────────
@@ -730,6 +850,7 @@ def fetch_all_workouts_playwright(
         "barbell_lifts": barbell_lifts,
         "personal_records": personal_records,
         "benchmark_workouts": benchmark_workouts,
+        "athlete_logbook": athlete_logbook,
     }
 
 
@@ -1326,6 +1447,7 @@ def main() -> int:
     barbell_lifts: dict = {}
     personal_records: list[dict] = []
     benchmark_workouts: list[dict] = []
+    athlete_logbook: list[dict] = []
 
     playwright_result = fetch_all_workouts_playwright(email, password, weeks)
     if playwright_result is not None:
@@ -1333,6 +1455,7 @@ def main() -> int:
         barbell_lifts = playwright_result.get("barbell_lifts", {})
         personal_records = playwright_result.get("personal_records", [])
         benchmark_workouts = playwright_result.get("benchmark_workouts", [])
+        athlete_logbook = playwright_result.get("athlete_logbook", [])
         log.info(
             "Playwright fetched %d workouts, %d barbell lifts, %d PRs",
             len(workouts), len(barbell_lifts), len(personal_records),
@@ -1377,16 +1500,55 @@ def main() -> int:
     upcoming_workouts = [w for w in workouts if w.get("date", "") >= today.isoformat()]
     workout_plans = generate_workout_plans(upcoming_workouts, barbell_lifts, ATHLETE_PROFILE)
 
-    # Generate daily recovery advice based on recent past workouts
-    past_workouts_sorted = sorted(
-        [w for w in workouts if w.get("date", "") < today.isoformat()],
-        key=lambda w: w.get("date", ""),
-        reverse=True,
-    )
+    # Generate daily recovery advice.
+    # Prefer the athlete logbook (workouts the athlete actually attended + scored)
+    # over the full programmed-workout list so the coach knows the real training load.
     next_workout = upcoming_workouts[0] if upcoming_workouts else None
-    recovery_advice = generate_recovery_advice(
-        past_workouts_sorted[:3], next_workout, barbell_lifts, ATHLETE_PROFILE
-    )
+    if athlete_logbook:
+        # Build past_workouts from logbook entries: match to full workout descriptions
+        # by date when possible, otherwise use the logbook title directly.
+        date_to_workout = {w["date"]: w for w in workouts}
+        attended_workouts: list[dict] = []
+        for entry in sorted(athlete_logbook, key=lambda e: e.get("date", ""), reverse=True):
+            raw_date = entry.get("date", "")
+            # Logbook dates may be like "Mar 20, 2026" — normalise to ISO if needed
+            iso_date = raw_date
+            if raw_date and not raw_date[:4].isdigit():
+                for fmt in ("%b %d, %Y", "%B %d, %Y", "%d %b %Y", "%d %B %Y", "%d-%m-%Y"):
+                    try:
+                        iso_date = datetime.strptime(raw_date, fmt).strftime("%Y-%m-%d")
+                        break
+                    except ValueError:
+                        pass
+            full = date_to_workout.get(iso_date)
+            if full:
+                attended_workouts.append(full)
+            else:
+                attended_workouts.append({
+                    "date": iso_date,
+                    "title": entry.get("workout", "WOD"),
+                    "description": entry.get("result", ""),
+                })
+        log.info(
+            "Coach advice based on %d logbook (attended) workouts", len(attended_workouts)
+        )
+        recovery_advice = generate_recovery_advice(
+            attended_workouts[:5], next_workout, barbell_lifts, ATHLETE_PROFILE
+        )
+    else:
+        # Fallback: use programmed workouts sorted by date
+        past_workouts_sorted = sorted(
+            [w for w in workouts if w.get("date", "") < today.isoformat()],
+            key=lambda w: w.get("date", ""),
+            reverse=True,
+        )
+        log.info(
+            "Coach advice fallback: using %d programmed past workouts",
+            len(past_workouts_sorted),
+        )
+        recovery_advice = generate_recovery_advice(
+            past_workouts_sorted[:3], next_workout, barbell_lifts, ATHLETE_PROFILE
+        )
 
     wod_data = {
         "workouts": workouts,
