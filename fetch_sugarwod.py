@@ -149,14 +149,23 @@ def login(session: requests.Session, email: str, password: str) -> str | None:
 
     if resp.status_code not in (200, 201):
         log.error("Login failed with HTTP %d", resp.status_code)
-        return None
+        return None, None
 
+    session_token = None
     try:
         body = resp.json()
         if isinstance(body, dict) and body.get("success") is False:
             log.error("Login rejected: %s", body.get("message", ""))
-            return None
+            return None, None
         log.info("Login JSON: %s", body)
+        # Extract Parse Server session token for direct API access
+        if isinstance(body, dict):
+            session_token = (
+                body.get("sessionToken")
+                or (body.get("data") or {}).get("sessionToken")
+            )
+            if session_token:
+                log.info("Got Parse sessionToken: %s…", session_token[:20])
     except ValueError:
         pass
 
@@ -164,10 +173,10 @@ def login(session: requests.Session, email: str, password: str) -> str | None:
     new_csrf = _generate_csrf_from_session(session)
     if new_csrf:
         log.info("CSRF token after login: %s", new_csrf[:20] + "…")
-        return new_csrf
+        return new_csrf, session_token
 
     log.warning("Could not generate CSRF token after login")
-    return csrf  # fall back to pre-login token
+    return csrf, session_token  # fall back to pre-login token
 
 
 def _generate_csrf_from_session(session: requests.Session) -> str | None:
@@ -253,12 +262,108 @@ def fetch_workouts_week(
     session: requests.Session,
     monday: datetime,
     csrf: str | None,
+    session_token: str | None = None,
 ) -> list[dict]:
     """
-    Call the same XHR endpoint the SugarWOD web app uses to load the calendar.
-    Returns a list of workout dicts (one per day).
+    Fetch workouts for one week.
+
+    Tries in order:
+    1. Parse Server REST API (using the sessionToken from login)
+    2. SugarWOD custom workouts API with JSON Accept header
+    3. HTML calendar endpoint (fallback with structure-aware parsing)
     """
     week_str = monday.strftime("%Y%m%d")
+
+    # ── 1. Parse Server direct API ──────────────────────────────────────
+    if session_token:
+        workouts = _fetch_via_parse_api(session, monday, week_str, session_token)
+        if workouts is not None:
+            return workouts
+
+    # ── 2. Custom JSON API endpoint ─────────────────────────────────────
+    workouts = _fetch_via_json_api(session, monday, week_str, csrf, session_token)
+    if workouts is not None:
+        return workouts
+
+    # ── 3. HTML calendar (scraping fallback) ────────────────────────────
+    return _fetch_via_html(session, monday, week_str, csrf)
+
+
+def _fetch_via_parse_api(
+    session: requests.Session,
+    monday: datetime,
+    week_str: str,
+    session_token: str,
+) -> list[dict] | None:
+    """
+    Query the SugarWOD Parse Server backend directly.
+
+    SugarWOD is built on Parse Server. After login the response contains a
+    sessionToken that can be used for authenticated API calls.
+    """
+    week_start = monday.strftime("%Y-%m-%dT00:00:00.000Z")
+    week_end = (monday + timedelta(days=6)).strftime("%Y-%m-%dT23:59:59.999Z")
+
+    endpoints_to_try = [
+        # Parse Server at /parse
+        (f"{SUGARWOD_BASE}/parse/classes/TBWorkout", {
+            "where": json.dumps({
+                "scheduledDate": {
+                    "$gte": {"__type": "Date", "iso": week_start},
+                    "$lte": {"__type": "Date", "iso": week_end},
+                }
+            }),
+            "limit": 50,
+            "order": "scheduledDate",
+        }),
+        # Alternate Parse path
+        (f"{SUGARWOD_BASE}/parse/classes/Workout", {
+            "where": json.dumps({
+                "scheduledDate": {
+                    "$gte": {"__type": "Date", "iso": week_start},
+                    "$lte": {"__type": "Date", "iso": week_end},
+                }
+            }),
+            "limit": 50,
+        }),
+    ]
+
+    for url, params in endpoints_to_try:
+        log.info("Trying Parse API: %s", url)
+        try:
+            resp = session.get(
+                url,
+                params=params,
+                headers={
+                    "X-Parse-Session-Token": session_token,
+                    "Accept": "application/json",
+                },
+                timeout=30,
+            )
+            log.info("  → HTTP %d | %s", resp.status_code, resp.text[:120])
+            if resp.status_code == 200:
+                data = resp.json()
+                results = data.get("results", [])
+                if results:
+                    log.info("Parse API returned %d workouts", len(results))
+                    return _parse_parse_workouts(results)
+        except Exception as exc:
+            log.warning("Parse API error: %s", exc)
+
+    return None
+
+
+def _fetch_via_json_api(
+    session: requests.Session,
+    monday: datetime,
+    week_str: str,
+    csrf: str | None,
+    session_token: str | None,
+) -> list[dict] | None:
+    """
+    Try the workouts endpoint with Accept: application/json.
+    Some server configs return JSON instead of HTML when asked.
+    """
     params: dict = {
         "week": week_str,
         "track": "workout-of-the-day",
@@ -267,30 +372,90 @@ def fetch_workouts_week(
     if csrf:
         params["_csrf"] = csrf
 
-    xhr_headers = {
+    headers = {
         "X-Requested-With": "XMLHttpRequest",
-        "Accept": "application/json, text/html, */*",
-        "Referer": (
-            f"{SUGARWOD_BASE}/workouts/calendar"
-            f"?week={week_str}&track=workout-of-the-day"
-        ),
+        "Accept": "application/json",
+        "Referer": f"{SUGARWOD_BASE}/workouts?week={week_str}&track=workout-of-the-day",
     }
+    if session_token:
+        headers["X-Parse-Session-Token"] = session_token
+    if csrf:
+        headers["X-CSRF-Token"] = csrf
 
-    log.info("Fetching workouts for week %s", week_str)
-    resp = session.get(WORKOUTS_URL, params=params, headers=xhr_headers, timeout=30)
-    log.info("Workouts response: HTTP %d, Content-Type: %s",
+    log.info("Fetching workouts (JSON) for week %s", week_str)
+    resp = session.get(WORKOUTS_URL, params=params, headers=headers, timeout=30)
+    log.info("  → HTTP %d, Content-Type: %s",
              resp.status_code, resp.headers.get("Content-Type", ""))
 
-    resp.raise_for_status()
+    if resp.status_code != 200:
+        return None
 
     content_type = resp.headers.get("Content-Type", "")
+    if "json" not in content_type:
+        return None  # HTML — handled by _fetch_via_html
 
-    # JSON response
-    if "json" in content_type:
-        return _parse_workouts_json(resp.json(), monday)
+    return _parse_workouts_json(resp.json(), monday)
 
-    # HTML fragment response
+
+def _fetch_via_html(
+    session: requests.Session,
+    monday: datetime,
+    week_str: str,
+    csrf: str | None,
+) -> list[dict]:
+    """Fetch the HTML calendar page and scrape workout content."""
+    params: dict = {
+        "week": week_str,
+        "track": "workout-of-the-day",
+        "_": str(int(time.time() * 1000)),
+    }
+    if csrf:
+        params["_csrf"] = csrf
+
+    headers = {
+        "Accept": "text/html,application/xhtml+xml,*/*",
+        "Referer": f"{SUGARWOD_BASE}/workouts",
+    }
+
+    log.info("Fetching workouts (HTML) for week %s", week_str)
+    resp = session.get(WORKOUTS_URL, params=params, headers=headers, timeout=30)
+    log.info("  → HTTP %d, Content-Type: %s",
+             resp.status_code, resp.headers.get("Content-Type", ""))
+    resp.raise_for_status()
+
+    # Log a snippet to aid debugging
+    log.info("HTML snippet (first 2000 chars):\n%s", resp.text[:2000])
+
     return _parse_workouts_html(resp.text, monday)
+
+
+def _parse_parse_workouts(results: list[dict]) -> list[dict]:
+    """Convert Parse Server workout objects to our standard format."""
+    workouts = []
+    for item in results:
+        # Scheduled date can be a Parse Date object or ISO string
+        date_val = item.get("scheduledDate") or item.get("date") or item.get("workoutDate")
+        if isinstance(date_val, dict):
+            date_val = date_val.get("iso", "")
+        if date_val:
+            try:
+                date_str = datetime.fromisoformat(
+                    date_val.replace("Z", "+00:00")
+                ).strftime("%Y-%m-%d")
+            except ValueError:
+                date_str = date_val[:10]
+        else:
+            date_str = ""
+
+        title = item.get("title") or item.get("name") or "WOD"
+        description = (
+            item.get("description")
+            or item.get("content")
+            or item.get("workout")
+            or ""
+        )
+        workouts.append({"date": date_str, "title": title, "description": description})
+    return workouts
 
 
 def _parse_workouts_json(data, monday: datetime) -> list[dict]:
@@ -434,7 +599,7 @@ def main() -> int:
     session = requests.Session()
     session.headers.update(BROWSER_HEADERS)
 
-    csrf = login(session, email, password)
+    csrf, session_token = login(session, email, password)
     if csrf is None:
         log.warning("Proceeding without CSRF token — requests may be rejected")
 
@@ -445,7 +610,9 @@ def main() -> int:
     workouts: list[dict] = []
     for monday in [this_monday, next_monday]:
         try:
-            week_workouts = fetch_workouts_week(session, monday, csrf)
+            week_workouts = fetch_workouts_week(
+                session, monday, csrf, session_token=session_token
+            )
             workouts.extend(week_workouts)
             log.info("Week %s: %d workout(s)", monday.strftime("%Y%m%d"), len(week_workouts))
         except Exception as exc:
