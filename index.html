@@ -418,6 +418,46 @@
       vertical-align: top;
     }
 
+    /* Personal Records section */
+    .pr-list {
+      display: flex;
+      flex-direction: column;
+      gap: 0.4rem;
+      margin-bottom: 2rem;
+    }
+
+    .pr-item {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 0.7rem 1rem;
+      display: flex;
+      align-items: baseline;
+      gap: 0.8rem;
+      animation: fadeUp 0.4s ease both;
+    }
+
+    .pr-workout {
+      font-weight: 500;
+      font-size: 0.88rem;
+      flex: 1;
+    }
+
+    .pr-notes {
+      font-size: 0.78rem;
+      color: #a0b880;
+      flex: 2;
+    }
+
+    .pr-date {
+      font-family: 'Bebas Neue', sans-serif;
+      font-size: 1rem;
+      color: var(--accent);
+      letter-spacing: 0.04em;
+      flex-shrink: 0;
+      text-align: right;
+    }
+
     /* Daily recovery advice block */
     .recovery-block {
       background: #0a0f1a;
@@ -606,6 +646,7 @@
     let workoutPlans = {};
     let barbellLifts = {};
     let recoveryAdvice = null;
+    let personalRecords = [];
 
     function stripHtml(html) {
       const div = document.createElement('div');
@@ -626,6 +667,7 @@
         workoutPlans = data.workout_plans || {};
         barbellLifts = data.barbell_lifts || {};
         recoveryAdvice = data.recovery_advice || null;
+        personalRecords = data.personal_records || [];
         const n = Object.keys(wodByDate).length;
         if (el) el.textContent = n > 0 ? `WOD geladen voor ${n} dag(en)` : 'WOD: geen workouts in by_date (fetch mislukt?)';
       } catch (e) { if (el) el.textContent = `WOD fout: ${e.message}`; }
@@ -734,11 +776,49 @@
           html += `</div>`;
         }
 
+        // Personal Records
+        if (personalRecords.length > 0) {
+          const sorted = [...personalRecords].sort((a, b) => {
+            const da = a.date || '';
+            const db = b.date || '';
+            return db.localeCompare(da);
+          });
+          html += `<div class="section-title">Persoonlijke Records</div><div class="pr-list">`;
+          sorted.forEach((pr, i) => {
+            const dateLabel = pr.date ? formatPrDate(pr.date) : '—';
+            html += `<div class="pr-item" style="animation-delay:${i * 0.03}s">
+              <div class="pr-workout">${escapeHtml(pr.workout)}</div>
+              <div class="pr-notes">${escapeHtml(pr.notes || '')}</div>
+              <div class="pr-date">${dateLabel}</div>
+            </div>`;
+          });
+          html += `</div>`;
+        }
+
         content.innerHTML = html;
 
       } catch (e) {
         content.innerHTML = `<div class="error-msg">❌ ${e.message}</div>`;
       }
+    }
+
+    function formatPrDate(raw) {
+      // Accepts YYYY-MM-DD, YYYYMMDD, or human-readable strings
+      const clean = raw.replace(/\//g, '-').trim();
+      const m = clean.match(/^(\d{4})-?(\d{2})-?(\d{2})/);
+      if (m) {
+        const d = new Date(`${m[1]}-${m[2]}-${m[3]}T00:00:00`);
+        return `${d.getDate()} ${MONTH_NL[d.getMonth()]} ${d.getFullYear()}`;
+      }
+      return raw;
+    }
+
+    function escapeHtml(str) {
+      return String(str)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;');
     }
   </script>
 </body>

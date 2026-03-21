@@ -554,7 +554,7 @@ def fetch_all_workouts_playwright(
             log.info("[browser] Navigating to personal records page")
             captured.clear()
             try:
-                from_date = (datetime.now(AMS) - timedelta(days=180)).strftime("%Y%m%d")
+                from_date = "20100101"  # fetch all-time PRs
                 to_date = datetime.now(AMS).strftime("%Y%m%d")
                 page.goto(
                     f"{SUGARWOD_BASE}/athletes/me?date_from={from_date}&date_to={to_date}#prs",
