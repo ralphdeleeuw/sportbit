@@ -16,6 +16,8 @@ Environment variables:
     GITHUB_TOKEN     - GitHub personal access token with gist scope
 """
 
+import base64
+import hashlib
 import json
 import logging
 import os
@@ -96,11 +98,10 @@ def login(session: requests.Session, email: str, password: str) -> str | None:
         post_data["_csrf"] = csrf
 
     resp = session.post(LOGIN_URL, data=post_data, timeout=30)
-    log.info("Login response: HTTP %d", resp.status_code)
-    log.info("Login response headers: %s", dict(resp.headers))
-    log.info("Login response body: %s", resp.text[:500])
-    log.info("Cookies after login: %s", {k: v[:20] + "…" if len(v) > 20 else v
-                                          for k, v in session.cookies.items()})
+    log.info("Login response: HTTP %d, Content-Type: %s",
+             resp.status_code, resp.headers.get("Content-Type", ""))
+    log.info("Login response body (first 300): %s", resp.text[:300])
+    log.info("Cookies after login: %s", dict(session.cookies))
 
     try:
         body = resp.json()
@@ -130,15 +131,63 @@ def login(session: requests.Session, email: str, password: str) -> str | None:
     return final_csrf
 
 
+def _generate_csrf_from_session(session: requests.Session) -> str | None:
+    """
+    SugarWOD uses the Express.js `csurf` middleware.  The CSRF secret is stored
+    in the _sw_session cookie as base64-encoded JSON {"csrfSecret": "..."}.
+    The token is generated client-side (by the SPA's JS) as:
+
+        salt     = 8 random bytes → base64url (no padding)
+        token    = salt + "-" + base64url(SHA1(salt + "-" + secret))
+
+    We replicate this in Python so we can send a valid _csrf without a browser.
+    """
+    sw_session = session.cookies.get("_sw_session")
+    if not sw_session:
+        log.warning("No _sw_session cookie found")
+        return None
+
+    # URL-decode if needed, then base64-decode
+    try:
+        from urllib.parse import unquote
+        raw = unquote(sw_session)
+        # Strip signature part (cookie-session signs as "payload.sig")
+        payload = raw.split(".")[0]
+        padded = payload + "=" * (4 - len(payload) % 4)
+        data = json.loads(base64.b64decode(padded))
+        secret = data.get("csrfSecret") or data.get("csrf_secret")
+    except Exception as exc:
+        log.warning("Could not decode _sw_session cookie: %s", exc)
+        log.debug("_sw_session raw value: %s", sw_session[:100])
+        return None
+
+    if not secret:
+        log.warning("csrfSecret not found in _sw_session cookie. Keys: %s",
+                    list(data.keys()) if isinstance(data, dict) else "?")
+        return None
+
+    # Generate csurf-compatible token
+    salt = base64.urlsafe_b64encode(os.urandom(8)).decode().rstrip("=")
+    digest = hashlib.sha1(f"{salt}-{secret}".encode("ascii")).digest()
+    token = salt + "-" + base64.urlsafe_b64encode(digest).decode().rstrip("=")
+    log.info("Generated CSRF token from _sw_session secret")
+    return token
+
+
 def _extract_csrf(session: requests.Session, resp: requests.Response) -> str | None:
-    """Extract CSRF token from cookies, JSON body, or HTML meta tag."""
-    # Cookie (double-submit pattern — most common in SugarWOD)
+    """Try all known CSRF token sources."""
+    # 1. Generate from _sw_session cookie (primary method for SugarWOD)
+    token = _generate_csrf_from_session(session)
+    if token:
+        return token
+
+    # 2. Explicit CSRF cookie
     for name in ("_csrf", "csrfToken", "XSRF-TOKEN"):
         val = session.cookies.get(name)
         if val:
             return val
 
-    # JSON response body
+    # 3. JSON response body
     try:
         data = resp.json()
         if isinstance(data, dict):
@@ -148,7 +197,7 @@ def _extract_csrf(session: requests.Session, resp: requests.Response) -> str | N
     except ValueError:
         pass
 
-    # HTML <meta name="csrf-token">
+    # 4. HTML <meta name="csrf-token">
     soup = BeautifulSoup(resp.text, "html.parser")
     meta = soup.find("meta", {"name": "csrf-token"})
     if meta and meta.get("content"):
