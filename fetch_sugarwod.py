@@ -1284,7 +1284,9 @@ Focusgebieden:
 Barbell maxima (kg):
 {barbell_text}
 
-Afgelopen trainingen die de atleet DAADWERKELIJK heeft gedaan (meest recent eerst):
+Afgelopen CrossFit-boxsessies die de atleet DAADWERKELIJK heeft gevolgd (meest recent eerst).
+Dit zijn allemaal echte CrossFit WODs — ook als de WOD-beschrijving ontbreekt of leeg is.
+Ga er nooit van uit dat een sessie "licht" of "accessory" was puur op basis van een ontbrekende beschrijving:
 {past_text if past_text.strip() else "Geen recente trainingen bekend."}
 
 Volgende workout:
@@ -1405,8 +1407,14 @@ def load_sportbit_attended_dates(gist_id: str, token: str) -> set[str]:
     """Read sportbit_state.json from the shared gist and return ISO dates where the
     athlete was signed up (and did NOT cancel) — i.e. days they actually went to the box.
 
+    Only includes class days (Mon/Wed/Thu/Sat) to filter out stale signups for
+    non-scheduled days.
+
     Returns a set of "YYYY-MM-DD" strings.
     """
+    # Weekdays (0=Mon … 6=Sun) that are scheduled CrossFit class days
+    SCHEDULED_WEEKDAYS = {0, 2, 3, 5}  # Mon, Wed, Thu, Sat
+
     if not gist_id or not token:
         return set()
     try:
@@ -1425,12 +1433,21 @@ def load_sportbit_attended_dates(gist_id: str, token: str) -> set[str]:
         signed_up: dict = state.get("signed_up", {})
         cancelled: dict = state.get("cancelled", {})
         attended = set()
+        skipped = 0
         for event_id, info in signed_up.items():
             if event_id not in cancelled:
                 date = info.get("date", "")
                 if date:
-                    attended.add(date)
-        log.info("[gist] Sportbit attended dates: %d", len(attended))
+                    try:
+                        weekday = datetime.strptime(date, "%Y-%m-%d").weekday()
+                    except ValueError:
+                        weekday = -1
+                    if weekday in SCHEDULED_WEEKDAYS:
+                        attended.add(date)
+                    else:
+                        skipped += 1
+                        log.info("[gist] Skipping %s (weekday %d, not a scheduled class day)", date, weekday)
+        log.info("[gist] Sportbit attended dates: %d (skipped %d non-class-day signups)", len(attended), skipped)
         return attended
     except Exception as exc:
         log.warning("[gist] Failed to load sportbit_state.json: %s", exc)
