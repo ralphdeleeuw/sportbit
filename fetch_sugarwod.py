@@ -80,39 +80,53 @@ def login(session: requests.Session, email: str, password: str) -> str | None:
     """
     log.info("Logging in as %s", email)
 
-    # Step 1: Visit sign-in page to get the _csrf cookie
+    # Step 1: Visit sign-in page to establish session / get CSRF cookie
     resp = session.get(f"{SUGARWOD_BASE}/athletes/sign_in", timeout=30)
     resp.raise_for_status()
+    log.info("Sign-in page: HTTP %d, final URL: %s", resp.status_code, resp.url)
+    log.info("Cookies after sign-in page: %s", {k: v[:20] + "…" if len(v) > 20 else v
+                                                  for k, v in session.cookies.items()})
 
     csrf = _extract_csrf(session, resp)
-    log.info("CSRF token before login: %s", csrf[:12] + "…" if csrf else "none")
+    log.info("CSRF token before login: %s", csrf[:20] + "…" if csrf else "none")
 
-    if not csrf:
-        log.error("Could not obtain CSRF token from sign-in page")
-        return None
+    # Step 2: POST credentials to login API (with _csrf if we have it)
+    post_data: dict = {"email": email, "password": password}
+    if csrf:
+        post_data["_csrf"] = csrf
 
-    # Step 2: POST credentials + CSRF token to the login API
-    resp = session.post(
-        LOGIN_URL,
-        data={"email": email, "password": password, "_csrf": csrf},
-        timeout=30,
-    )
+    resp = session.post(LOGIN_URL, data=post_data, timeout=30)
     log.info("Login response: HTTP %d", resp.status_code)
+    log.info("Login response headers: %s", dict(resp.headers))
+    log.info("Login response body: %s", resp.text[:500])
+    log.info("Cookies after login: %s", {k: v[:20] + "…" if len(v) > 20 else v
+                                          for k, v in session.cookies.items()})
 
     try:
         body = resp.json()
-        log.info("Login JSON: %s", body)
+        # If success is explicitly False, the credentials are wrong
+        if isinstance(body, dict) and body.get("success") is False:
+            log.error("Login rejected by server: %s", body.get("message", ""))
+            return None
     except ValueError:
-        log.info("Login response (not JSON): %s", resp.text[:200])
+        pass
 
     if resp.status_code not in (200, 201):
         log.error("Login failed with HTTP %d", resp.status_code)
         return None
 
-    # Step 3: CSRF cookie may have rotated after login
+    # Step 3: find CSRF after login (cookie, JSON, header, HTML)
     new_csrf = _extract_csrf(session, resp)
+
+    # Also check response headers for token
+    for header in ("X-CSRF-Token", "X-CSRFToken", "csrf-token"):
+        if resp.headers.get(header):
+            new_csrf = resp.headers[header]
+            log.info("Got CSRF from response header '%s'", header)
+            break
+
     final_csrf = new_csrf or csrf
-    log.info("CSRF token after login: %s", final_csrf[:12] + "…" if final_csrf else "none")
+    log.info("CSRF token after login: %s", final_csrf[:20] + "…" if final_csrf else "none")
     return final_csrf
 
 
