@@ -47,6 +47,19 @@ BROWSER_HEADERS = {
 }
 
 # ──────────────────────────────────────────────────────────────
+# Athlete profile (used for AI coaching plans)
+# ──────────────────────────────────────────────────────────────
+
+ATHLETE_PROFILE = {
+    "name": "Ralph de Leeuw",
+    "weight_kg": 77,
+    "experience": "intermediate-advanced (4+ jaar CrossFit)",
+    "rx_preference": "mix van RX en Scaled — RX wanneer mogelijk",
+    "injuries": "geen",
+    "gym": "CrossFit Hilversum",
+}
+
+# ──────────────────────────────────────────────────────────────
 # Logging
 # ──────────────────────────────────────────────────────────────
 
@@ -284,17 +297,95 @@ def _extract_csrf(session: requests.Session, resp: requests.Response) -> str | N
 # Workout fetching
 # ──────────────────────────────────────────────────────────────
 
+def _extract_barbell_from_page(page) -> dict:
+    """Extract the Current Barbell Maxes table from the athlete barbell page."""
+    try:
+        page.wait_for_selector("table", timeout=8000)
+    except Exception:
+        log.warning("[browser] No table found on barbell page")
+        return {}
+    try:
+        result = page.evaluate("""
+        () => {
+            const tables = document.querySelectorAll('table');
+            for (const table of tables) {
+                const headers = [...table.querySelectorAll('th')].map(th => th.textContent.trim());
+                const hasBarbell = headers.some(h => /barbell/i.test(h) || /lift/i.test(h));
+                const hasRM = headers.some(h => /\\dRM/.test(h));
+                if (!hasBarbell && !hasRM) continue;
+                const rmHeaders = headers.slice(1).filter(h => /\\dRM/.test(h));
+                const rows = [...table.querySelectorAll('tbody tr')];
+                const lifts = {};
+                for (const row of rows) {
+                    const cells = [...row.querySelectorAll('td')];
+                    if (cells.length < 2) continue;
+                    const liftName = cells[0].textContent.trim();
+                    if (!liftName) continue;
+                    const values = {};
+                    for (let i = 0; i < rmHeaders.length; i++) {
+                        const valText = (cells[i + 1] || {textContent: ''}).textContent.trim();
+                        const num = parseFloat(valText);
+                        if (!isNaN(num) && num > 0) values[rmHeaders[i]] = num;
+                    }
+                    if (Object.keys(values).length > 0) lifts[liftName] = values;
+                }
+                if (Object.keys(lifts).length > 0) return lifts;
+            }
+            return {};
+        }
+        """)
+        return result or {}
+    except Exception as exc:
+        log.warning("[browser] Failed to extract barbell table: %s", exc)
+        return {}
+
+
+def _extract_prs_from_page(page) -> list[dict]:
+    """Extract the Personal Records table from the athlete PRs page."""
+    try:
+        page.wait_for_selector("table", timeout=8000)
+    except Exception:
+        log.warning("[browser] No table found on PRs page")
+        return []
+    try:
+        result = page.evaluate("""
+        () => {
+            const tables = document.querySelectorAll('table');
+            for (const table of tables) {
+                const headers = [...table.querySelectorAll('th')].map(th => th.textContent.trim());
+                const hasPR = headers.some(h => /pr|workout|personal/i.test(h));
+                if (!hasPR) continue;
+                const rows = [...table.querySelectorAll('tbody tr')];
+                return rows.map(row => {
+                    const cells = [...row.querySelectorAll('td')];
+                    return {
+                        workout: (cells[0] || {textContent: ''}).textContent.trim(),
+                        date:    (cells[1] || {textContent: ''}).textContent.trim(),
+                        notes:   (cells[2] || {textContent: ''}).textContent.trim(),
+                    };
+                }).filter(r => r.workout);
+            }
+            return [];
+        }
+        """)
+        return result or []
+    except Exception as exc:
+        log.warning("[browser] Failed to extract PRs table: %s", exc)
+        return []
+
+
 def fetch_all_workouts_playwright(
     email: str,
     password: str,
     weeks: list[datetime],
-) -> list[dict] | None:
+) -> dict | None:
     """
     Use a headless Chromium browser to log in via the real HTML form and then
-    intercept the XHR calls the SPA makes to load workout data.
+    intercept the XHR calls the SPA makes to load workout data.  Also scrapes
+    barbell lifts and personal records from the athlete profile pages.
 
-    Using the real form (instead of crafting raw HTTP requests) means the
-    browser handles CSRF, cookies, and Cloudflare challenges automatically.
+    Returns a dict with keys "workouts", "barbell_lifts", "personal_records",
+    or None if the overall fetch failed.
     """
     try:
         from playwright.sync_api import sync_playwright  # type: ignore
@@ -415,6 +506,76 @@ def fetch_all_workouts_playwright(
                 if "sugarwod.com" in c.get("domain", "")
             }
             log.info("[browser] Captured %d session cookies", len(browser_cookies))
+
+            # ── 3. Scrape barbell lifts ───────────────────────────────────────
+            barbell_lifts: dict = {}
+            log.info("[browser] Navigating to barbell lifts page")
+            captured.clear()
+            try:
+                page.goto(
+                    f"{SUGARWOD_BASE}/athletes/me#barbell",
+                    wait_until="networkidle",
+                    timeout=30000,
+                )
+                # First check if any intercepted XHR contained barbell data
+                for item in captured:
+                    url_lower = item["url"].lower()
+                    if any(k in url_lower for k in ("barbell", "lift_max", "liftmax")):
+                        log.info("[browser] Barbell data found in XHR: %s", item["url"])
+                        data = item["data"]
+                        if isinstance(data, dict):
+                            results = data.get("data") or data.get("results") or []
+                            for r in results:
+                                name = r.get("name") or r.get("title") or ""
+                                if name:
+                                    barbell_lifts[name] = {
+                                        k: r[k] for k in ("1RM", "2RM", "3RM", "5RM")
+                                        if r.get(k)
+                                    }
+                        break
+                # Fall back to DOM parsing if XHR didn't yield data
+                if not barbell_lifts:
+                    barbell_lifts = _extract_barbell_from_page(page)
+                log.info("[browser] Extracted %d barbell lifts", len(barbell_lifts))
+            except Exception as exc:
+                log.warning("[browser] Barbell lifts fetch failed: %s", exc)
+
+            # ── 4. Scrape personal records ────────────────────────────────────
+            personal_records: list[dict] = []
+            log.info("[browser] Navigating to personal records page")
+            captured.clear()
+            try:
+                from_date = (datetime.now(AMS) - timedelta(days=180)).strftime("%Y%m%d")
+                to_date = datetime.now(AMS).strftime("%Y%m%d")
+                page.goto(
+                    f"{SUGARWOD_BASE}/athletes/me?date_from={from_date}&date_to={to_date}#prs",
+                    wait_until="networkidle",
+                    timeout=30000,
+                )
+                # Check XHR first
+                for item in captured:
+                    url_lower = item["url"].lower()
+                    if any(k in url_lower for k in ("personal_record", "/prs", "/pr")):
+                        log.info("[browser] PR data found in XHR: %s", item["url"])
+                        data = item["data"]
+                        if isinstance(data, (list, dict)):
+                            results = data if isinstance(data, list) else (
+                                data.get("data") or data.get("results") or []
+                            )
+                            for r in results:
+                                personal_records.append({
+                                    "workout": r.get("workout") or r.get("name") or r.get("title") or "",
+                                    "date": str(r.get("date") or r.get("achieved_at") or ""),
+                                    "notes": r.get("notes") or "",
+                                })
+                        break
+                # Fall back to DOM parsing
+                if not personal_records:
+                    personal_records = _extract_prs_from_page(page)
+                log.info("[browser] Extracted %d personal records", len(personal_records))
+            except Exception as exc:
+                log.warning("[browser] Personal records fetch failed: %s", exc)
+
             browser.close()
 
             # ── 3. Direct API calls for each week ────────────────────────────
@@ -469,7 +630,13 @@ def fetch_all_workouts_playwright(
         log.warning("Playwright error: %s", exc)
         return None
 
-    return all_workouts if all_workouts else None
+    if not all_workouts:
+        return None
+    return {
+        "workouts": all_workouts,
+        "barbell_lifts": barbell_lifts,
+        "personal_records": personal_records,
+    }
 
 
 def fetch_workouts_week(
@@ -830,6 +997,90 @@ def _build_workout(date: datetime, description: str) -> dict:
 
 
 # ──────────────────────────────────────────────────────────────
+# AI workout plan generation
+# ──────────────────────────────────────────────────────────────
+
+def _strip_html(html: str) -> str:
+    return BeautifulSoup(html, "html.parser").get_text(separator="\n").strip()
+
+
+def generate_workout_plans(
+    upcoming_workouts: list[dict],
+    barbell_lifts: dict,
+    athlete_profile: dict,
+) -> dict[str, str]:
+    """
+    Call the Claude API to generate a personalised execution plan for each
+    upcoming workout.  Requires ANTHROPIC_API_KEY to be set.
+    """
+    api_key = os.environ.get("ANTHROPIC_API_KEY", "").strip()
+    if not api_key:
+        log.warning("ANTHROPIC_API_KEY not set — skipping workout plan generation")
+        return {}
+
+    try:
+        import anthropic
+    except ImportError:
+        log.warning("anthropic package not installed — skipping workout plan generation")
+        return {}
+
+    client = anthropic.Anthropic(api_key=api_key)
+
+    barbell_text = (
+        "\n".join(
+            f"- {lift}: " + ", ".join(f"{rm}: {val}kg" for rm, val in sorted(maxes.items()))
+            for lift, maxes in sorted(barbell_lifts.items())
+        )
+        if barbell_lifts
+        else "Niet beschikbaar"
+    )
+
+    plans: dict[str, str] = {}
+    for workout in upcoming_workouts:
+        date = workout.get("date", "")
+        title = workout.get("title", "WOD")
+        description = _strip_html(workout.get("description", ""))
+        if not description:
+            continue
+
+        prompt = f"""Je bent een ervaren CrossFit coach. Genereer een beknopt, praktisch uitvoeringsplan.
+
+Atleet: {athlete_profile['name']}
+Lichaamsgewicht: {athlete_profile['weight_kg']} kg
+Ervaring: {athlete_profile['experience']}
+RX/Scaled voorkeur: {athlete_profile['rx_preference']}
+Blessures: {athlete_profile['injuries']}
+
+Barbell maxima (kg):
+{barbell_text}
+
+Workout ({date} — {title}):
+{description}
+
+Geef een plan met:
+1. Aanbevolen gewichten voor barbell movements (met % van 1RM als referentie)
+2. Pacing strategie en sets/reps verdeling
+3. 1–2 concrete tips voor deze specifieke workout
+
+Wees direct en bondig. Maximaal 180 woorden. Geen inleiding."""
+
+        try:
+            log.info("Generating AI plan for %s (%s)", date, title)
+            message = client.messages.create(
+                model="claude-sonnet-4-6",
+                max_tokens=450,
+                messages=[{"role": "user", "content": prompt}],
+            )
+            plan_text = message.content[0].text.strip()
+            plans[date] = plan_text
+            log.info("Plan generated for %s (%d chars)", date, len(plan_text))
+        except Exception as exc:
+            log.warning("Failed to generate plan for %s: %s", date, exc)
+
+    return plans
+
+
+# ──────────────────────────────────────────────────────────────
 # Gist storage
 # ──────────────────────────────────────────────────────────────
 
@@ -882,11 +1133,20 @@ def main() -> int:
         log.info("Sunday: also fetching next week (%s)", next_monday.strftime("%Y%m%d"))
 
     # ── Primary: Playwright headless browser (handles login via real form) ─
-    workouts = fetch_all_workouts_playwright(email, password, weeks)
-    if workouts is not None:
-        log.info("Playwright fetched %d workouts total", len(workouts))
+    barbell_lifts: dict = {}
+    personal_records: list[dict] = []
+
+    playwright_result = fetch_all_workouts_playwright(email, password, weeks)
+    if playwright_result is not None:
+        workouts = playwright_result["workouts"]
+        barbell_lifts = playwright_result.get("barbell_lifts", {})
+        personal_records = playwright_result.get("personal_records", [])
+        log.info(
+            "Playwright fetched %d workouts, %d barbell lifts, %d PRs",
+            len(workouts), len(barbell_lifts), len(personal_records),
+        )
     else:
-        # ── Fallback: direct HTTP requests ────────────────────────────
+        # ── Fallback: direct HTTP requests (workouts only) ────────────────
         log.info("Falling back to HTTP request approach")
         csrf, session_token, athlete_id, affiliate_id = login(session, email, password)
         if csrf is None:
@@ -912,6 +1172,7 @@ def main() -> int:
 
     # Build a date-keyed index so the PWA can look up workouts by date
     # without iterating the full list.
+    today = now.date()
     by_date: dict[str, list[dict]] = {}
     for w in workouts:
         d = w.get("date")
@@ -920,9 +1181,16 @@ def main() -> int:
                 {"title": w["title"], "description": w["description"]}
             )
 
+    # Generate AI coaching plans for upcoming workouts
+    upcoming_workouts = [w for w in workouts if w.get("date", "") >= today.isoformat()]
+    workout_plans = generate_workout_plans(upcoming_workouts, barbell_lifts, ATHLETE_PROFILE)
+
     wod_data = {
         "workouts": workouts,
         "by_date": by_date,
+        "barbell_lifts": barbell_lifts,
+        "personal_records": personal_records,
+        "workout_plans": workout_plans,
         "fetched_at": datetime.now(timezone.utc).isoformat(),
     }
 

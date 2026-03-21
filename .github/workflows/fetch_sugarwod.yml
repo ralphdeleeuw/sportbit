@@ -18,7 +18,7 @@ jobs:
           python-version: '3.12'
 
       - name: Install dependencies
-        run: pip install requests beautifulsoup4 playwright
+        run: pip install requests beautifulsoup4 playwright anthropic
 
       - name: Install Playwright browsers
         run: playwright install chromium --with-deps
@@ -29,4 +29,5 @@ jobs:
           SUGARWOD_PASSWORD: ${{ secrets.SUGARWOD_PASSWORD }}
           GIST_ID: ${{ secrets.GIST_ID }}
           GITHUB_TOKEN: ${{ secrets.GIST_TOKEN }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
         run: python3 fetch_sugarwod.py
