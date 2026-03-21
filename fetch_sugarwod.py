@@ -92,12 +92,44 @@ def login(session: requests.Session, email: str, password: str) -> str | None:
     csrf = _extract_csrf(session, resp)
     log.info("CSRF token before login: %s", csrf[:20] + "…" if csrf else "none")
 
-    # Step 2: POST credentials to login API (with _csrf if we have it)
-    post_data: dict = {"email": email, "password": password}
-    if csrf:
-        post_data["_csrf"] = csrf
+    # Step 2: POST credentials — try multiple formats until one succeeds
+    #
+    # SugarWOD's login API at /public/api/v1/login accepts JSON.
+    # The CSRF token can be sent as X-CSRF-Token header or _csrf query param.
+    login_attempts = [
+        # (description, kwargs)
+        ("JSON + X-CSRF-Token header", dict(
+            json={"email": email, "password": password},
+            headers={"X-CSRF-Token": csrf, "Accept": "application/json"},
+        )),
+        ("JSON + _csrf query param", dict(
+            json={"email": email, "password": password},
+            params={"_csrf": csrf},
+            headers={"Accept": "application/json"},
+        )),
+        ("form athlete[] + _csrf body", dict(
+            data={"athlete[email]": email, "athlete[password]": password, "_csrf": csrf},
+        )),
+        ("form email/password + _csrf body", dict(
+            data={"email": email, "password": password, "_csrf": csrf},
+        )),
+    ]
 
-    resp = session.post(LOGIN_URL, data=post_data, timeout=30)
+    resp = None
+    for desc, kwargs in login_attempts:
+        log.info("Trying login: %s", desc)
+        r = session.post(LOGIN_URL, timeout=30, **kwargs)
+        log.info("  → HTTP %d | %s", r.status_code, r.text[:120])
+        if r.status_code in (200, 201, 302):
+            resp = r
+            break
+        if r.status_code == 401 and "Missing Credentials" not in r.text:
+            # A 401 with a different error might still tell us something
+            resp = r
+            break
+
+    if resp is None:
+        resp = r  # last attempt
     log.info("Login response: HTTP %d, Content-Type: %s",
              resp.status_code, resp.headers.get("Content-Type", ""))
     log.info("Login response body (first 300): %s", resp.text[:300])
