@@ -269,19 +269,16 @@ def _extract_csrf(session: requests.Session, resp: requests.Response) -> str | N
 # ──────────────────────────────────────────────────────────────
 
 def fetch_all_workouts_playwright(
-    session: requests.Session,
+    email: str,
+    password: str,
     weeks: list[datetime],
 ) -> list[dict] | None:
     """
-    Use a headless Chromium browser to intercept the XHR calls the SPA makes
-    to load workout data.
+    Use a headless Chromium browser to log in via the real HTML form and then
+    intercept the XHR calls the SPA makes to load workout data.
 
-    Login is done via HTTP (requests.Session) before this is called; those
-    cookies are injected into the browser context so the SPA loads as
-    authenticated without needing to log in again inside the browser.
-
-    _sw_session is HttpOnly so JS cannot read it — that is why we do not
-    attempt JS-based login here.
+    Using the real form (instead of crafting raw HTTP requests) means the
+    browser handles CSRF, cookies, and Cloudflare challenges automatically.
     """
     try:
         from playwright.sync_api import sync_playwright  # type: ignore
@@ -290,7 +287,7 @@ def fetch_all_workouts_playwright(
         return None
 
     log.info("Starting Playwright headless browser")
-    captured: list[dict] = []      # (url, data) pairs from intercepted responses
+    captured: list[dict] = []
 
     def _on_response(response) -> None:
         try:
@@ -298,8 +295,11 @@ def fetch_all_workouts_playwright(
             if response.status != 200 or "json" not in ct:
                 return
             url = response.url
+            # Skip third-party analytics calls
+            if "sugarwod.com" not in url:
+                return
             data = response.json()
-            log.info("  [browser] %s → %s", url, str(data)[:120])
+            log.info("  [browser] %s → %s", url, str(data)[:200])
             captured.append({"url": url, "data": data})
         except Exception:
             pass
@@ -315,28 +315,33 @@ def fetch_all_workouts_playwright(
                     "(KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36"
                 )
             )
-
-            # ── 1. Inject HTTP session cookies into the browser ──────────
-            # This lets the SPA start in an authenticated state without
-            # needing to re-run the login flow inside the browser.
-            browser_cookies = [
-                {
-                    "name": c.name,
-                    "value": c.value,
-                    "domain": c.domain or "app.sugarwod.com",
-                    "path": c.path or "/",
-                }
-                for c in session.cookies
-            ]
-            if browser_cookies:
-                context.add_cookies(browser_cookies)
-                log.info("[browser] Injected %d cookies into browser context",
-                         len(browser_cookies))
-            else:
-                log.warning("[browser] No cookies to inject — SPA will be unauthenticated")
-
             page = context.new_page()
             page.on("response", _on_response)
+
+            # ── 1. Log in via the real HTML form ─────────────────────────
+            # The browser handles CSRF tokens and cookies automatically.
+            log.info("[browser] Navigating to login page")
+            page.goto(f"{SUGARWOD_BASE}/login", wait_until="domcontentloaded",
+                      timeout=30000)
+
+            log.info("[browser] Filling login form")
+            page.locator('input[type="email"], input[name="email"]').first.fill(email)
+            page.locator('input[type="password"]').first.fill(password)
+            page.locator('button[type="submit"], input[type="submit"]').first.click()
+
+            # Wait for the SPA to redirect away from the login page
+            try:
+                page.wait_for_function(
+                    "!window.location.href.includes('/login')",
+                    timeout=15000,
+                )
+                log.info("[browser] Login successful, now at: %s", page.url)
+            except Exception as exc:
+                log.warning("[browser] Login did not redirect: %s — %s", page.url, exc)
+                # Check if we're still on login page (auth failed)
+                if "/login" in page.url:
+                    browser.close()
+                    return None
 
             # ── 2. Fetch each week ────────────────────────────────────────
             for monday in weeks:
@@ -346,6 +351,10 @@ def fetch_all_workouts_playwright(
                        f"?week={week_str}&track=workout-of-the-day")
                 log.info("[browser] Navigating to %s", url)
                 page.goto(url, wait_until="networkidle", timeout=30000)
+
+                # Log all captured URLs to help identify the right endpoint
+                log.info("[browser] Captured %d JSON responses for week %s",
+                         len(captured), week_str)
 
                 # Process captured JSON responses
                 for item in captured:
@@ -362,6 +371,9 @@ def fetch_all_workouts_playwright(
                                  len(results), item["url"])
                         all_workouts.extend(_parse_parse_workouts(results))
                         break
+                else:
+                    log.warning("[browser] No workout data found in %d responses "
+                                "for week %s", len(captured), week_str)
 
             browser.close()
 
@@ -806,21 +818,16 @@ def main() -> int:
     next_monday = this_monday + timedelta(weeks=1)
     weeks = [this_monday, next_monday]
 
-    # ── Login via HTTP (works reliably; session cookies reused everywhere) ─
-    log.info("Logging in via HTTP")
-    csrf, session_token = login(session, email, password)
-    if csrf is None:
-        log.warning("Proceeding without CSRF token — requests may be rejected")
-
-    # ── Primary: Playwright headless browser ──────────────────────────
-    # Pass the authenticated session so its cookies are injected into the
-    # browser context; Playwright then intercepts the SPA's own XHR calls.
-    workouts = fetch_all_workouts_playwright(session, weeks)
+    # ── Primary: Playwright headless browser (handles login via real form) ─
+    workouts = fetch_all_workouts_playwright(email, password, weeks)
     if workouts is not None:
         log.info("Playwright fetched %d workouts total", len(workouts))
     else:
         # ── Fallback: direct HTTP requests ────────────────────────────
         log.info("Falling back to HTTP request approach")
+        csrf, session_token = login(session, email, password)
+        if csrf is None:
+            log.warning("Proceeding without CSRF token — requests may be rejected")
 
         workouts = []
         for monday in weeks:
