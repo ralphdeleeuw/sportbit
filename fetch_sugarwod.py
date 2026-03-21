@@ -725,36 +725,77 @@ def fetch_all_workouts_playwright(
 
             # ── 4. Scrape personal records ────────────────────────────────────
             personal_records: list[dict] = []
+            debug_html: dict[str, str] = {}  # saved to gist for diagnostics
             log.info("[browser] Navigating to personal records page")
-            captured.clear()
             try:
                 from_date = "20100101"  # fetch all-time PRs
                 to_date = datetime.now(AMS).strftime("%Y%m%d")
+                # Navigate away first so the SPA re-fetches data when we return
+                page.goto(f"{SUGARWOD_BASE}/workouts", wait_until="domcontentloaded", timeout=15000)
+                captured.clear()
                 page.goto(
                     f"{SUGARWOD_BASE}/athletes/me?date_from={from_date}&date_to={to_date}#prs",
                     wait_until="networkidle",
                     timeout=30000,
                 )
-                # Check XHR first
+                # Save page HTML for diagnostics (truncated to keep gist small)
+                try:
+                    debug_html["prs"] = page.content()[:80000]
+                except Exception:
+                    pass
+
+                log.info("[browser] Captured %d XHRs on PR page; URLs: %s",
+                         len(captured), [c["url"] for c in captured])
+
+                # Strategy 1: URL-keyword match
                 for item in captured:
                     url_lower = item["url"].lower()
-                    if any(k in url_lower for k in ("personal_record", "/prs", "/pr")):
-                        log.info("[browser] PR data found in XHR: %s", item["url"])
+                    if any(k in url_lower for k in ("personal_record", "/prs", "/pr", "athlete_pr")):
+                        log.info("[browser] PR data found by URL: %s", item["url"])
                         data = item["data"]
-                        if isinstance(data, (list, dict)):
-                            results = data if isinstance(data, list) else (
-                                data.get("data") or data.get("results") or []
-                            )
-                            for r in results:
-                                personal_records.append({
-                                    "workout": r.get("workout") or r.get("name") or r.get("title") or "",
-                                    "date": str(r.get("date") or r.get("achieved_at") or ""),
-                                    "notes": r.get("notes") or "",
-                                })
-                        break
-                # Fall back to DOM parsing
+                        arr = data if isinstance(data, list) else (
+                            data.get("data") or data.get("results") or data.get("personal_records") or []
+                        )
+                        for r in arr:
+                            personal_records.append({
+                                "workout": r.get("workout") or r.get("workout_name") or r.get("name") or r.get("title") or "",
+                                "date": str(r.get("date") or r.get("achieved_at") or r.get("performed_at") or ""),
+                                "notes": str(r.get("notes") or r.get("result") or r.get("score") or ""),
+                            })
+                        if personal_records:
+                            break
+
+                # Strategy 2: shape-based match across ALL captured XHRs
                 if not personal_records:
+                    log.info("[browser] URL-match failed; trying shape-based XHR scan for PRs")
+                    for item in captured:
+                        data = item["data"]
+                        arr = data if isinstance(data, list) else (
+                            data.get("data") or data.get("results") or data.get("personal_records") or []
+                        )
+                        if not arr or not isinstance(arr, list):
+                            continue
+                        sample = arr[0] if arr else {}
+                        if not isinstance(sample, dict):
+                            continue
+                        has_name = any(k in sample for k in ("workout", "workout_name", "name", "title", "exercise"))
+                        has_date = any(k in sample for k in ("date", "achieved_at", "performed_at", "logged_at"))
+                        if has_name and has_date:
+                            log.info("[browser] Shape-matched PR data from %s (%d items)", item["url"], len(arr))
+                            for r in arr:
+                                personal_records.append({
+                                    "workout": r.get("workout") or r.get("workout_name") or r.get("name") or r.get("title") or r.get("exercise") or "",
+                                    "date": str(r.get("date") or r.get("achieved_at") or r.get("performed_at") or ""),
+                                    "notes": str(r.get("notes") or r.get("result") or r.get("score") or ""),
+                                })
+                            if personal_records:
+                                break
+
+                # Strategy 3: DOM scraping
+                if not personal_records:
+                    log.info("[browser] XHR scan empty; falling back to DOM scraping")
                     personal_records = _extract_prs_from_page(page)
+
                 log.info("[browser] Extracted %d personal records", len(personal_records))
             except Exception as exc:
                 log.warning("[browser] Personal records fetch failed: %s", exc)
@@ -763,12 +804,53 @@ def fetch_all_workouts_playwright(
             benchmark_workouts: list[dict] = []
             log.info("[browser] Navigating to benchmark workouts page")
             try:
+                # Navigate away first to force fresh XHRs
+                page.goto(f"{SUGARWOD_BASE}/workouts", wait_until="domcontentloaded", timeout=15000)
+                captured.clear()
                 page.goto(
                     f"{SUGARWOD_BASE}/athletes/me?date_from=20100101&date_to={datetime.now(AMS).strftime('%Y%m%d')}#benchmarks",
                     wait_until="networkidle",
                     timeout=30000,
                 )
+                try:
+                    debug_html["benchmarks"] = page.content()[:80000]
+                except Exception:
+                    pass
+
+                log.info("[browser] Captured %d XHRs on benchmarks page; URLs: %s",
+                         len(captured), [c["url"] for c in captured])
+
+                # Strategy 1: dedicated extractor (tries select + click interactions)
                 benchmark_workouts = _extract_benchmarks_from_page(page)
+
+                # Strategy 2: shape-based XHR scan if DOM gave nothing
+                if not benchmark_workouts:
+                    log.info("[browser] DOM extraction empty; trying shape-based XHR scan for benchmarks")
+                    for item in captured:
+                        data = item["data"]
+                        arr = data if isinstance(data, list) else (
+                            data.get("data") or data.get("results") or data.get("benchmarks") or []
+                        )
+                        if not arr or not isinstance(arr, list):
+                            continue
+                        sample = arr[0] if arr else {}
+                        if not isinstance(sample, dict):
+                            continue
+                        has_name = any(k in sample for k in ("name", "workout", "benchmark", "title"))
+                        has_result = any(k in sample for k in ("result", "score", "time", "reps", "value"))
+                        if has_name and has_result:
+                            log.info("[browser] Shape-matched benchmark data from %s (%d items)", item["url"], len(arr))
+                            for r in arr:
+                                benchmark_workouts.append({
+                                    "name": r.get("name") or r.get("workout") or r.get("benchmark") or r.get("title") or "",
+                                    "result": str(r.get("result") or r.get("score") or r.get("time") or r.get("reps") or ""),
+                                    "scaling": r.get("scaling") or r.get("scaled") or "",
+                                    "date": str(r.get("date") or r.get("achieved_at") or r.get("performed_at") or ""),
+                                    "category": r.get("category") or r.get("type") or r.get("workout_type") or "Benchmark",
+                                })
+                            if benchmark_workouts:
+                                break
+
                 log.info("[browser] Extracted %d benchmark workouts", len(benchmark_workouts))
             except Exception as exc:
                 log.warning("[browser] Benchmark workouts fetch failed: %s", exc)
@@ -788,6 +870,28 @@ def fetch_all_workouts_playwright(
                 log.info("[browser] Extracted %d logbook entries", len(athlete_logbook))
             except Exception as exc:
                 log.warning("[browser] Athlete logbook fetch failed: %s", exc)
+
+            # Save debug HTML to gist if PRs or benchmarks are still empty
+            if debug_html and (not personal_records or not benchmark_workouts):
+                try:
+                    debug_payload: dict = {}
+                    if not personal_records and "prs" in debug_html:
+                        debug_payload["debug_prs.html"] = {"content": debug_html["prs"]}
+                    if not benchmark_workouts and "benchmarks" in debug_html:
+                        debug_payload["debug_benchmarks.html"] = {"content": debug_html["benchmarks"]}
+                    if debug_payload and gist_id and token:
+                        r = requests.patch(
+                            f"https://api.github.com/gists/{gist_id}",
+                            json={"files": debug_payload},
+                            headers={"Authorization": f"token {token}"},
+                            timeout=30,
+                        )
+                        if r.ok:
+                            log.info("[browser] Debug HTML saved to gist (%s)", list(debug_payload))
+                        else:
+                            log.warning("[browser] Failed to save debug HTML: %s", r.status_code)
+                except Exception as exc:
+                    log.warning("[browser] Could not save debug HTML: %s", exc)
 
             browser.close()
 
