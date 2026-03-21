@@ -133,10 +133,20 @@ def login(session: requests.Session, email: str, password: str) -> str | None:
         r = session.post(LOGIN_URL, headers=hdrs, timeout=30, **kwargs)
         log.info("  → HTTP %d | %s", r.status_code, r.text[:120])
         if r.status_code in (200, 201):
+            try:
+                body = r.json()
+                if isinstance(body, dict) and body.get("success") is True:
+                    resp = r
+                    break  # real success
+                # success:false ("session expired" / wrong creds) → try next
+            except ValueError:
+                resp = r
+                break  # non-JSON 200, assume success
             resp = r
-            break
+            continue
+
         # 401 "Missing Credentials" → wrong field names; try next
-        # Any other status → unexpected, keep the last one and stop
+        # Any other non-401 → unexpected failure, stop
         if r.status_code != 401:
             resp = r
             break
@@ -305,31 +315,69 @@ def fetch_all_workouts_playwright(
             page = context.new_page()
             page.on("response", _on_response)
 
-            # ── 1. Login ─────────────────────────────────────────────────
+            # ── 1. Login via JavaScript fetch ────────────────────────────
+            # We bypass the React form entirely and call the login API
+            # directly from JavaScript.  This way:
+            # - We run from the correct origin (same-site cookies)
+            # - We can read _sw_session from document.cookie
+            # - We generate the csurf token using Web Crypto (SHA-1 HMAC)
+            # - Auth cookies (_sw_ath, _sw_aff) are set in the browser ctx
             log.info("[browser] Navigating to login page")
-            page.goto(f"{SUGARWOD_BASE}/login", wait_until="networkidle", timeout=30000)
+            page.goto(f"{SUGARWOD_BASE}/login", wait_until="domcontentloaded",
+                      timeout=30000)
 
-            # Fill the login form — the web login form uses "email" labels but
-            # the API field is "username".  Try multiple selectors.
-            for selector in ('input[name="username"]', 'input[name="email"]',
-                             'input[type="email"]', 'input[placeholder*="mail" i]',
-                             'input[placeholder*="user" i]'):
-                if page.locator(selector).count():
-                    page.fill(selector, email)
-                    break
+            JS_LOGIN = r"""
+async function swLogin(email, password) {
+    // Parse _sw_session to get csrfSecret
+    const cookies = {};
+    document.cookie.split(';').forEach(c => {
+        const idx = c.indexOf('=');
+        if (idx > 0) cookies[c.slice(0, idx).trim()] = c.slice(idx + 1).trim();
+    });
+    const raw = cookies['_sw_session'];
+    if (!raw) return {error: 'no _sw_session cookie'};
 
-            page.fill('input[type="password"]', password)
+    let secret;
+    try {
+        const decoded = JSON.parse(atob(raw.split('.')[0]));
+        secret = decoded.csrfSecret;
+    } catch(e) { return {error: 'decode: ' + e.message}; }
 
-            # Submit
-            for selector in ('button[type="submit"]', 'input[type="submit"]',
-                             'button:has-text("Log In")', 'button:has-text("Login")',
-                             'button:has-text("Sign in")'):
-                if page.locator(selector).count():
-                    page.click(selector)
-                    break
+    // Generate csurf token: salt "-" base64url(SHA1(salt+"-"+secret))
+    const saltBytes = crypto.getRandomValues(new Uint8Array(8));
+    const salt = btoa(String.fromCharCode(...saltBytes))
+        .replace(/\+/g,'-').replace(/\//g,'_').replace(/=/g,'');
+    const enc = new TextEncoder();
+    const hashBuf = await crypto.subtle.digest('SHA-1',
+        enc.encode(salt + '-' + secret));
+    const hash = btoa(String.fromCharCode(...new Uint8Array(hashBuf)))
+        .replace(/\+/g,'-').replace(/\//g,'_').replace(/=/g,'');
+    const csrf = salt + '-' + hash;
 
-            page.wait_for_load_state("networkidle", timeout=15000)
-            log.info("[browser] After login, URL: %s", page.url)
+    const resp = await fetch('/public/api/v1/login', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+            'Accept': 'application/json',
+            'X-CSRF-Token': csrf,
+            'X-Requested-With': 'XMLHttpRequest'
+        },
+        body: JSON.stringify({username: email, password: password})
+    });
+    const body = await resp.json();
+    return {status: resp.status, body: body};
+}
+swLogin(arguments[0], arguments[1])
+"""
+            login_result = page.evaluate(JS_LOGIN, email, password)
+            log.info("[browser] Login result: %s", str(login_result)[:300])
+
+            if not login_result or not (login_result.get("body") or {}).get("success"):
+                log.warning("[browser] Login failed, aborting Playwright")
+                browser.close()
+                return None
+
+            log.info("[browser] Login successful")
 
             # ── 2. Fetch each week ────────────────────────────────────────
             for monday in weeks:
