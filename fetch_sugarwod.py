@@ -376,58 +376,91 @@ def fetch_all_workouts_playwright(
                     browser.close()
                     return None
 
-            # ── 2. Fetch each week ────────────────────────────────────────
+            # ── 2. Load the workouts page once to get CSRF token + trackId ───
+            # The SPA ignores the ?week= URL param and always loads the current
+            # week. Instead of fighting the router, we load once to grab the
+            # browser credentials (CSRF token, trackId, session cookies), then
+            # call /api/workouts directly for each requested week.
+            first_week_str = weeks[0].strftime("%Y%m%d")
+            captured.clear()
+            log.info("[browser] Loading workouts page to capture credentials")
+            page.goto(
+                f"{SUGARWOD_BASE}/workouts?week={first_week_str}&track=workout-of-the-day",
+                wait_until="networkidle",
+                timeout=30000,
+            )
+            log.info("[browser] Captured %d JSON responses", len(captured))
+
+            # Extract CSRF token and trackId from the intercepted /api/workouts URL
+            from urllib.parse import urlparse, parse_qs
+            api_csrf: str | None = None
+            track_id: str | None = None
+            for item in captured:
+                if "/api/workouts" in item["url"] and "week=" in item["url"]:
+                    p = parse_qs(urlparse(item["url"]).query)
+                    api_csrf = p.get("_csrf", [None])[0]
+                    track_id = p.get("trackId", [None])[0]
+                    log.info("[browser] Extracted _csrf=%s… trackId=%s",
+                             api_csrf[:10] if api_csrf else "none", track_id)
+                    break
+
+            if not api_csrf or not track_id:
+                log.warning("[browser] Could not extract CSRF/trackId from browser")
+                browser.close()
+                return None
+
+            # Capture session cookies from the browser context
+            browser_cookies = {
+                c["name"]: c["value"] for c in context.cookies()
+                if "sugarwod.com" in c.get("domain", "")
+            }
+            log.info("[browser] Captured %d session cookies", len(browser_cookies))
+            browser.close()
+
+            # ── 3. Direct API calls for each week ────────────────────────────
+            # Now that we have valid credentials, use requests for each week so
+            # we control the ?week= parameter precisely.
+            api_session = requests.Session()
+            api_session.headers.update({
+                "User-Agent": (
+                    "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 "
+                    "(KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36"
+                ),
+                "Accept": "application/json",
+                "X-Requested-With": "XMLHttpRequest",
+                "Referer": f"{SUGARWOD_BASE}/workouts",
+            })
+            requests.utils.add_dict_to_cookiejar(api_session.cookies, browser_cookies)
+
             for monday in weeks:
                 week_str = monday.strftime("%Y%m%d")
-                captured.clear()
-                url = (f"{SUGARWOD_BASE}/workouts"
-                       f"?week={week_str}&track=workout-of-the-day")
-                log.info("[browser] Navigating to %s", url)
-                page.goto(url, wait_until="networkidle", timeout=30000)
-
-                # Log all captured URLs to help identify the right endpoint
-                log.info("[browser] Captured %d JSON responses for week %s",
-                         len(captured), week_str)
-
-                # Process captured JSON responses — prefer the /api/workouts endpoint
-                # that matches the requested week, over generic responses that also
-                # happen to return lists (e.g. /api/permissiontypes, /api/resulttypes).
-                workout_items = [
-                    item for item in captured
-                    if "/api/workouts" in item["url"]
-                    and f"week={week_str}" in item["url"]
-                ]
-                if not workout_items:
-                    # SPA may not have navigated to the requested week; fall back to
-                    # any /api/workouts response captured for this page load.
-                    workout_items = [
-                        item for item in captured
-                        if "/api/workouts" in item["url"] and "week=" in item["url"]
-                    ]
-                if not workout_items:
-                    log.warning("[browser] No /api/workouts response captured for "
-                                "week %s; skipping", week_str)
-                    continue
-
-                for item in workout_items:
-                    data = item["data"]
-                    results = (
-                        (data.get("workouts") or data.get("results")
-                         or data.get("data"))
-                        if isinstance(data, dict)
-                        else data if isinstance(data, list)
-                        else None
+                ts = str(int(time.time() * 1000))
+                log.info("[browser→http] Fetching week %s via /api/workouts", week_str)
+                try:
+                    resp = api_session.get(
+                        f"{SUGARWOD_BASE}/api/workouts",
+                        params={
+                            "week": week_str,
+                            "track": "workout-of-the-day",
+                            "trackId": track_id,
+                            "_csrf": api_csrf,
+                            "_": ts,
+                        },
+                        timeout=30,
                     )
-                    if results and isinstance(results, list):
-                        log.info("[browser] Got %d workouts from %s",
-                                 len(results), item["url"])
-                        all_workouts.extend(_parse_parse_workouts(results))
-                        break
-                else:
-                    log.warning("[browser] No workout data found in %d responses "
-                                "for week %s", len(captured), week_str)
-
-            browser.close()
+                    log.info("  → HTTP %d | %s", resp.status_code, resp.text[:200])
+                    if resp.status_code == 200:
+                        data = resp.json()
+                        results = data.get("data") or data.get("workouts") or []
+                        if results:
+                            log.info("  Got %d workouts for week %s",
+                                     len(results), week_str)
+                            all_workouts.extend(_parse_parse_workouts(results))
+                        else:
+                            log.info("  No workouts for week %s (not programmed yet?)",
+                                     week_str)
+                except Exception as exc:
+                    log.warning("  Error fetching week %s: %s", week_str, exc)
 
     except Exception as exc:
         log.warning("Playwright error: %s", exc)
