@@ -344,6 +344,31 @@
       line-height: 1.65;
     }
 
+    /* AI coaching plan */
+    .coach-plan {
+      margin-top: 0.85rem;
+      padding: 0.8rem 1rem;
+      background: #0f1a00;
+      border: 1px solid #2a3a00;
+      border-radius: 8px;
+    }
+
+    .coach-plan-label {
+      font-size: 0.67rem;
+      letter-spacing: 0.16em;
+      text-transform: uppercase;
+      color: var(--accent);
+      font-weight: 600;
+      margin-bottom: 0.4rem;
+    }
+
+    .coach-plan-body {
+      font-size: 0.82rem;
+      color: #c8d8a0;
+      white-space: pre-wrap;
+      line-height: 1.65;
+    }
+
     /* Footer */
     footer {
       text-align: center;
@@ -437,7 +462,7 @@
       </div>`;
 
       if (wods && wods.length > 0) {
-        const sections = renderWodSections(wods);
+        const sections = renderWodSections(wods, item.date);
         return `
           <div class="card has-wod" style="animation-delay:${delay}s" onclick="toggleWod(this)">
             <div class="card-dot dot-active"></div>
@@ -476,6 +501,8 @@
     // ── SugarWOD ──────────────────────────────────────────────
 
     let wodByDate = {};
+    let workoutPlans = {};
+    let barbellLifts = {};
 
     function stripHtml(html) {
       const div = document.createElement('div');
@@ -493,13 +520,15 @@
         if (!file) { if (el) el.textContent = 'WOD: sugarwod_wod.json niet gevonden in Gist'; return; }
         const data = JSON.parse(file.content);
         wodByDate = data.by_date || {};
+        workoutPlans = data.workout_plans || {};
+        barbellLifts = data.barbell_lifts || {};
         const n = Object.keys(wodByDate).length;
         if (el) el.textContent = n > 0 ? `WOD geladen voor ${n} dag(en)` : 'WOD: geen workouts in by_date (fetch mislukt?)';
       } catch (e) { if (el) el.textContent = `WOD fout: ${e.message}`; }
     }
 
-    function renderWodSections(wods) {
-      return wods.map(w => {
+    function renderWodSections(wods, date) {
+      const sections = wods.map(w => {
         const desc = stripHtml(w.description || '').trim();
         if (!desc) return '';
         return `<div class="wod-section">
@@ -507,6 +536,15 @@
           <div class="wod-section-body">${desc}</div>
         </div>`;
       }).join('');
+
+      const plan = date && workoutPlans[date];
+      const planHtml = plan ? `
+        <div class="coach-plan">
+          <div class="coach-plan-label">AI Coach Plan</div>
+          <div class="coach-plan-body">${plan}</div>
+        </div>` : '';
+
+      return sections + planHtml;
     }
 
     function toggleWod(card) {
