@@ -57,6 +57,15 @@ ATHLETE_PROFILE = {
     "rx_preference": "mix van RX en Scaled — RX wanneer mogelijk",
     "injuries": "geen",
     "gym": "CrossFit Hilversum",
+    "doel": "Uiteindelijk alles RX kunnen. Leeftijd 47, voelt zich goed en traint serieus.",
+    "skill_focus": [
+        "hardlooptempo (sneller worden op 400m/800m/1mi)",
+        "back squat & front squat (techniek + kracht)",
+        "double unders (consistentie en hoog volume)",
+        "handstand push-ups (strikt en kipping, richting RX)",
+        "pull-ups (kipping en butterfly, richting RX)",
+        "handstand walk (afstand opbouwen)",
+    ],
 }
 
 # ──────────────────────────────────────────────────────────────
@@ -1043,13 +1052,20 @@ def generate_workout_plans(
         if not description:
             continue
 
+        skill_focus_text = "\n".join(
+            f"- {s}" for s in athlete_profile.get("skill_focus", [])
+        )
         prompt = f"""Je bent een ervaren CrossFit coach. Genereer een beknopt, praktisch uitvoeringsplan.
 
 Atleet: {athlete_profile['name']}
 Lichaamsgewicht: {athlete_profile['weight_kg']} kg
 Ervaring: {athlete_profile['experience']}
+Doel: {athlete_profile.get('doel', '')}
 RX/Scaled voorkeur: {athlete_profile['rx_preference']}
 Blessures: {athlete_profile['injuries']}
+
+Persoonlijke focusgebieden (bewegen waarbij groei gewenst is):
+{skill_focus_text}
 
 Barbell maxima (kg):
 {barbell_text}
@@ -1061,14 +1077,15 @@ Geef een plan met:
 1. Aanbevolen gewichten voor barbell movements (met % van 1RM als referentie)
 2. Pacing strategie en sets/reps verdeling
 3. 1–2 concrete tips voor deze specifieke workout
+4. **Skill-tip**: Als een of meer van de focusgebieden in deze workout voorkomen, geef dan één gerichte verbeteringstip specifiek gericht op het sneller bereiken van RX-niveau voor die beweging (techniek, drills, mindset). Sla deze sectie over als geen van de focusgebieden aanwezig is.
 
-Wees direct en bondig. Maximaal 180 woorden. Geen inleiding."""
+Wees direct en bondig. Maximaal 220 woorden. Geen inleiding."""
 
         try:
             log.info("Generating AI plan for %s (%s)", date, title)
             message = client.messages.create(
                 model="claude-sonnet-4-6",
-                max_tokens=450,
+                max_tokens=600,
                 messages=[{"role": "user", "content": prompt}],
             )
             plan_text = message.content[0].text.strip()
