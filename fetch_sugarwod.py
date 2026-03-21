@@ -269,16 +269,19 @@ def _extract_csrf(session: requests.Session, resp: requests.Response) -> str | N
 # ──────────────────────────────────────────────────────────────
 
 def fetch_all_workouts_playwright(
-    email: str,
-    password: str,
+    session: requests.Session,
     weeks: list[datetime],
 ) -> list[dict] | None:
     """
-    Use a headless Chromium browser to log in to SugarWOD and intercept the
-    XHR calls the SPA makes to load workout data.
+    Use a headless Chromium browser to intercept the XHR calls the SPA makes
+    to load workout data.
 
-    This bypasses all routing/CSRF complexity because we actually run the
-    JavaScript — the browser handles cookies, CSRF, and API calls automatically.
+    Login is done via HTTP (requests.Session) before this is called; those
+    cookies are injected into the browser context so the SPA loads as
+    authenticated without needing to log in again inside the browser.
+
+    _sw_session is HttpOnly so JS cannot read it — that is why we do not
+    attempt JS-based login here.
     """
     try:
         from playwright.sync_api import sync_playwright  # type: ignore
@@ -312,65 +315,28 @@ def fetch_all_workouts_playwright(
                     "(KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36"
                 )
             )
+
+            # ── 1. Inject HTTP session cookies into the browser ──────────
+            # This lets the SPA start in an authenticated state without
+            # needing to re-run the login flow inside the browser.
+            browser_cookies = [
+                {
+                    "name": c.name,
+                    "value": c.value,
+                    "domain": c.domain or "app.sugarwod.com",
+                    "path": c.path or "/",
+                }
+                for c in session.cookies
+            ]
+            if browser_cookies:
+                context.add_cookies(browser_cookies)
+                log.info("[browser] Injected %d cookies into browser context",
+                         len(browser_cookies))
+            else:
+                log.warning("[browser] No cookies to inject — SPA will be unauthenticated")
+
             page = context.new_page()
             page.on("response", _on_response)
-
-            # ── 1. Login via JavaScript fetch ────────────────────────────
-            # We bypass the React form entirely and call the login API
-            # directly from JavaScript.  This way:
-            # - We run from the correct origin (same-site cookies)
-            # - We can read _sw_session from document.cookie
-            # - We generate the csurf token using Web Crypto (SHA-1 HMAC)
-            # - Auth cookies (_sw_ath, _sw_aff) are set in the browser ctx
-            log.info("[browser] Navigating to login page")
-            page.goto(f"{SUGARWOD_BASE}/login", wait_until="domcontentloaded",
-                      timeout=30000)
-
-            # page.evaluate() requires an expression (arrow function), not a
-            # named function declaration.
-            JS_LOGIN = """async (creds) => {
-    const cookies = {};
-    document.cookie.split(';').forEach(c => {
-        const idx = c.indexOf('=');
-        if (idx > 0) cookies[c.slice(0,idx).trim()] = c.slice(idx+1).trim();
-    });
-    const raw = cookies['_sw_session'];
-    if (!raw) return {error: 'no _sw_session'};
-    let secret;
-    try {
-        const decoded = JSON.parse(atob(raw.split('.')[0]));
-        secret = decoded.csrfSecret;
-    } catch(e) { return {error: 'decode:' + e.message}; }
-    const saltBytes = crypto.getRandomValues(new Uint8Array(8));
-    const salt = btoa(String.fromCharCode(...saltBytes))
-        .replace(/\\+/g,'-').replace(/\\//g,'_').replace(/=/g,'');
-    const enc = new TextEncoder();
-    const hashBuf = await crypto.subtle.digest('SHA-1', enc.encode(salt+'-'+secret));
-    const hash = btoa(String.fromCharCode(...new Uint8Array(hashBuf)))
-        .replace(/\\+/g,'-').replace(/\\//g,'_').replace(/=/g,'');
-    const csrf = salt + '-' + hash;
-    const resp = await fetch('/public/api/v1/login', {
-        method: 'POST',
-        headers: {
-            'Content-Type': 'application/json',
-            'Accept': 'application/json',
-            'X-CSRF-Token': csrf,
-            'X-Requested-With': 'XMLHttpRequest'
-        },
-        body: JSON.stringify({username: creds.email, password: creds.password})
-    });
-    const body = await resp.json();
-    return {status: resp.status, body: body};
-}"""
-            login_result = page.evaluate(JS_LOGIN, {"email": email, "password": password})
-            log.info("[browser] Login result: %s", str(login_result)[:300])
-
-            if not login_result or not (login_result.get("body") or {}).get("success"):
-                log.warning("[browser] Login failed, aborting Playwright")
-                browser.close()
-                return None
-
-            log.info("[browser] Login successful")
 
             # ── 2. Fetch each week ────────────────────────────────────────
             for monday in weeks:
@@ -840,16 +806,21 @@ def main() -> int:
     next_monday = this_monday + timedelta(weeks=1)
     weeks = [this_monday, next_monday]
 
+    # ── Login via HTTP (works reliably; session cookies reused everywhere) ─
+    log.info("Logging in via HTTP")
+    csrf, session_token = login(session, email, password)
+    if csrf is None:
+        log.warning("Proceeding without CSRF token — requests may be rejected")
+
     # ── Primary: Playwright headless browser ──────────────────────────
-    workouts = fetch_all_workouts_playwright(email, password, weeks)
+    # Pass the authenticated session so its cookies are injected into the
+    # browser context; Playwright then intercepts the SPA's own XHR calls.
+    workouts = fetch_all_workouts_playwright(session, weeks)
     if workouts is not None:
         log.info("Playwright fetched %d workouts total", len(workouts))
     else:
         # ── Fallback: direct HTTP requests ────────────────────────────
         log.info("Falling back to HTTP request approach")
-        csrf, session_token = login(session, email, password)
-        if csrf is None:
-            log.warning("Proceeding without CSRF token — requests may be rejected")
 
         workouts = []
         for monday in weeks:
