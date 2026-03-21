@@ -1224,6 +1224,7 @@ def generate_recovery_advice(
     upcoming_workout: dict | None,
     barbell_lifts: dict,
     athlete_profile: dict,
+    today: "date | None" = None,
 ) -> str:
     """
     Generate a daily recovery/intensity advice based on recent workouts and
@@ -1269,7 +1270,11 @@ def generate_recovery_advice(
 
     skill_focus_text = "\n".join(f"- {s}" for s in athlete_profile.get("skill_focus", []))
 
+    today_str = today.isoformat() if today else "onbekend"
+
     prompt = f"""Je bent een ervaren CrossFit coach. Geef een kort, persoonlijk hersteladvies voor vandaag.
+
+Vandaag is: {today_str}
 
 Atleet: {athlete_profile['name']}, {athlete_profile['weight_kg']} kg, leeftijd 47
 Ervaring: {athlete_profile['experience']}
@@ -1279,7 +1284,7 @@ Focusgebieden:
 Barbell maxima (kg):
 {barbell_text}
 
-Afgelopen trainingen (meest recent eerst):
+Afgelopen trainingen die de atleet DAADWERKELIJK heeft gedaan (meest recent eerst):
 {past_text if past_text.strip() else "Geen recente trainingen bekend."}
 
 Volgende workout:
@@ -1290,6 +1295,7 @@ Geef advies over:
 2. **Intensiteitsadvies** — volledig gas geven, gecontroleerd trainen of bewust schalen vandaag?
 3. **Één concrete tip** voor de volgende workout rekening houdend met herstel (bijv. pacing, scaling keuze, specifieke beweging)
 
+Gebruik bij datumverwijzingen altijd de exacte datum (bijv. "donderdag 19 maart"), NOOIT vage termen als "gisteren" of "eergisteren".
 Wees direct, praktisch en bondig. Maximaal 150 woorden. Schrijf in het Nederlands. Geen inleiding."""
 
     try:
@@ -1431,7 +1437,7 @@ def load_sportbit_attended_dates(gist_id: str, token: str) -> set[str]:
         return set()
 
 
-
+def save_to_gist(gist_id: str, token: str, wod_data: dict) -> None:
     payload = {
         "files": {
             GIST_FILENAME: {
@@ -1566,7 +1572,7 @@ def main() -> int:
         log.info("Coach advice: %d Sportbit attended dates → %d with WOD descriptions",
                  len(past_sportbit_dates), len([w for w in attended_workouts if w.get("description")]))
         recovery_advice = generate_recovery_advice(
-            attended_workouts[:5], next_workout, barbell_lifts, ATHLETE_PROFILE
+            attended_workouts[:5], next_workout, barbell_lifts, ATHLETE_PROFILE, today
         )
 
     # 2. SugarWOD logbook (athlete scored a result)
@@ -1590,7 +1596,7 @@ def main() -> int:
             })
         log.info("Coach advice: %d SugarWOD logbook entries", len(attended_workouts))
         recovery_advice = generate_recovery_advice(
-            attended_workouts[:5], next_workout, barbell_lifts, ATHLETE_PROFILE
+            attended_workouts[:5], next_workout, barbell_lifts, ATHLETE_PROFILE, today
         )
 
     # 3. Fallback: all programmed past workouts
