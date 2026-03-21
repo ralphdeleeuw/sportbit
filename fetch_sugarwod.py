@@ -92,20 +92,60 @@ def login(session: requests.Session, email: str, password: str) -> str | None:
     csrf = _extract_csrf(session, resp)
     log.info("CSRF token before login: %s", csrf[:20] + "…" if csrf else "none")
 
-    # Step 2: POST credentials as JSON — login endpoint is CSRF-exempt.
-    # Adding any CSRF token to this request breaks body parsing ("Missing
-    # Credentials"), so we send only the credentials here.
-    log.info("Posting credentials to %s", LOGIN_URL)
-    resp = session.post(
-        LOGIN_URL,
-        json={"email": email, "password": password},
-        headers={"Accept": "application/json"},
-        timeout=30,
-    )
+    # Step 2: POST credentials with CSRF token.
+    #
+    # The login endpoint requires a valid CSRF token — without it the server
+    # returns HTTP 200 {"success":false,"message":"Your session has expired..."}.
+    # With CSRF the token passes validation; we then try multiple credential
+    # field-name conventions until one is accepted by Passport.js.
+    #
+    # Extra browser headers (Origin, Referer) are required: some csurf
+    # configurations reject requests that lack them even with a correct token.
+    login_headers = {
+        "Accept": "application/json",
+        "Origin": SUGARWOD_BASE,
+        "Referer": f"{SUGARWOD_BASE}/login",
+        "X-Requested-With": "XMLHttpRequest",
+    }
+
+    attempts = [
+        # description, kwargs (csrf added below)
+        ("JSON email/password + X-CSRF-Token header",
+         dict(json={"email": email, "password": password})),
+        ("JSON username/password + X-CSRF-Token header",
+         dict(json={"username": email, "password": password})),
+        ("JSON nested athlete{email,password} + X-CSRF-Token header",
+         dict(json={"athlete": {"email": email, "password": password}})),
+        ("JSON email/password/_csrf in body",
+         dict(json={"email": email, "password": password, "_csrf": csrf})),
+        ("form email/password + X-CSRF-Token header",
+         dict(data={"email": email, "password": password})),
+        ("form username/password + X-CSRF-Token header",
+         dict(data={"username": email, "password": password})),
+        ("form athlete[]/password + X-CSRF-Token header",
+         dict(data={"athlete[email]": email, "athlete[password]": password})),
+    ]
+
+    resp = None
+    for desc, kwargs in attempts:
+        hdrs = {**login_headers, "X-CSRF-Token": csrf} if csrf else login_headers
+        log.info("Trying login: %s", desc)
+        r = session.post(LOGIN_URL, headers=hdrs, timeout=30, **kwargs)
+        log.info("  → HTTP %d | %s", r.status_code, r.text[:120])
+        if r.status_code in (200, 201):
+            resp = r
+            break
+        # 401 "Missing Credentials" → wrong field names; try next
+        # Any other status → unexpected, keep the last one and stop
+        if r.status_code != 401:
+            resp = r
+            break
+        resp = r  # keep last for error reporting
+
     log.info("Login response: HTTP %d, Content-Type: %s",
              resp.status_code, resp.headers.get("Content-Type", ""))
-    log.info("Login response body: %s", resp.text[:300])
-    log.info("Cookies after login: %s", dict(session.cookies))
+    log.info("Cookies after login: %s", {k: v[:30] + "…" if len(v) > 30 else v
+                                          for k, v in session.cookies.items()})
 
     if resp.status_code not in (200, 201):
         log.error("Login failed with HTTP %d", resp.status_code)
@@ -127,7 +167,7 @@ def login(session: requests.Session, email: str, password: str) -> str | None:
         return new_csrf
 
     log.warning("Could not generate CSRF token after login")
-    return None
+    return csrf  # fall back to pre-login token
 
 
 def _generate_csrf_from_session(session: requests.Session) -> str | None:
