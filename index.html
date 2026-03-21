@@ -418,6 +418,59 @@
       vertical-align: top;
     }
 
+    /* Daily recovery advice block */
+    .recovery-block {
+      background: #0a0f1a;
+      border: 1px solid #1a2a4a;
+      border-radius: 12px;
+      padding: 1rem 1.2rem;
+      margin-bottom: 2rem;
+      animation: fadeUp 0.6s 0.15s ease both;
+    }
+
+    .recovery-block-label {
+      font-size: 0.67rem;
+      letter-spacing: 0.18em;
+      text-transform: uppercase;
+      color: #6ab0ff;
+      font-weight: 600;
+      margin-bottom: 0.5rem;
+    }
+
+    .recovery-block-body {
+      font-size: 0.83rem;
+      color: #b0ccf0;
+      line-height: 1.7;
+    }
+
+    .recovery-block-body h1,
+    .recovery-block-body h2,
+    .recovery-block-body h3 {
+      font-family: 'DM Sans', sans-serif;
+      font-size: 0.78rem;
+      font-weight: 600;
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+      color: #6ab0ff;
+      margin: 0.6rem 0 0.25rem;
+    }
+
+    .recovery-block-body h1:first-child,
+    .recovery-block-body h2:first-child,
+    .recovery-block-body h3:first-child { margin-top: 0; }
+
+    .recovery-block-body p { margin: 0.25rem 0; }
+
+    .recovery-block-body ul,
+    .recovery-block-body ol {
+      padding-left: 1.2rem;
+      margin: 0.25rem 0;
+    }
+
+    .recovery-block-body li { margin: 0.1rem 0; }
+
+    .recovery-block-body strong { color: #cce0ff; font-weight: 600; }
+
     /* Footer */
     footer {
       text-align: center;
@@ -552,6 +605,7 @@
     let wodByDate = {};
     let workoutPlans = {};
     let barbellLifts = {};
+    let recoveryAdvice = null;
 
     function stripHtml(html) {
       const div = document.createElement('div');
@@ -571,6 +625,7 @@
         wodByDate = data.by_date || {};
         workoutPlans = data.workout_plans || {};
         barbellLifts = data.barbell_lifts || {};
+        recoveryAdvice = data.recovery_advice || null;
         const n = Object.keys(wodByDate).length;
         if (el) el.textContent = n > 0 ? `WOD geladen voor ${n} dag(en)` : 'WOD: geen workouts in by_date (fetch mislukt?)';
       } catch (e) { if (el) el.textContent = `WOD fout: ${e.message}`; }
@@ -647,6 +702,14 @@
         await loadWod(gistId);
 
         let html = '';
+
+        // Recovery advice
+        if (recoveryAdvice) {
+          html += `<div class="recovery-block">
+            <div class="recovery-block-label">Coach Advies Vandaag</div>
+            <div class="recovery-block-body">${marked.parse(recoveryAdvice)}</div>
+          </div>`;
+        }
 
         // Upcoming
         html += `<div class="section-title">Aankomend</div><div class="cards">`;
