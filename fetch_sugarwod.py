@@ -389,8 +389,27 @@ def fetch_all_workouts_playwright(
                 log.info("[browser] Captured %d JSON responses for week %s",
                          len(captured), week_str)
 
-                # Process captured JSON responses
-                for item in captured:
+                # Process captured JSON responses — prefer the /api/workouts endpoint
+                # that matches the requested week, over generic responses that also
+                # happen to return lists (e.g. /api/permissiontypes, /api/resulttypes).
+                workout_items = [
+                    item for item in captured
+                    if "/api/workouts" in item["url"]
+                    and f"week={week_str}" in item["url"]
+                ]
+                if not workout_items:
+                    # SPA may not have navigated to the requested week; fall back to
+                    # any /api/workouts response captured for this page load.
+                    workout_items = [
+                        item for item in captured
+                        if "/api/workouts" in item["url"] and "week=" in item["url"]
+                    ]
+                if not workout_items:
+                    log.warning("[browser] No /api/workouts response captured for "
+                                "week %s; skipping", week_str)
+                    continue
+
+                for item in workout_items:
                     data = item["data"]
                     results = (
                         (data.get("workouts") or data.get("results")
