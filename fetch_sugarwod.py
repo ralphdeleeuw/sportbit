@@ -666,29 +666,32 @@ def _parse_parse_workouts(results: list[dict], week_str: str | None = None) -> l
         if any(kw in title_raw.lower() for kw in _SKIP_TITLES):
             continue
 
-        # Try all known date field names (SugarWOD / Parse Server)
-        date_val = (
-            item.get("scheduledDate")
-            or item.get("date")
-            or item.get("workoutDate")
-            or item.get("scheduledAt")
-            or item.get("performedAt")
-            or item.get("programDate")
-            or item.get("workout_date")
-            or item.get("scheduled_date")
-            or item.get("createdAt")  # last resort
-        )
-        if isinstance(date_val, dict):
-            date_val = date_val.get("iso", "") or date_val.get("value", "")
+        # scheduledDateInteger is SugarWOD's primary date field (e.g. 20260322)
+        date_int = item.get("scheduledDateInteger")
         date_str = ""
-        if date_val:
+        if date_int:
             try:
-                date_str = datetime.fromisoformat(
-                    str(date_val).replace("Z", "+00:00")
-                ).strftime("%Y-%m-%d")
+                date_str = datetime.strptime(str(date_int), "%Y%m%d").strftime("%Y-%m-%d")
             except ValueError:
-                s = str(date_val)
-                date_str = s[:10] if len(s) >= 8 else ""
+                pass
+
+        if not date_str:
+            # Fallback: try other known field names
+            date_val = (
+                item.get("scheduledDate")
+                or item.get("date")
+                or item.get("workoutDate")
+                or item.get("scheduledAt")
+            )
+            if isinstance(date_val, dict):
+                date_val = date_val.get("iso", "") or date_val.get("value", "")
+            if date_val:
+                try:
+                    date_str = datetime.fromisoformat(
+                        str(date_val).replace("Z", "+00:00")
+                    ).strftime("%Y-%m-%d")
+                except ValueError:
+                    pass
 
         if not date_str and monday_fallback:
             # Fallback: assign Monday of the requested week
