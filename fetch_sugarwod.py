@@ -71,116 +71,74 @@ def get_monday(dt: datetime) -> datetime:
 
 def login(session: requests.Session, email: str, password: str) -> str | None:
     """
-    POST credentials to the SugarWOD REST login endpoint.
-    Returns the CSRF token to use in subsequent XHR requests, or None on failure.
+    Log in to SugarWOD and return the CSRF token for XHR requests.
 
-    SugarWOD uses a hybrid approach:
-    - The /public/api/v1/login endpoint sets a session cookie AND returns a
-      JSON body that may contain a CSRF token.
-    - Subsequent XHR requests need that CSRF token as a query parameter.
+    SugarWOD uses "double-submit cookie" CSRF protection:
+    1. A GET to any page sets the _csrf cookie.
+    2. That value must be included as the _csrf query/body param when POSTing.
+    3. After login the same cookie value is used in all subsequent XHR requests.
     """
     log.info("Logging in as %s", email)
 
-    # Try JSON body first (modern API), fall back to form data
-    for content_type, body in [
-        ("application/json", json.dumps({"email": email, "password": password})),
-        (None, {"email": email, "password": password}),
-    ]:
-        headers = {}
-        if content_type:
-            headers["Content-Type"] = content_type
-            headers["Accept"] = "application/json"
+    # Step 1: Visit sign-in page to get the _csrf cookie
+    resp = session.get(f"{SUGARWOD_BASE}/athletes/sign_in", timeout=30)
+    resp.raise_for_status()
 
-        if content_type:
-            resp = session.post(LOGIN_URL, data=body, headers=headers, timeout=30)
-        else:
-            resp = session.post(LOGIN_URL, data=body, timeout=30)
+    csrf = _extract_csrf(session, resp)
+    log.info("CSRF token before login: %s", csrf[:12] + "…" if csrf else "none")
 
-        log.info("Login response: HTTP %d, Content-Type: %s",
-                 resp.status_code, resp.headers.get("Content-Type", ""))
-        log.debug("Login response body (first 500 chars): %s", resp.text[:500])
-
-        if resp.status_code not in (200, 201):
-            log.warning("Login attempt returned %d, trying next method", resp.status_code)
-            continue
-
-        # Try to extract CSRF token from JSON response
-        try:
-            data = resp.json()
-            log.info("Login JSON keys: %s", list(data.keys()) if isinstance(data, dict) else type(data))
-            csrf = (
-                data.get("csrf")
-                or data.get("_csrf")
-                or data.get("csrfToken")
-                or data.get("token")
-                or data.get("csrf_token")
-            )
-            if csrf:
-                log.info("Got CSRF token from login response")
-                return csrf
-        except ValueError:
-            log.debug("Login response is not JSON")
-
-        # CSRF token might be in a cookie
-        csrf_cookie = session.cookies.get("_csrf") or session.cookies.get("csrfToken")
-        if csrf_cookie:
-            log.info("Got CSRF token from cookie")
-            return csrf_cookie
-
-        # No CSRF token yet — fetch the main page to get it
-        log.info("CSRF not in login response, fetching from app page")
-        csrf = _get_csrf_from_page(session)
-        if csrf:
-            return csrf
-
-        log.warning("Could not obtain CSRF token after login")
+    if not csrf:
+        log.error("Could not obtain CSRF token from sign-in page")
         return None
 
-    log.error("All login attempts failed")
-    return None
+    # Step 2: POST credentials + CSRF token to the login API
+    resp = session.post(
+        LOGIN_URL,
+        data={"email": email, "password": password, "_csrf": csrf},
+        timeout=30,
+    )
+    log.info("Login response: HTTP %d", resp.status_code)
+
+    try:
+        body = resp.json()
+        log.info("Login JSON: %s", body)
+    except ValueError:
+        log.info("Login response (not JSON): %s", resp.text[:200])
+
+    if resp.status_code not in (200, 201):
+        log.error("Login failed with HTTP %d", resp.status_code)
+        return None
+
+    # Step 3: CSRF cookie may have rotated after login
+    new_csrf = _extract_csrf(session, resp)
+    final_csrf = new_csrf or csrf
+    log.info("CSRF token after login: %s", final_csrf[:12] + "…" if final_csrf else "none")
+    return final_csrf
 
 
-def _get_csrf_from_page(session: requests.Session) -> str | None:
-    """
-    Fetch a page that requires authentication and extract the CSRF token
-    from the HTML meta tag or a dedicated session endpoint.
-    """
-    # Try the session/CSRF endpoint the web app uses
-    for url in [
-        f"{SUGARWOD_BASE}/session",
-        f"{SUGARWOD_BASE}/workouts",
-    ]:
-        try:
-            resp = session.get(url, timeout=30)
-            # Try JSON first
-            try:
-                data = resp.json()
-                csrf = (
-                    data.get("csrf")
-                    or data.get("_csrf")
-                    or data.get("csrfToken")
-                )
-                if csrf:
-                    log.info("Got CSRF from %s (JSON)", url)
-                    return csrf
-            except ValueError:
-                pass
+def _extract_csrf(session: requests.Session, resp: requests.Response) -> str | None:
+    """Extract CSRF token from cookies, JSON body, or HTML meta tag."""
+    # Cookie (double-submit pattern — most common in SugarWOD)
+    for name in ("_csrf", "csrfToken", "XSRF-TOKEN"):
+        val = session.cookies.get(name)
+        if val:
+            return val
 
-            # Try HTML meta tag
-            soup = BeautifulSoup(resp.text, "html.parser")
-            meta = soup.find("meta", {"name": "csrf-token"})
-            if meta and meta.get("content"):
-                log.info("Got CSRF from %s (HTML meta)", url)
-                return meta["content"]
+    # JSON response body
+    try:
+        data = resp.json()
+        if isinstance(data, dict):
+            for key in ("csrf", "_csrf", "csrfToken", "token", "csrf_token"):
+                if data.get(key):
+                    return data[key]
+    except ValueError:
+        pass
 
-            # Try cookie after page load
-            csrf_cookie = session.cookies.get("_csrf") or session.cookies.get("csrfToken")
-            if csrf_cookie:
-                log.info("Got CSRF from cookie after loading %s", url)
-                return csrf_cookie
-
-        except Exception as exc:
-            log.debug("Could not get CSRF from %s: %s", url, exc)
+    # HTML <meta name="csrf-token">
+    soup = BeautifulSoup(resp.text, "html.parser")
+    meta = soup.find("meta", {"name": "csrf-token"})
+    if meta and meta.get("content"):
+        return meta["content"]
 
     return None
 
