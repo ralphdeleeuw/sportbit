@@ -326,8 +326,12 @@ def fetch_all_workouts_playwright(
 
             log.info("[browser] Filling login form")
             page.locator('input[type="email"], input[name="email"]').first.fill(email)
-            page.locator('input[type="password"]').first.fill(password)
-            page.locator('button[type="submit"], input[type="submit"]').first.click()
+            password_field = page.locator('input[type="password"]').first
+            password_field.fill(password)
+            # The submit button starts disabled (React form validation).
+            # Pressing Enter on the password field submits the form
+            # regardless of the button's disabled state.
+            password_field.press("Enter")
 
             # Wait for the SPA to redirect away from the login page
             try:
@@ -340,6 +344,7 @@ def fetch_all_workouts_playwright(
                 log.warning("[browser] Login did not redirect: %s — %s", page.url, exc)
                 # Check if we're still on login page (auth failed)
                 if "/login" in page.url:
+                    log.warning("[browser] Aborting — still on login page")
                     browser.close()
                     return None
 
