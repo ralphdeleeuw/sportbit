@@ -18,11 +18,12 @@ jobs:
           python-version: '3.12'
 
       - name: Install dependencies
-        run: pip install requests
+        run: pip install requests beautifulsoup4
 
       - name: Fetch SugarWOD data and save to Gist
         env:
-          SUGARWOD_GYM_ID: ${{ secrets.SUGARWOD_GYM_ID }}
+          SUGARWOD_EMAIL: ${{ secrets.SUGARWOD_EMAIL }}
+          SUGARWOD_PASSWORD: ${{ secrets.SUGARWOD_PASSWORD }}
           GIST_ID: ${{ secrets.GIST_ID }}
           GITHUB_TOKEN: ${{ secrets.GIST_TOKEN }}
         run: python3 fetch_sugarwod.py
