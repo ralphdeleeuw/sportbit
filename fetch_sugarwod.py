@@ -362,40 +362,87 @@ def _fetch_via_json_api(
     session_token: str | None,
 ) -> list[dict] | None:
     """
-    Try the workouts endpoint with Accept: application/json.
-    Some server configs return JSON instead of HTML when asked.
+    Try several approaches to get workout JSON from the workouts endpoint.
+
+    Key insight: GET /workouts returns 401 JSON when *not* authenticated, but
+    200 HTML (the SPA shell) when authenticated via cookies. To get JSON we
+    either need to avoid triggering the "serve SPA" code path, or find the
+    correct sub-API URL.
     """
-    params: dict = {
-        "week": week_str,
-        "track": "workout-of-the-day",
-        "_": str(int(time.time() * 1000)),
-    }
-    if csrf:
-        params["_csrf"] = csrf
+    ts = str(int(time.time() * 1000))
+    base_params = {"week": week_str, "track": "workout-of-the-day", "_": ts}
+    base_referer = f"{SUGARWOD_BASE}/workouts?week={week_str}&track=workout-of-the-day"
 
-    headers = {
-        "X-Requested-With": "XMLHttpRequest",
-        "Accept": "application/json",
-        "Referer": f"{SUGARWOD_BASE}/workouts?week={week_str}&track=workout-of-the-day",
-    }
-    if session_token:
-        headers["X-Parse-Session-Token"] = session_token
-    if csrf:
-        headers["X-CSRF-Token"] = csrf
+    attempts = [
+        # ── A. XHR without _csrf (GET doesn't need CSRF; adding it may trigger
+        #       a "browser page" code path on the server side)
+        ("workouts XHR no _csrf", WORKOUTS_URL, dict(
+            params=base_params,
+            headers={
+                "X-Requested-With": "XMLHttpRequest",
+                "Accept": "application/json",
+                "Referer": base_referer,
+            },
+        )),
+        # ── B. No _sw_ath/_sw_aff cookies — only _sw_session. Server may route
+        #       to JSON API when no full athlete session cookie is present.
+        ("workouts XHR session-cookie-only", WORKOUTS_URL, dict(
+            params=base_params,
+            headers={
+                "X-Requested-With": "XMLHttpRequest",
+                "Accept": "application/json",
+                "Referer": base_referer,
+                "Cookie": f"_sw_session={session.cookies.get('_sw_session', '')}",
+            },
+        )),
+        # ── C. Affiliate-scoped workouts endpoint
+        (f"affiliate workouts API", f"{SUGARWOD_BASE}/public/api/v1/workouts", dict(
+            params={"week": week_str, "track": "workout-of-the-day",
+                    "affiliateId": "oqCrVKvRUY"},
+            headers={"Accept": "application/json",
+                     "X-Requested-With": "XMLHttpRequest",
+                     "Referer": base_referer},
+        )),
+        # ── D. Athlete-scoped workouts endpoint
+        ("athlete workouts API", f"{SUGARWOD_BASE}/public/api/v1/athletes/8lDP7kJHFN/workouts", dict(
+            params={"week": week_str},
+            headers={"Accept": "application/json",
+                     "X-Requested-With": "XMLHttpRequest"},
+        )),
+        # ── E. Whiteboard endpoint (athlete-facing view vs coach /workouts)
+        ("whiteboard", f"{SUGARWOD_BASE}/whiteboard", dict(
+            params=base_params,
+            headers={"X-Requested-With": "XMLHttpRequest",
+                     "Accept": "application/json"},
+        )),
+    ]
 
-    log.info("Fetching workouts (JSON) for week %s", week_str)
-    resp = session.get(WORKOUTS_URL, params=params, headers=headers, timeout=30)
-    log.info("  → HTTP %d, Content-Type: %s",
-             resp.status_code, resp.headers.get("Content-Type", ""))
+    for desc, url, kwargs in attempts:
+        log.info("Trying: %s", desc)
+        try:
+            resp = session.get(url, timeout=30, **kwargs)
+        except Exception as exc:
+            log.warning("  Error: %s", exc)
+            continue
 
-    if resp.status_code != 200:
-        return None
+        ct = resp.headers.get("Content-Type", "")
+        log.info("  → HTTP %d, Content-Type: %s | %s",
+                 resp.status_code, ct, resp.text[:200])
 
-    content_type = resp.headers.get("Content-Type", "")
-    if "json" not in content_type:
-        return None  # HTML — handled by _fetch_via_html
+        if resp.status_code == 200 and "json" in ct:
+            data = resp.json()
+            results = (
+                data.get("results") or data.get("workouts")
+                or data.get("data")
+                or (data if isinstance(data, list) else None)
+            )
+            if results:
+                log.info("  Got %d workouts from '%s'", len(results), desc)
+                return _parse_workouts_json({"workouts": results}, monday)
+            # 200 JSON but empty / unexpected shape
+            log.info("  200 JSON keys: %s", list(data.keys()) if isinstance(data, dict) else type(data))
 
-    return _parse_workouts_json(resp.json(), monday)
+    return None
 
 
 def _fetch_via_html(
