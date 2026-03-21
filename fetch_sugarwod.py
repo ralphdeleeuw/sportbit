@@ -845,7 +845,12 @@ def main() -> int:
     now = datetime.now(AMS)
     this_monday = get_monday(now)
     next_monday = this_monday + timedelta(weeks=1)
-    weeks = [this_monday, next_monday]
+    # Include next week only from Sunday onwards — coaches typically publish
+    # next week's programming on Sunday.
+    weeks = [this_monday]
+    if now.weekday() == 6:  # 6 = Sunday
+        weeks.append(next_monday)
+        log.info("Sunday: also fetching next week (%s)", next_monday.strftime("%Y%m%d"))
 
     # ── Primary: Playwright headless browser (handles login via real form) ─
     workouts = fetch_all_workouts_playwright(email, password, weeks)
