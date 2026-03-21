@@ -1395,7 +1395,43 @@ Wees direct en bondig. Maximaal 220 woorden. Geen inleiding."""
 # Gist storage
 # ──────────────────────────────────────────────────────────────
 
-def save_to_gist(gist_id: str, token: str, wod_data: dict) -> None:
+def load_sportbit_attended_dates(gist_id: str, token: str) -> set[str]:
+    """Read sportbit_state.json from the shared gist and return ISO dates where the
+    athlete was signed up (and did NOT cancel) — i.e. days they actually went to the box.
+
+    Returns a set of "YYYY-MM-DD" strings.
+    """
+    if not gist_id or not token:
+        return set()
+    try:
+        resp = requests.get(
+            f"https://api.github.com/gists/{gist_id}",
+            headers={"Authorization": f"token {token}", "Accept": "application/json"},
+            timeout=15,
+        )
+        resp.raise_for_status()
+        files = resp.json().get("files", {})
+        raw = files.get("sportbit_state.json", {}).get("content", "")
+        if not raw:
+            log.warning("[gist] sportbit_state.json not found or empty")
+            return set()
+        state = json.loads(raw)
+        signed_up: dict = state.get("signed_up", {})
+        cancelled: dict = state.get("cancelled", {})
+        attended = set()
+        for event_id, info in signed_up.items():
+            if event_id not in cancelled:
+                date = info.get("date", "")
+                if date:
+                    attended.add(date)
+        log.info("[gist] Sportbit attended dates: %d", len(attended))
+        return attended
+    except Exception as exc:
+        log.warning("[gist] Failed to load sportbit_state.json: %s", exc)
+        return set()
+
+
+
     payload = {
         "files": {
             GIST_FILENAME: {
@@ -1501,17 +1537,43 @@ def main() -> int:
     workout_plans = generate_workout_plans(upcoming_workouts, barbell_lifts, ATHLETE_PROFILE)
 
     # Generate daily recovery advice.
-    # Prefer the athlete logbook (workouts the athlete actually attended + scored)
-    # over the full programmed-workout list so the coach knows the real training load.
+    # Priority for "which days did the athlete actually train":
+    #   1. Sportbit signup data (most reliable — sign-up = went to the box)
+    #   2. SugarWOD logbook (workouts actually scored; athlete doesn't always log)
+    #   3. All programmed past WODs (last resort)
     next_workout = upcoming_workouts[0] if upcoming_workouts else None
-    if athlete_logbook:
-        # Build past_workouts from logbook entries: match to full workout descriptions
-        # by date when possible, otherwise use the logbook title directly.
-        date_to_workout = {w["date"]: w for w in workouts}
-        attended_workouts: list[dict] = []
+    date_to_workout = {w["date"]: w for w in workouts}
+
+    # 1. Sportbit attended dates (signed up, not cancelled)
+    sportbit_attended = load_sportbit_attended_dates(gist_id, token)
+    past_sportbit_dates = sorted(
+        [d for d in sportbit_attended if d < today.isoformat()],
+        reverse=True,
+    )
+    if past_sportbit_dates:
+        attended_workouts = [
+            date_to_workout[d]
+            for d in past_sportbit_dates[:5]
+            if d in date_to_workout
+        ]
+        # If WOD descriptions exist for fewer dates than we attended, still include
+        # all attended dates so the coach knows the training volume even without desc.
+        if len(attended_workouts) < len(past_sportbit_dates[:5]):
+            extra_dates = [d for d in past_sportbit_dates[:5] if d not in date_to_workout]
+            for d in extra_dates:
+                attended_workouts.append({"date": d, "title": "CrossFit WOD", "description": ""})
+            attended_workouts.sort(key=lambda w: w["date"], reverse=True)
+        log.info("Coach advice: %d Sportbit attended dates → %d with WOD descriptions",
+                 len(past_sportbit_dates), len([w for w in attended_workouts if w.get("description")]))
+        recovery_advice = generate_recovery_advice(
+            attended_workouts[:5], next_workout, barbell_lifts, ATHLETE_PROFILE
+        )
+
+    # 2. SugarWOD logbook (athlete scored a result)
+    elif athlete_logbook:
+        attended_workouts = []
         for entry in sorted(athlete_logbook, key=lambda e: e.get("date", ""), reverse=True):
             raw_date = entry.get("date", "")
-            # Logbook dates may be like "Mar 20, 2026" — normalise to ISO if needed
             iso_date = raw_date
             if raw_date and not raw_date[:4].isdigit():
                 for fmt in ("%b %d, %Y", "%B %d, %Y", "%d %b %Y", "%d %B %Y", "%d-%m-%Y"):
@@ -1521,31 +1583,24 @@ def main() -> int:
                     except ValueError:
                         pass
             full = date_to_workout.get(iso_date)
-            if full:
-                attended_workouts.append(full)
-            else:
-                attended_workouts.append({
-                    "date": iso_date,
-                    "title": entry.get("workout", "WOD"),
-                    "description": entry.get("result", ""),
-                })
-        log.info(
-            "Coach advice based on %d logbook (attended) workouts", len(attended_workouts)
-        )
+            attended_workouts.append(full or {
+                "date": iso_date,
+                "title": entry.get("workout", "WOD"),
+                "description": entry.get("result", ""),
+            })
+        log.info("Coach advice: %d SugarWOD logbook entries", len(attended_workouts))
         recovery_advice = generate_recovery_advice(
             attended_workouts[:5], next_workout, barbell_lifts, ATHLETE_PROFILE
         )
+
+    # 3. Fallback: all programmed past workouts
     else:
-        # Fallback: use programmed workouts sorted by date
         past_workouts_sorted = sorted(
             [w for w in workouts if w.get("date", "") < today.isoformat()],
             key=lambda w: w.get("date", ""),
             reverse=True,
         )
-        log.info(
-            "Coach advice fallback: using %d programmed past workouts",
-            len(past_workouts_sorted),
-        )
+        log.info("Coach advice fallback: %d programmed past workouts", len(past_workouts_sorted))
         recovery_advice = generate_recovery_advice(
             past_workouts_sorted[:3], next_workout, barbell_lifts, ATHLETE_PROFILE
         )
