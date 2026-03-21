@@ -458,6 +458,61 @@
       text-align: right;
     }
 
+    /* Benchmark Workouts section */
+    .benchmark-tabs {
+      display: flex;
+      gap: 0.4rem;
+      flex-wrap: wrap;
+      margin-bottom: 0.8rem;
+    }
+
+    .benchmark-tab {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 20px;
+      padding: 0.3rem 0.9rem;
+      font-size: 0.75rem;
+      font-weight: 500;
+      color: var(--muted);
+      cursor: pointer;
+      transition: all 0.15s;
+      letter-spacing: 0.04em;
+    }
+
+    .benchmark-tab:hover { border-color: #3a3a3a; color: var(--text); }
+    .benchmark-tab.active { background: var(--accent); border-color: var(--accent); color: #000; }
+
+    .benchmark-table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 0.82rem;
+      margin-bottom: 2rem;
+    }
+
+    .benchmark-table th {
+      text-align: left;
+      color: var(--muted);
+      font-size: 0.68rem;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+      font-weight: 500;
+      border-bottom: 1px solid var(--border);
+      padding: 0.4rem 0.6rem 0.4rem 0;
+    }
+
+    .benchmark-table td {
+      padding: 0.55rem 0.6rem 0.55rem 0;
+      border-bottom: 1px solid #1a1a1a;
+      vertical-align: middle;
+    }
+
+    .benchmark-table tr:last-child td { border-bottom: none; }
+
+    .bm-name { font-weight: 500; color: var(--text); }
+    .bm-result { font-family: 'Bebas Neue', sans-serif; font-size: 1.05rem; color: var(--accent); letter-spacing: 0.04em; }
+    .bm-scaling { font-size: 0.75rem; color: var(--muted); }
+    .bm-date { font-size: 0.75rem; color: var(--muted); white-space: nowrap; }
+
     /* Daily recovery advice block */
     .recovery-block {
       background: #0a0f1a;
@@ -647,6 +702,7 @@
     let barbellLifts = {};
     let recoveryAdvice = null;
     let personalRecords = [];
+    let benchmarkWorkouts = [];
 
     function stripHtml(html) {
       const div = document.createElement('div');
@@ -668,6 +724,7 @@
         barbellLifts = data.barbell_lifts || {};
         recoveryAdvice = data.recovery_advice || null;
         personalRecords = data.personal_records || [];
+        benchmarkWorkouts = data.benchmark_workouts || [];
         const n = Object.keys(wodByDate).length;
         if (el) el.textContent = n > 0 ? `WOD geladen voor ${n} dag(en)` : 'WOD: geen workouts in by_date (fetch mislukt?)';
       } catch (e) { if (el) el.textContent = `WOD fout: ${e.message}`; }
@@ -795,10 +852,74 @@
           html += `</div>`;
         }
 
+        // Benchmark Workouts
+        if (benchmarkWorkouts.length > 0) {
+          html += `<div class="section-title">Benchmark Workouts</div>` + renderBenchmarks(benchmarkWorkouts);
+        }
+
         content.innerHTML = html;
 
       } catch (e) {
         content.innerHTML = `<div class="error-msg">❌ ${e.message}</div>`;
+      }
+    }
+
+    function renderBenchmarks(benchmarks) {
+      // Group by category
+      const categories = {};
+      for (const b of benchmarks) {
+        const cat = b.category || 'Overig';
+        if (!categories[cat]) categories[cat] = [];
+        categories[cat].push(b);
+      }
+      const cats = Object.keys(categories).sort();
+      const firstCat = cats[0];
+      const tabsId = 'bm-tabs';
+      const tableId = 'bm-table';
+
+      let tabsHtml = cats.map(cat =>
+        `<button class="benchmark-tab${cat === firstCat ? ' active' : ''}" onclick="switchBenchmarkTab('${escapeHtml(cat)}')">${escapeHtml(cat)}</button>`
+      ).join('');
+
+      // Encode all categories as JSON in a hidden script
+      const encoded = JSON.stringify(categories);
+
+      return `
+        <div id="${tabsId}" class="benchmark-tabs">${tabsHtml}</div>
+        <script id="bm-data" type="application/json">${encoded}<\/script>
+        <div id="${tableId}">${buildBenchmarkTable(categories[firstCat])}</div>`;
+    }
+
+    function buildBenchmarkTable(rows) {
+      const sorted = [...rows].sort((a, b) => (a.name || '').localeCompare(b.name || '', 'nl'));
+      return `<table class="benchmark-table">
+        <thead><tr>
+          <th>Benchmark</th>
+          <th>Resultaat</th>
+          <th>Scaling</th>
+          <th>Datum</th>
+        </tr></thead>
+        <tbody>${sorted.map(r => `<tr>
+          <td class="bm-name">${escapeHtml(r.name)}</td>
+          <td class="bm-result">${escapeHtml(r.result)}</td>
+          <td class="bm-scaling">${escapeHtml(r.scaling)}</td>
+          <td class="bm-date">${escapeHtml(r.date)}</td>
+        </tr>`).join('')}</tbody>
+      </table>`;
+    }
+
+    function switchBenchmarkTab(cat) {
+      // Update active tab
+      document.querySelectorAll('.benchmark-tab').forEach(btn => {
+        btn.classList.toggle('active', btn.textContent === cat);
+      });
+      // Load data and re-render table
+      const raw = document.getElementById('bm-data');
+      if (!raw) return;
+      const categories = JSON.parse(raw.textContent);
+      const table = document.getElementById('bm-table');
+      if (table && categories[cat]) {
+        table.innerHTML = buildBenchmarkTable(categories[cat]);
       }
     }
 

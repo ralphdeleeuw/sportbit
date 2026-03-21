@@ -383,6 +383,76 @@ def _extract_prs_from_page(page) -> list[dict]:
         return []
 
 
+def _extract_benchmarks_from_page(page) -> list[dict]:
+    """Extract all Benchmark Workouts from the athlete benchmarks page.
+
+    The page contains a dropdown to filter by category (Girls, Heroes, Open, …).
+    We iterate every <option> value so we capture all categories in one pass.
+    Falls back to scraping whatever table is visible if the dropdown isn't found.
+    """
+    try:
+        page.wait_for_selector("table", timeout=10000)
+    except Exception:
+        log.warning("[browser] No table found on benchmarks page")
+        return []
+    try:
+        result = page.evaluate("""
+        () => {
+            // Helper: read one table into a list of row objects
+            function readTable(category) {
+                const tables = document.querySelectorAll('table');
+                for (const table of tables) {
+                    const headers = [...table.querySelectorAll('th')]
+                        .map(th => th.textContent.trim().toLowerCase());
+                    if (!headers.some(h => /benchmark|workout/i.test(h))) continue;
+                    const rows = [...table.querySelectorAll('tbody tr')];
+                    return rows.map(row => {
+                        const cells = [...row.querySelectorAll('td')];
+                        return {
+                            name:    (cells[0] || {textContent: ''}).textContent.trim(),
+                            date:    (cells[1] || {textContent: ''}).textContent.trim(),
+                            scaling: (cells[2] || {textContent: ''}).textContent.trim(),
+                            result:  (cells[3] || {textContent: ''}).textContent.trim(),
+                            category: category,
+                        };
+                    }).filter(r => r.name);
+                }
+                return [];
+            }
+
+            // Try to find the category dropdown and iterate all options
+            const select = document.querySelector('select');
+            if (select) {
+                const options = [...select.querySelectorAll('option')];
+                const all = [];
+                for (const opt of options) {
+                    select.value = opt.value;
+                    select.dispatchEvent(new Event('change', {bubbles: true}));
+                    // Give React/Vue a tick to re-render (synchronous evaluate, best-effort)
+                    all.push(...readTable(opt.text.trim() || opt.value));
+                }
+                // Deduplicate by name+date
+                const seen = new Set();
+                return all.filter(r => {
+                    const key = r.name + '|' + r.date;
+                    if (seen.has(key)) return false;
+                    seen.add(key);
+                    return true;
+                });
+            }
+
+            // Fallback: just read whatever is on screen
+            return readTable('Unknown');
+        }
+        """)
+        benchmarks = result or []
+        log.info("[browser] Extracted %d benchmark entries (JS pass)", len(benchmarks))
+        return benchmarks
+    except Exception as exc:
+        log.warning("[browser] Failed to extract benchmarks table: %s", exc)
+        return []
+
+
 def fetch_all_workouts_playwright(
     email: str,
     password: str,
@@ -585,6 +655,20 @@ def fetch_all_workouts_playwright(
             except Exception as exc:
                 log.warning("[browser] Personal records fetch failed: %s", exc)
 
+            # ── 5. Scrape benchmark workouts ──────────────────────────────────
+            benchmark_workouts: list[dict] = []
+            log.info("[browser] Navigating to benchmark workouts page")
+            try:
+                page.goto(
+                    f"{SUGARWOD_BASE}/athletes/me?date_from=20100101&date_to={datetime.now(AMS).strftime('%Y%m%d')}#benchmarks",
+                    wait_until="networkidle",
+                    timeout=30000,
+                )
+                benchmark_workouts = _extract_benchmarks_from_page(page)
+                log.info("[browser] Extracted %d benchmark workouts", len(benchmark_workouts))
+            except Exception as exc:
+                log.warning("[browser] Benchmark workouts fetch failed: %s", exc)
+
             browser.close()
 
             # ── 3. Direct API calls for each week ────────────────────────────
@@ -645,6 +729,7 @@ def fetch_all_workouts_playwright(
         "workouts": all_workouts,
         "barbell_lifts": barbell_lifts,
         "personal_records": personal_records,
+        "benchmark_workouts": benchmark_workouts,
     }
 
 
@@ -1240,12 +1325,14 @@ def main() -> int:
     # ── Primary: Playwright headless browser (handles login via real form) ─
     barbell_lifts: dict = {}
     personal_records: list[dict] = []
+    benchmark_workouts: list[dict] = []
 
     playwright_result = fetch_all_workouts_playwright(email, password, weeks)
     if playwright_result is not None:
         workouts = playwright_result["workouts"]
         barbell_lifts = playwright_result.get("barbell_lifts", {})
         personal_records = playwright_result.get("personal_records", [])
+        benchmark_workouts = playwright_result.get("benchmark_workouts", [])
         log.info(
             "Playwright fetched %d workouts, %d barbell lifts, %d PRs",
             len(workouts), len(barbell_lifts), len(personal_records),
@@ -1306,6 +1393,7 @@ def main() -> int:
         "by_date": by_date,
         "barbell_lifts": barbell_lifts,
         "personal_records": personal_records,
+        "benchmark_workouts": benchmark_workouts,
         "workout_plans": workout_plans,
         "recovery_advice": recovery_advice,
         "fetched_at": datetime.now(timezone.utc).isoformat(),
