@@ -373,9 +373,12 @@ def _fetch_via_json_api(
     base_params = {"week": week_str, "track": "workout-of-the-day", "_": ts}
     base_referer = f"{SUGARWOD_BASE}/workouts?week={week_str}&track=workout-of-the-day"
 
+    # IMPORTANT: never manually set a "Cookie" header — doing so causes
+    # requests to send a partial cookie alongside the session jar, which
+    # triggers the server to clear _sw_ath/_sw_aff via Set-Cookie and
+    # corrupts the session for all subsequent calls.
     attempts = [
-        # ── A. XHR without _csrf (GET doesn't need CSRF; adding it may trigger
-        #       a "browser page" code path on the server side)
+        # ── A. XHR without _csrf in params (GET doesn't need CSRF)
         ("workouts XHR no _csrf", WORKOUTS_URL, dict(
             params=base_params,
             headers={
@@ -384,36 +387,36 @@ def _fetch_via_json_api(
                 "Referer": base_referer,
             },
         )),
-        # ── B. No _sw_ath/_sw_aff cookies — only _sw_session. Server may route
-        #       to JSON API when no full athlete session cookie is present.
-        ("workouts XHR session-cookie-only", WORKOUTS_URL, dict(
-            params=base_params,
-            headers={
-                "X-Requested-With": "XMLHttpRequest",
-                "Accept": "application/json",
-                "Referer": base_referer,
-                "Cookie": f"_sw_session={session.cookies.get('_sw_session', '')}",
-            },
-        )),
-        # ── C. Affiliate-scoped workouts endpoint
-        (f"affiliate workouts API", f"{SUGARWOD_BASE}/public/api/v1/workouts", dict(
+        # ── B. Affiliate-scoped workouts endpoint
+        ("affiliate workouts API", f"{SUGARWOD_BASE}/public/api/v1/workouts", dict(
             params={"week": week_str, "track": "workout-of-the-day",
                     "affiliateId": "oqCrVKvRUY"},
             headers={"Accept": "application/json",
                      "X-Requested-With": "XMLHttpRequest",
                      "Referer": base_referer},
         )),
-        # ── D. Athlete-scoped workouts endpoint
-        ("athlete workouts API", f"{SUGARWOD_BASE}/public/api/v1/athletes/8lDP7kJHFN/workouts", dict(
+        # ── C. Athlete-scoped workouts endpoint
+        ("athlete workouts API",
+         f"{SUGARWOD_BASE}/public/api/v1/athletes/8lDP7kJHFN/workouts", dict(
             params={"week": week_str},
             headers={"Accept": "application/json",
                      "X-Requested-With": "XMLHttpRequest"},
         )),
-        # ── E. Whiteboard endpoint (athlete-facing view vs coach /workouts)
+        # ── D. Whiteboard endpoint (athlete-facing view)
         ("whiteboard", f"{SUGARWOD_BASE}/whiteboard", dict(
             params=base_params,
             headers={"X-Requested-With": "XMLHttpRequest",
                      "Accept": "application/json"},
+        )),
+        # ── E. workouts with _csrf (original approach)
+        ("workouts XHR with _csrf", WORKOUTS_URL, dict(
+            params={**base_params, "_csrf": csrf} if csrf else base_params,
+            headers={
+                "X-Requested-With": "XMLHttpRequest",
+                "Accept": "application/json",
+                "X-CSRF-Token": csrf or "",
+                "Referer": base_referer,
+            },
         )),
     ]
 
@@ -426,8 +429,11 @@ def _fetch_via_json_api(
             continue
 
         ct = resp.headers.get("Content-Type", "")
+        set_cookie = resp.headers.get("Set-Cookie", "")
         log.info("  → HTTP %d, Content-Type: %s | %s",
                  resp.status_code, ct, resp.text[:200])
+        if set_cookie:
+            log.info("  Set-Cookie: %s", set_cookie[:200])
 
         if resp.status_code == 200 and "json" in ct:
             data = resp.json()
@@ -469,6 +475,13 @@ def _fetch_via_html(
     resp = session.get(WORKOUTS_URL, params=params, headers=headers, timeout=30)
     log.info("  → HTTP %d, Content-Type: %s",
              resp.status_code, resp.headers.get("Content-Type", ""))
+    csp = resp.headers.get("Content-Security-Policy", "")
+    if csp:
+        # connect-src tells us which API origins the SPA calls
+        import re as _re2
+        m = _re2.search(r'connect-src([^;]+)', csp)
+        if m:
+            log.info("  CSP connect-src: %s", m.group(1).strip())
     resp.raise_for_status()
 
     # Log body text to aid debugging (skip <head> boilerplate)
