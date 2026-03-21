@@ -285,81 +285,64 @@
       animation: fadeUp 0.4s ease both;
     }
 
-    /* WOD card */
-    .wod-card {
-      background: var(--surface);
-      border: 1px solid var(--border);
-      border-radius: 12px;
-      padding: 1.2rem;
-      margin-bottom: 2rem;
-      animation: fadeUp 0.6s 0.15s ease both;
-    }
-
-    .wod-date-badge {
-      display: inline-block;
-      background: var(--accent);
-      color: #000;
-      font-family: 'Bebas Neue', sans-serif;
-      font-size: 0.9rem;
-      letter-spacing: 0.1em;
-      padding: 0.15rem 0.6rem;
-      border-radius: 6px;
-      margin-bottom: 0.6rem;
-    }
-
-    .wod-title {
-      font-weight: 500;
-      font-size: 0.95rem;
-      margin-bottom: 0.6rem;
-      color: var(--text);
-    }
-
-    .wod-description {
-      font-size: 0.82rem;
-      color: var(--muted);
-      white-space: pre-wrap;
-      line-height: 1.6;
-    }
-
-    .wod-description a { color: var(--accent); text-decoration: none; }
-
-    .wod-nav {
-      display: flex;
-      gap: 0.5rem;
-      margin-bottom: 0.8rem;
-      overflow-x: auto;
-      padding-bottom: 0.2rem;
-    }
-
-    .wod-nav-btn {
-      background: var(--surface2);
-      border: 1px solid var(--border);
-      border-radius: 8px;
-      padding: 0.35rem 0.8rem;
-      font-family: 'DM Sans', sans-serif;
-      font-size: 0.78rem;
-      color: var(--muted);
+    /* Card with inline WOD */
+    .card.has-wod {
+      align-items: flex-start;
       cursor: pointer;
-      white-space: nowrap;
-      transition: border-color 0.2s, color 0.2s;
+    }
+
+    .card-header {
+      display: flex;
+      align-items: center;
+      gap: 1rem;
+      width: 100%;
+    }
+
+    .card-header-left { flex: 1; }
+
+    .card-right {
+      display: flex;
+      flex-direction: column;
+      align-items: flex-end;
+      gap: 0.25rem;
       flex-shrink: 0;
     }
 
-    .wod-nav-btn.active {
-      border-color: var(--accent);
+    .wod-chevron {
+      font-size: 0.8rem;
       color: var(--accent);
+      opacity: 0.45;
+      transition: transform 0.2s, opacity 0.2s;
+      line-height: 1;
     }
 
-    .wod-link {
-      display: inline-block;
-      margin-top: 0.8rem;
-      font-size: 0.75rem;
-      color: var(--accent);
-      text-decoration: none;
-      opacity: 0.7;
+    .card.has-wod:hover .wod-chevron { opacity: 0.9; }
+    .card.has-wod.open .wod-chevron  { transform: rotate(180deg); opacity: 1; }
+
+    .card-wod {
+      display: none;
+      margin-top: 0.85rem;
+      padding-top: 0.85rem;
+      border-top: 1px solid var(--border);
     }
 
-    .wod-link:hover { opacity: 1; }
+    .wod-section + .wod-section { margin-top: 0.9rem; }
+
+    .wod-section-title {
+      font-size: 0.67rem;
+      letter-spacing: 0.16em;
+      text-transform: uppercase;
+      color: var(--accent);
+      font-weight: 600;
+      margin-bottom: 0.35rem;
+    }
+
+    .wod-section-body {
+      font-size: 0.82rem;
+      color: var(--muted);
+      white-space: pre-wrap;
+      line-height: 1.65;
+    }
 
     /* Footer */
     footer {
@@ -395,13 +378,6 @@
       <h1>Mijn<br/><span>Lessen</span></h1>
       <p class="subtitle">Automatisch bijgehouden via CrossFit Hilversum</p>
     </header>
-
-    <!-- SugarWOD sectie -->
-    <div id="wodSection" style="display:none">
-      <div class="section-title">WOD</div>
-      <div id="wodNav" class="wod-nav"></div>
-      <div id="wodContent" class="wod-card"></div>
-    </div>
 
     <div id="stats" class="stats" style="display:none">
       <div class="stat">
@@ -452,19 +428,41 @@
       return new Date(dateStr + 'T00:00:00') >= today;
     }
 
-    function renderCard(item, type, delay) {
-      const upcoming = isUpcoming(item.date);
+    function renderCard(item, type, delay, wods) {
       const cancelled = type === 'cancelled';
+      const metaHtml = `<div class="card-meta">
+        <span>${item.time}</span>
+        ${cancelled ? `<span>Uitgeschreven op ${item.cancelled_at?.slice(0, 10) ?? '—'}</span>` : ''}
+        ${!cancelled && item.signed_up_at ? `<span>Ingeschreven op ${item.signed_up_at.slice(0, 10)}</span>` : ''}
+      </div>`;
+
+      if (wods && wods.length > 0) {
+        const sections = renderWodSections(wods);
+        return `
+          <div class="card has-wod" style="animation-delay:${delay}s" onclick="toggleWod(this)">
+            <div class="card-dot dot-active"></div>
+            <div class="card-info">
+              <div class="card-header">
+                <div class="card-header-left">
+                  <div class="card-title">${item.title}</div>
+                  ${metaHtml}
+                </div>
+                <div class="card-right">
+                  <div class="card-date">${formatDate(item.date)}</div>
+                  <div class="wod-chevron">▾</div>
+                </div>
+              </div>
+              <div class="card-wod">${sections}</div>
+            </div>
+          </div>`;
+      }
+
       return `
-        <div class="card ${cancelled ? 'cancelled' : ''}" style="animation-delay: ${delay}s">
+        <div class="card ${cancelled ? 'cancelled' : ''}" style="animation-delay:${delay}s">
           <div class="card-dot ${cancelled ? 'dot-cancelled' : 'dot-active'}"></div>
           <div class="card-info">
             <div class="card-title">${item.title}</div>
-            <div class="card-meta">
-              <span>${item.time}</span>
-              ${cancelled ? `<span>Uitgeschreven op ${item.cancelled_at?.slice(0, 10) ?? '—'}</span>` : ''}
-              ${!cancelled && item.signed_up_at ? `<span>Ingeschreven op ${item.signed_up_at.slice(0, 10)}</span>` : ''}
-            </div>
+            ${metaHtml}
           </div>
           <div class="card-date ${cancelled ? 'cancelled-date' : ''}">${formatDate(item.date)}</div>
         </div>`;
@@ -477,48 +475,12 @@
 
     // ── SugarWOD ──────────────────────────────────────────────
 
-    let wodWorkouts = [];
-    let activeWodIndex = 0;
+    let wodByDate = {};
 
     function stripHtml(html) {
       const div = document.createElement('div');
       div.innerHTML = html;
       return div.textContent || div.innerText || '';
-    }
-
-    function formatWodDate(dateStr) {
-      if (!dateStr) return '—';
-      const d = new Date(dateStr + 'T00:00:00');
-      const today = new Date();
-      today.setHours(0, 0, 0, 0);
-      const diff = Math.round((d - today) / 86400000);
-      if (diff === 0) return 'Vandaag';
-      if (diff === 1) return 'Morgen';
-      if (diff === -1) return 'Gisteren';
-      return `${DAY_NL[d.getDay()]} ${d.getDate()} ${MONTH_NL[d.getMonth()]}`;
-    }
-
-    function renderWod(index) {
-      const wod = wodWorkouts[index];
-      if (!wod) return;
-      activeWodIndex = index;
-
-      // Update nav buttons
-      document.querySelectorAll('.wod-nav-btn').forEach((btn, i) => {
-        btn.classList.toggle('active', i === index);
-      });
-
-      const desc = wod.description ? stripHtml(wod.description).trim() : 'Geen beschrijving beschikbaar.';
-      const linkHtml = wod.link
-        ? `<a class="wod-link" href="${wod.link}" target="_blank" rel="noopener">Bekijk op SugarWOD →</a>`
-        : '';
-
-      document.getElementById('wodContent').innerHTML = `
-        <div class="wod-date-badge">${formatWodDate(wod.date)}</div>
-        <div class="wod-title">${wod.title || 'Workout of the Day'}</div>
-        <div class="wod-description">${desc}</div>
-        ${linkHtml}
-      `;
     }
 
     async function loadWod(gistId) {
@@ -528,28 +490,26 @@
         const gist = await resp.json();
         const file = gist.files['sugarwod_wod.json'];
         if (!file) return;
-
         const data = JSON.parse(file.content);
-        wodWorkouts = (data.workouts || []).filter(w => w.date || w.title);
-        if (wodWorkouts.length === 0) return;
+        wodByDate = data.by_date || {};
+      } catch (_) {}
+    }
 
-        // Sort by date ascending, put today/future first
-        const today = new Date().toISOString().slice(0, 10);
-        wodWorkouts.sort((a, b) => (a.date || '').localeCompare(b.date || ''));
+    function renderWodSections(wods) {
+      return wods.map(w => {
+        const desc = stripHtml(w.description || '').trim();
+        if (!desc) return '';
+        return `<div class="wod-section">
+          <div class="wod-section-title">${w.title}</div>
+          <div class="wod-section-body">${desc}</div>
+        </div>`;
+      }).join('');
+    }
 
-        // Build nav
-        const nav = document.getElementById('wodNav');
-        nav.innerHTML = wodWorkouts.map((w, i) =>
-          `<button class="wod-nav-btn" onclick="renderWod(${i})">${formatWodDate(w.date)}</button>`
-        ).join('');
-
-        // Show today or first future workout
-        const todayIdx = wodWorkouts.findIndex(w => w.date >= today);
-        renderWod(todayIdx >= 0 ? todayIdx : 0);
-        document.getElementById('wodSection').style.display = 'block';
-      } catch (_) {
-        // WOD data not yet available — silently skip
-      }
+    function toggleWod(card) {
+      const wod = card.querySelector('.card-wod');
+      wod.style.display = wod.style.display === 'block' ? 'none' : 'block';
+      card.classList.toggle('open');
     }
 
     // ── Sign-up data ──────────────────────────────────────────
@@ -603,7 +563,7 @@
         if (upcoming.length === 0) {
           html += `<div class="empty"><span class="empty-icon">🏋️</span>Geen aankomende inschrijvingen</div>`;
         } else {
-          upcoming.forEach((e, i) => html += renderCard(e, 'active', i * 0.05));
+          upcoming.forEach((e, i) => html += renderCard(e, 'active', i * 0.05, wodByDate[e.date]));
         }
         html += `</div>`;
 
