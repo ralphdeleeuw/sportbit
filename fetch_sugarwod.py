@@ -326,35 +326,29 @@ def fetch_all_workouts_playwright(
             page.goto(f"{SUGARWOD_BASE}/login", wait_until="domcontentloaded",
                       timeout=30000)
 
-            JS_LOGIN = r"""
-async function swLogin(creds) {
-    const email = creds.email, password = creds.password;
-    // Parse _sw_session to get csrfSecret
+            # page.evaluate() requires an expression (arrow function), not a
+            # named function declaration.
+            JS_LOGIN = """async (creds) => {
     const cookies = {};
     document.cookie.split(';').forEach(c => {
         const idx = c.indexOf('=');
-        if (idx > 0) cookies[c.slice(0, idx).trim()] = c.slice(idx + 1).trim();
+        if (idx > 0) cookies[c.slice(0,idx).trim()] = c.slice(idx+1).trim();
     });
     const raw = cookies['_sw_session'];
-    if (!raw) return {error: 'no _sw_session cookie'};
-
+    if (!raw) return {error: 'no _sw_session'};
     let secret;
     try {
         const decoded = JSON.parse(atob(raw.split('.')[0]));
         secret = decoded.csrfSecret;
-    } catch(e) { return {error: 'decode: ' + e.message}; }
-
-    // Generate csurf token: salt "-" base64url(SHA1(salt+"-"+secret))
+    } catch(e) { return {error: 'decode:' + e.message}; }
     const saltBytes = crypto.getRandomValues(new Uint8Array(8));
     const salt = btoa(String.fromCharCode(...saltBytes))
-        .replace(/\+/g,'-').replace(/\//g,'_').replace(/=/g,'');
+        .replace(/\\+/g,'-').replace(/\\//g,'_').replace(/=/g,'');
     const enc = new TextEncoder();
-    const hashBuf = await crypto.subtle.digest('SHA-1',
-        enc.encode(salt + '-' + secret));
+    const hashBuf = await crypto.subtle.digest('SHA-1', enc.encode(salt+'-'+secret));
     const hash = btoa(String.fromCharCode(...new Uint8Array(hashBuf)))
-        .replace(/\+/g,'-').replace(/\//g,'_').replace(/=/g,'');
+        .replace(/\\+/g,'-').replace(/\\//g,'_').replace(/=/g,'');
     const csrf = salt + '-' + hash;
-
     const resp = await fetch('/public/api/v1/login', {
         method: 'POST',
         headers: {
@@ -363,13 +357,11 @@ async function swLogin(creds) {
             'X-CSRF-Token': csrf,
             'X-Requested-With': 'XMLHttpRequest'
         },
-        body: JSON.stringify({username: email, password: password})
+        body: JSON.stringify({username: creds.email, password: creds.password})
     });
     const body = await resp.json();
     return {status: resp.status, body: body};
-}
-swLogin(arguments[0])
-"""
+}"""
             login_result = page.evaluate(JS_LOGIN, {"email": email, "password": password})
             log.info("[browser] Login result: %s", str(login_result)[:300])
 
