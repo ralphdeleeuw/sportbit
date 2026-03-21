@@ -327,7 +327,8 @@ def fetch_all_workouts_playwright(
                       timeout=30000)
 
             JS_LOGIN = r"""
-async function swLogin(email, password) {
+async function swLogin(creds) {
+    const email = creds.email, password = creds.password;
     // Parse _sw_session to get csrfSecret
     const cookies = {};
     document.cookie.split(';').forEach(c => {
@@ -367,9 +368,9 @@ async function swLogin(email, password) {
     const body = await resp.json();
     return {status: resp.status, body: body};
 }
-swLogin(arguments[0], arguments[1])
+swLogin(arguments[0])
 """
-            login_result = page.evaluate(JS_LOGIN, email, password)
+            login_result = page.evaluate(JS_LOGIN, {"email": email, "password": password})
             log.info("[browser] Login result: %s", str(login_result)[:300])
 
             if not login_result or not (login_result.get("body") or {}).get("success"):
