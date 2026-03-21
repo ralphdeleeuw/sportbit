@@ -75,12 +75,13 @@ log = logging.getLogger("sportbit")
 
 def is_after_midnight_amsterdam() -> bool:
     """
-    Returns True if the current Amsterdam time is between 00:00 and 00:30.
+    Returns True if the current Amsterdam time is between 00:00 and 00:59.
     This ensures the script only runs once per day just after midnight,
-    regardless of summer/winter time (CET/CEST).
+    regardless of summer/winter time (CET/CEST). The full hour window
+    accounts for GitHub Actions scheduling delays.
     """
     now = datetime.now(AMS)
-    return now.hour == 0 and now.minute < 30
+    return now.hour == 0
 
 
 # ──────────────────────────────────────────────────────────────
