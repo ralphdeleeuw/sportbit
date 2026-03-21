@@ -11,6 +11,7 @@
   <meta name="apple-mobile-web-app-title" content="CrossFit" />
   <link rel="apple-touch-icon" href="icon.svg" />
   <link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=DM+Sans:wght@300;400;500&display=swap" rel="stylesheet" />
+  <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
   <style>
     :root {
       --bg: #0d0d0d;
@@ -365,8 +366,56 @@
     .coach-plan-body {
       font-size: 0.82rem;
       color: #c8d8a0;
-      white-space: pre-wrap;
       line-height: 1.65;
+    }
+
+    .coach-plan-body h1,
+    .coach-plan-body h2,
+    .coach-plan-body h3 {
+      font-family: 'DM Sans', sans-serif;
+      font-size: 0.78rem;
+      font-weight: 600;
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+      color: var(--accent);
+      margin: 0.7rem 0 0.3rem;
+    }
+
+    .coach-plan-body h1:first-child,
+    .coach-plan-body h2:first-child,
+    .coach-plan-body h3:first-child { margin-top: 0; }
+
+    .coach-plan-body p { margin: 0.3rem 0; }
+
+    .coach-plan-body ul,
+    .coach-plan-body ol {
+      padding-left: 1.2rem;
+      margin: 0.3rem 0;
+    }
+
+    .coach-plan-body li { margin: 0.15rem 0; }
+
+    .coach-plan-body strong { color: #e8f5b0; font-weight: 600; }
+
+    .coach-plan-body table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 0.78rem;
+      margin: 0.5rem 0;
+    }
+
+    .coach-plan-body th {
+      text-align: left;
+      color: var(--accent);
+      border-bottom: 1px solid #2a3a00;
+      padding: 0.2rem 0.5rem 0.2rem 0;
+      font-weight: 600;
+    }
+
+    .coach-plan-body td {
+      padding: 0.2rem 0.5rem 0.2rem 0;
+      border-bottom: 1px solid #1a2a00;
+      vertical-align: top;
     }
 
     /* Footer */
@@ -541,7 +590,7 @@
       const planHtml = plan ? `
         <div class="coach-plan">
           <div class="coach-plan-label">AI Coach Plan</div>
-          <div class="coach-plan-body">${plan}</div>
+          <div class="coach-plan-body">${marked.parse(plan)}</div>
         </div>` : '';
 
       return sections + planHtml;
