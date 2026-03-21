@@ -1013,6 +1013,94 @@ def _strip_html(html: str) -> str:
     return BeautifulSoup(html, "html.parser").get_text(separator="\n").strip()
 
 
+def generate_recovery_advice(
+    past_workouts: list[dict],
+    upcoming_workout: dict | None,
+    barbell_lifts: dict,
+    athlete_profile: dict,
+) -> str:
+    """
+    Generate a daily recovery/intensity advice based on recent workouts and
+    what's coming up next.  Returns a markdown string.
+    """
+    api_key = os.environ.get("ANTHROPIC_API_KEY", "").strip()
+    if not api_key:
+        log.warning("ANTHROPIC_API_KEY not set — skipping recovery advice generation")
+        return ""
+
+    try:
+        import anthropic
+    except ImportError:
+        log.warning("anthropic package not installed — skipping recovery advice generation")
+        return ""
+
+    client = anthropic.Anthropic(api_key=api_key)
+
+    past_text = ""
+    for w in past_workouts:
+        date = w.get("date", "?")
+        title = w.get("title", "WOD")
+        desc = _strip_html(w.get("description", ""))[:400]
+        past_text += f"\n**{date} — {title}**\n{desc}\n"
+
+    upcoming_text = ""
+    if upcoming_workout:
+        date = upcoming_workout.get("date", "?")
+        title = upcoming_workout.get("title", "WOD")
+        desc = _strip_html(upcoming_workout.get("description", ""))[:400]
+        upcoming_text = f"**{date} — {title}**\n{desc}"
+    else:
+        upcoming_text = "Geen aankomende workout bekend."
+
+    barbell_text = (
+        "\n".join(
+            f"- {lift}: " + ", ".join(f"{rm}: {val}kg" for rm, val in sorted(maxes.items()))
+            for lift, maxes in sorted(barbell_lifts.items())
+        )
+        if barbell_lifts
+        else "Niet beschikbaar"
+    )
+
+    skill_focus_text = "\n".join(f"- {s}" for s in athlete_profile.get("skill_focus", []))
+
+    prompt = f"""Je bent een ervaren CrossFit coach. Geef een kort, persoonlijk hersteladvies voor vandaag.
+
+Atleet: {athlete_profile['name']}, {athlete_profile['weight_kg']} kg, leeftijd 47
+Ervaring: {athlete_profile['experience']}
+Focusgebieden:
+{skill_focus_text}
+
+Barbell maxima (kg):
+{barbell_text}
+
+Afgelopen trainingen (meest recent eerst):
+{past_text if past_text.strip() else "Geen recente trainingen bekend."}
+
+Volgende workout:
+{upcoming_text}
+
+Geef advies over:
+1. **Herstelniveau** — zijn er spiergroepen die extra rust nodig hebben op basis van de recente workouts?
+2. **Intensiteitsadvies** — volledig gas geven, gecontroleerd trainen of bewust schalen vandaag?
+3. **Één concrete tip** voor de volgende workout rekening houdend met herstel (bijv. pacing, scaling keuze, specifieke beweging)
+
+Wees direct, praktisch en bondig. Maximaal 150 woorden. Schrijf in het Nederlands. Geen inleiding."""
+
+    try:
+        log.info("Generating recovery advice")
+        message = client.messages.create(
+            model="claude-sonnet-4-6",
+            max_tokens=400,
+            messages=[{"role": "user", "content": prompt}],
+        )
+        advice = message.content[0].text.strip()
+        log.info("Recovery advice generated (%d chars)", len(advice))
+        return advice
+    except Exception as exc:
+        log.warning("Failed to generate recovery advice: %s", exc)
+        return ""
+
+
 def generate_workout_plans(
     upcoming_workouts: list[dict],
     barbell_lifts: dict,
@@ -1202,12 +1290,24 @@ def main() -> int:
     upcoming_workouts = [w for w in workouts if w.get("date", "") >= today.isoformat()]
     workout_plans = generate_workout_plans(upcoming_workouts, barbell_lifts, ATHLETE_PROFILE)
 
+    # Generate daily recovery advice based on recent past workouts
+    past_workouts_sorted = sorted(
+        [w for w in workouts if w.get("date", "") < today.isoformat()],
+        key=lambda w: w.get("date", ""),
+        reverse=True,
+    )
+    next_workout = upcoming_workouts[0] if upcoming_workouts else None
+    recovery_advice = generate_recovery_advice(
+        past_workouts_sorted[:3], next_workout, barbell_lifts, ATHLETE_PROFILE
+    )
+
     wod_data = {
         "workouts": workouts,
         "by_date": by_date,
         "barbell_lifts": barbell_lifts,
         "personal_records": personal_records,
         "workout_plans": workout_plans,
+        "recovery_advice": recovery_advice,
         "fetched_at": datetime.now(timezone.utc).isoformat(),
     }
 
