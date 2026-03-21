@@ -403,6 +403,7 @@
 
     <footer>
       Bijgewerkt door CrossFit Auto Sign-Up · <span id="lastUpdated">—</span>
+      <br><span id="wod-status" style="font-size:0.75rem;color:#888;">WOD: laden…</span>
     </footer>
   </div>
 
@@ -484,15 +485,18 @@
     }
 
     async function loadWod(gistId) {
+      const el = document.getElementById('wod-status');
       try {
         const resp = await fetch(`https://api.github.com/gists/${gistId}`);
-        if (!resp.ok) return;
+        if (!resp.ok) { if (el) el.textContent = `WOD: API fout ${resp.status}`; return; }
         const gist = await resp.json();
         const file = gist.files['sugarwod_wod.json'];
-        if (!file) return;
+        if (!file) { if (el) el.textContent = 'WOD: sugarwod_wod.json niet gevonden in Gist'; return; }
         const data = JSON.parse(file.content);
         wodByDate = data.by_date || {};
-      } catch (_) {}
+        const n = Object.keys(wodByDate).length;
+        if (el) el.textContent = n > 0 ? `WOD geladen voor ${n} dag(en)` : 'WOD: geen workouts in by_date (fetch mislukt?)';
+      } catch (e) { if (el) el.textContent = `WOD fout: ${e.message}`; }
     }
 
     function renderWodSections(wods) {
