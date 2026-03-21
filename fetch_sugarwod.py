@@ -258,6 +258,113 @@ def _extract_csrf(session: requests.Session, resp: requests.Response) -> str | N
 # Workout fetching
 # ──────────────────────────────────────────────────────────────
 
+def fetch_all_workouts_playwright(
+    email: str,
+    password: str,
+    weeks: list[datetime],
+) -> list[dict] | None:
+    """
+    Use a headless Chromium browser to log in to SugarWOD and intercept the
+    XHR calls the SPA makes to load workout data.
+
+    This bypasses all routing/CSRF complexity because we actually run the
+    JavaScript — the browser handles cookies, CSRF, and API calls automatically.
+    """
+    try:
+        from playwright.sync_api import sync_playwright  # type: ignore
+    except ImportError:
+        log.warning("playwright not installed; skipping browser approach")
+        return None
+
+    log.info("Starting Playwright headless browser")
+    captured: list[dict] = []      # (url, data) pairs from intercepted responses
+
+    def _on_response(response) -> None:
+        try:
+            ct = response.headers.get("content-type", "")
+            if response.status != 200 or "json" not in ct:
+                return
+            url = response.url
+            data = response.json()
+            log.info("  [browser] %s → %s", url, str(data)[:120])
+            captured.append({"url": url, "data": data})
+        except Exception:
+            pass
+
+    all_workouts: list[dict] = []
+
+    try:
+        with sync_playwright() as pw:
+            browser = pw.chromium.launch(headless=True, args=["--no-sandbox"])
+            context = browser.new_context(
+                user_agent=(
+                    "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 "
+                    "(KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36"
+                )
+            )
+            page = context.new_page()
+            page.on("response", _on_response)
+
+            # ── 1. Login ─────────────────────────────────────────────────
+            log.info("[browser] Navigating to login page")
+            page.goto(f"{SUGARWOD_BASE}/login", wait_until="networkidle", timeout=30000)
+
+            # Fill the login form — the web login form uses "email" labels but
+            # the API field is "username".  Try multiple selectors.
+            for selector in ('input[name="username"]', 'input[name="email"]',
+                             'input[type="email"]', 'input[placeholder*="mail" i]',
+                             'input[placeholder*="user" i]'):
+                if page.locator(selector).count():
+                    page.fill(selector, email)
+                    break
+
+            page.fill('input[type="password"]', password)
+
+            # Submit
+            for selector in ('button[type="submit"]', 'input[type="submit"]',
+                             'button:has-text("Log In")', 'button:has-text("Login")',
+                             'button:has-text("Sign in")'):
+                if page.locator(selector).count():
+                    page.click(selector)
+                    break
+
+            page.wait_for_load_state("networkidle", timeout=15000)
+            log.info("[browser] After login, URL: %s", page.url)
+
+            # ── 2. Fetch each week ────────────────────────────────────────
+            for monday in weeks:
+                week_str = monday.strftime("%Y%m%d")
+                captured.clear()
+                url = (f"{SUGARWOD_BASE}/workouts"
+                       f"?week={week_str}&track=workout-of-the-day")
+                log.info("[browser] Navigating to %s", url)
+                page.goto(url, wait_until="networkidle", timeout=30000)
+
+                # Process captured JSON responses
+                for item in captured:
+                    data = item["data"]
+                    results = (
+                        (data.get("workouts") or data.get("results")
+                         or data.get("data"))
+                        if isinstance(data, dict)
+                        else data if isinstance(data, list)
+                        else None
+                    )
+                    if results and isinstance(results, list):
+                        log.info("[browser] Got %d workouts from %s",
+                                 len(results), item["url"])
+                        all_workouts.extend(_parse_parse_workouts(results))
+                        break
+
+            browser.close()
+
+    except Exception as exc:
+        log.warning("Playwright error: %s", exc)
+        return None
+
+    return all_workouts if all_workouts else None
+
+
 def fetch_workouts_week(
     session: requests.Session,
     monday: datetime,
@@ -687,24 +794,32 @@ def main() -> int:
     session = requests.Session()
     session.headers.update(BROWSER_HEADERS)
 
-    csrf, session_token = login(session, email, password)
-    if csrf is None:
-        log.warning("Proceeding without CSRF token — requests may be rejected")
-
     now = datetime.now(AMS)
     this_monday = get_monday(now)
     next_monday = this_monday + timedelta(weeks=1)
+    weeks = [this_monday, next_monday]
 
-    workouts: list[dict] = []
-    for monday in [this_monday, next_monday]:
-        try:
-            week_workouts = fetch_workouts_week(
-                session, monday, csrf, session_token=session_token
-            )
-            workouts.extend(week_workouts)
-            log.info("Week %s: %d workout(s)", monday.strftime("%Y%m%d"), len(week_workouts))
-        except Exception as exc:
-            log.warning("Failed to fetch week %s: %s", monday.strftime("%Y%m%d"), exc)
+    # ── Primary: Playwright headless browser ──────────────────────────
+    workouts = fetch_all_workouts_playwright(email, password, weeks)
+    if workouts is not None:
+        log.info("Playwright fetched %d workouts total", len(workouts))
+    else:
+        # ── Fallback: direct HTTP requests ────────────────────────────
+        log.info("Falling back to HTTP request approach")
+        csrf, session_token = login(session, email, password)
+        if csrf is None:
+            log.warning("Proceeding without CSRF token — requests may be rejected")
+
+        workouts = []
+        for monday in weeks:
+            try:
+                week_workouts = fetch_workouts_week(
+                    session, monday, csrf, session_token=session_token
+                )
+                workouts.extend(week_workouts)
+                log.info("Week %s: %d workout(s)", monday.strftime("%Y%m%d"), len(week_workouts))
+            except Exception as exc:
+                log.warning("Failed to fetch week %s: %s", monday.strftime("%Y%m%d"), exc)
 
     if not workouts:
         log.error("No workouts fetched")
