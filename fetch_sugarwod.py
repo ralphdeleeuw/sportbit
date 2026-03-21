@@ -71,9 +71,9 @@ def get_monday(dt: datetime) -> datetime:
 # Authentication
 # ──────────────────────────────────────────────────────────────
 
-def login(session: requests.Session, email: str, password: str) -> str | None:
+def login(session: requests.Session, email: str, password: str) -> tuple[str | None, str | None, str | None, str | None]:
     """
-    Log in to SugarWOD and return the CSRF token for XHR requests.
+    Log in to SugarWOD and return (csrf, session_token, athlete_id, affiliate_id).
 
     SugarWOD uses "double-submit cookie" CSRF protection:
     1. A GET to any page sets the _csrf cookie.
@@ -159,23 +159,39 @@ def login(session: requests.Session, email: str, password: str) -> str | None:
 
     if resp.status_code not in (200, 201):
         log.error("Login failed with HTTP %d", resp.status_code)
-        return None, None
+        return None, None, None, None
 
     session_token = None
+    athlete_id = None
+    affiliate_id = None
     try:
         body = resp.json()
         if isinstance(body, dict) and body.get("success") is False:
             log.error("Login rejected: %s", body.get("message", ""))
-            return None, None
+            return None, None, None, None
         log.info("Login JSON: %s", body)
-        # Extract Parse Server session token for direct API access
+        # Extract Parse Server session token and user IDs for direct API access
         if isinstance(body, dict):
-            session_token = (
-                body.get("sessionToken")
-                or (body.get("data") or {}).get("sessionToken")
-            )
+            data = body.get("data") or body
+            session_token = data.get("sessionToken") or body.get("sessionToken")
             if session_token:
                 log.info("Got Parse sessionToken: %s…", session_token[:20])
+            # Athlete and affiliate object IDs from the Parse pointers
+            ath = data.get("athlete") or {}
+            aff = data.get("affiliate") or {}
+            athlete_id = (
+                data.get("athleteId")
+                or (ath.get("objectId") if isinstance(ath, dict) else None)
+            )
+            affiliate_id = (
+                data.get("affiliateId")
+                or data.get("affiliateName") and None  # affiliateName is a string, skip
+                or (aff.get("objectId") if isinstance(aff, dict) else None)
+            )
+            if athlete_id:
+                log.info("Got athlete objectId: %s", athlete_id)
+            if affiliate_id:
+                log.info("Got affiliate objectId: %s", affiliate_id)
     except ValueError:
         pass
 
@@ -183,10 +199,10 @@ def login(session: requests.Session, email: str, password: str) -> str | None:
     new_csrf = _generate_csrf_from_session(session)
     if new_csrf:
         log.info("CSRF token after login: %s", new_csrf[:20] + "…")
-        return new_csrf, session_token
+        return new_csrf, session_token, athlete_id, affiliate_id
 
     log.warning("Could not generate CSRF token after login")
-    return csrf, session_token  # fall back to pre-login token
+    return csrf, session_token, athlete_id, affiliate_id
 
 
 def _generate_csrf_from_session(session: requests.Session) -> str | None:
@@ -325,13 +341,25 @@ def fetch_all_workouts_playwright(
                       timeout=30000)
 
             log.info("[browser] Filling login form")
-            page.locator('input[type="email"], input[name="email"]').first.fill(email)
-            password_field = page.locator('input[type="password"]').first
-            password_field.fill(password)
-            # The submit button starts disabled (React form validation).
-            # Pressing Enter on the password field submits the form
-            # regardless of the button's disabled state.
-            password_field.press("Enter")
+            # Use type() (character-by-character) instead of fill() to ensure
+            # React's synthetic onChange events fire on every keystroke.
+            email_input = page.locator('input[type="email"], input[name="email"]').first
+            email_input.click()
+            email_input.type(email)
+
+            password_input = page.locator('input[type="password"]').first
+            password_input.click()
+            password_input.type(password)
+
+            # Wait for React to re-enable the submit button (it starts disabled),
+            # then click it. If it never enables, fall back to pressing Enter.
+            try:
+                page.locator('#login-button').wait_for(state="enabled", timeout=5000)
+                page.locator('#login-button').click()
+                log.info("[browser] Clicked enabled submit button")
+            except Exception:
+                log.info("[browser] Submit button still disabled; pressing Enter")
+                password_input.press("Enter")
 
             # Wait for the SPA to redirect away from the login page
             try:
@@ -394,95 +422,29 @@ def fetch_workouts_week(
     monday: datetime,
     csrf: str | None,
     session_token: str | None = None,
+    athlete_id: str | None = None,
+    affiliate_id: str | None = None,
 ) -> list[dict]:
     """
     Fetch workouts for one week.
 
     Tries in order:
-    1. Parse Server REST API (using the sessionToken from login)
-    2. SugarWOD custom workouts API with JSON Accept header
-    3. HTML calendar endpoint (fallback with structure-aware parsing)
+    1. SugarWOD custom /public/api/v1/ endpoints (affiliate/athlete-scoped)
+    2. HTML calendar endpoint (fallback with structure-aware parsing)
     """
     week_str = monday.strftime("%Y%m%d")
 
-    # ── 1. Parse Server direct API ──────────────────────────────────────
-    if session_token:
-        workouts = _fetch_via_parse_api(session, monday, week_str, session_token)
-        if workouts is not None:
-            return workouts
-
-    # ── 2. Custom JSON API endpoint ─────────────────────────────────────
-    workouts = _fetch_via_json_api(session, monday, week_str, csrf, session_token)
+    # ── 1. Custom JSON API endpoint ─────────────────────────────────────
+    workouts = _fetch_via_json_api(
+        session, monday, week_str, csrf, session_token,
+        athlete_id=athlete_id, affiliate_id=affiliate_id,
+    )
     if workouts is not None:
         return workouts
 
-    # ── 3. HTML calendar (scraping fallback) ────────────────────────────
+    # ── 2. HTML calendar (scraping fallback) ────────────────────────────
     return _fetch_via_html(session, monday, week_str, csrf)
 
-
-def _fetch_via_parse_api(
-    session: requests.Session,
-    monday: datetime,
-    week_str: str,
-    session_token: str,
-) -> list[dict] | None:
-    """
-    Query the SugarWOD custom JSON workouts API.
-
-    Known endpoint variants based on the /public/api/v1/login pattern.
-    """
-    week_start = monday.strftime("%Y-%m-%dT00:00:00.000Z")
-    week_end = (monday + timedelta(days=6)).strftime("%Y-%m-%dT23:59:59.999Z")
-
-    base_headers = {
-        "Accept": "application/json",
-        "X-Requested-With": "XMLHttpRequest",
-        "Origin": SUGARWOD_BASE,
-        "Referer": f"{SUGARWOD_BASE}/workouts",
-        "X-Parse-Session-Token": session_token,
-    }
-
-    endpoints_to_try = [
-        # Custom REST-style API paths (same base as login endpoint)
-        (f"{SUGARWOD_BASE}/public/api/v1/workouts", {"week": week_str, "track": "workout-of-the-day"}),
-        (f"{SUGARWOD_BASE}/public/api/v1/workouts", {"startDate": week_start, "endDate": week_end}),
-        # Parse Server at alternate paths (send browser-like headers to bypass Cloudflare)
-        (f"{SUGARWOD_BASE}/parse/classes/TBWorkout", {
-            "where": json.dumps({
-                "scheduledDate": {
-                    "$gte": {"__type": "Date", "iso": week_start},
-                    "$lte": {"__type": "Date", "iso": week_end},
-                }
-            }),
-            "limit": 50,
-            "order": "scheduledDate",
-        }),
-    ]
-
-    for url, params in endpoints_to_try:
-        log.info("Trying API: %s", url)
-        try:
-            resp = session.get(url, params=params, headers=base_headers, timeout=30)
-            log.info("  → HTTP %d, Content-Type: %s | %s",
-                     resp.status_code,
-                     resp.headers.get("Content-Type", ""),
-                     resp.text[:200])
-            if resp.status_code == 200 and "json" in resp.headers.get("Content-Type", ""):
-                data = resp.json()
-                results = (
-                    data.get("results")
-                    or data.get("workouts")
-                    or data.get("data")
-                    or (data if isinstance(data, list) else None)
-                )
-                if results:
-                    log.info("API returned %d workouts", len(results))
-                    return _parse_parse_workouts(results)
-                log.info("API returned 200 JSON but no workout list: %s", list(data.keys()) if isinstance(data, dict) else type(data))
-        except Exception as exc:
-            log.warning("API error: %s", exc)
-
-    return None
 
 
 def _fetch_via_json_api(
@@ -491,6 +453,8 @@ def _fetch_via_json_api(
     week_str: str,
     csrf: str | None,
     session_token: str | None,
+    athlete_id: str | None = None,
+    affiliate_id: str | None = None,
 ) -> list[dict] | None:
     """
     Try several approaches to get workout JSON from the workouts endpoint.
@@ -503,51 +467,51 @@ def _fetch_via_json_api(
     ts = str(int(time.time() * 1000))
     base_params = {"week": week_str, "track": "workout-of-the-day", "_": ts}
     base_referer = f"{SUGARWOD_BASE}/workouts?week={week_str}&track=workout-of-the-day"
+    json_headers = {
+        "Accept": "application/json",
+        "X-Requested-With": "XMLHttpRequest",
+        "Referer": base_referer,
+        "Origin": SUGARWOD_BASE,
+    }
 
     # IMPORTANT: never manually set a "Cookie" header — doing so causes
     # requests to send a partial cookie alongside the session jar, which
     # triggers the server to clear _sw_ath/_sw_aff via Set-Cookie and
     # corrupts the session for all subsequent calls.
+
+    # Build dynamic affiliate/athlete endpoints from login data
+    _aff = affiliate_id or "oqCrVKvRUY"
+    _ath = athlete_id or "8lDP7kJHFN"
+
     attempts = [
-        # ── A. XHR without _csrf in params (GET doesn't need CSRF)
-        ("workouts XHR no _csrf", WORKOUTS_URL, dict(
-            params=base_params,
-            headers={
-                "X-Requested-With": "XMLHttpRequest",
-                "Accept": "application/json",
-                "Referer": base_referer,
-            },
+        # ── A. Affiliate-scoped workouts (most likely correct endpoint)
+        ("affiliate workouts API",
+         f"{SUGARWOD_BASE}/public/api/v1/affiliates/{_aff}/workouts", dict(
+            params={"week": week_str, "track": "workout-of-the-day"},
+            headers=json_headers,
         )),
-        # ── B. Affiliate-scoped workouts endpoint
-        ("affiliate workouts API", f"{SUGARWOD_BASE}/public/api/v1/workouts", dict(
+        # ── B. Affiliate workouts with flat affiliateId param
+        ("affiliate workouts flat param",
+         f"{SUGARWOD_BASE}/public/api/v1/workouts", dict(
             params={"week": week_str, "track": "workout-of-the-day",
-                    "affiliateId": "oqCrVKvRUY"},
-            headers={"Accept": "application/json",
-                     "X-Requested-With": "XMLHttpRequest",
-                     "Referer": base_referer},
+                    "affiliateId": _aff},
+            headers=json_headers,
         )),
         # ── C. Athlete-scoped workouts endpoint
         ("athlete workouts API",
-         f"{SUGARWOD_BASE}/public/api/v1/athletes/8lDP7kJHFN/workouts", dict(
+         f"{SUGARWOD_BASE}/public/api/v1/athletes/{_ath}/workouts", dict(
             params={"week": week_str},
-            headers={"Accept": "application/json",
-                     "X-Requested-With": "XMLHttpRequest"},
+            headers=json_headers,
         )),
-        # ── D. Whiteboard endpoint (athlete-facing view)
+        # ── D. XHR request to the workouts page (no _csrf needed for GET)
+        ("workouts XHR no _csrf", WORKOUTS_URL, dict(
+            params=base_params,
+            headers=json_headers,
+        )),
+        # ── E. Whiteboard endpoint (athlete-facing view)
         ("whiteboard", f"{SUGARWOD_BASE}/whiteboard", dict(
             params=base_params,
-            headers={"X-Requested-With": "XMLHttpRequest",
-                     "Accept": "application/json"},
-        )),
-        # ── E. workouts with _csrf (original approach)
-        ("workouts XHR with _csrf", WORKOUTS_URL, dict(
-            params={**base_params, "_csrf": csrf} if csrf else base_params,
-            headers={
-                "X-Requested-With": "XMLHttpRequest",
-                "Accept": "application/json",
-                "X-CSRF-Token": csrf or "",
-                "Referer": base_referer,
-            },
+            headers=json_headers,
         )),
     ]
 
@@ -830,7 +794,7 @@ def main() -> int:
     else:
         # ── Fallback: direct HTTP requests ────────────────────────────
         log.info("Falling back to HTTP request approach")
-        csrf, session_token = login(session, email, password)
+        csrf, session_token, athlete_id, affiliate_id = login(session, email, password)
         if csrf is None:
             log.warning("Proceeding without CSRF token — requests may be rejected")
 
@@ -838,7 +802,10 @@ def main() -> int:
         for monday in weeks:
             try:
                 week_workouts = fetch_workouts_week(
-                    session, monday, csrf, session_token=session_token
+                    session, monday, csrf,
+                    session_token=session_token,
+                    athlete_id=athlete_id,
+                    affiliate_id=affiliate_id,
                 )
                 workouts.extend(week_workouts)
                 log.info("Week %s: %d workout(s)", monday.strftime("%Y%m%d"), len(week_workouts))
