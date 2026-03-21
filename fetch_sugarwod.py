@@ -448,14 +448,17 @@ def fetch_all_workouts_playwright(
                         },
                         timeout=30,
                     )
-                    log.info("  → HTTP %d | %s", resp.status_code, resp.text[:200])
+                    log.info("  → HTTP %d | %s", resp.status_code, resp.text[:500])
                     if resp.status_code == 200:
                         data = resp.json()
                         results = data.get("data") or data.get("workouts") or []
                         if results:
                             log.info("  Got %d workouts for week %s",
                                      len(results), week_str)
-                            all_workouts.extend(_parse_parse_workouts(results))
+                            # Log first item in full so we can see the exact field names
+                            log.info("  First item keys/values: %s",
+                                     json.dumps(results[0], default=str)[:1000])
+                            all_workouts.extend(_parse_parse_workouts(results, week_str))
                         else:
                             log.info("  No workouts for week %s (not programmed yet?)",
                                      week_str)
@@ -646,8 +649,16 @@ def _fetch_via_html(
 _SKIP_TITLES = ("warm", "access")  # warming up + accessory (EN/NL)
 
 
-def _parse_parse_workouts(results: list[dict]) -> list[dict]:
+def _parse_parse_workouts(results: list[dict], week_str: str | None = None) -> list[dict]:
     """Convert Parse Server workout objects to our standard format."""
+    # Derive monday from week_str (YYYYMMDD) as fallback date source
+    monday_fallback: datetime | None = None
+    if week_str and len(week_str) == 8:
+        try:
+            monday_fallback = datetime.strptime(week_str, "%Y%m%d").replace(tzinfo=timezone.utc)
+        except ValueError:
+            pass
+
     workouts = []
     for item in results:
         title_raw = item.get("title") or item.get("name") or "WOD"
@@ -655,28 +666,43 @@ def _parse_parse_workouts(results: list[dict]) -> list[dict]:
         if any(kw in title_raw.lower() for kw in _SKIP_TITLES):
             continue
 
-        # Scheduled date can be a Parse Date object or ISO string
-        date_val = item.get("scheduledDate") or item.get("date") or item.get("workoutDate")
+        # Try all known date field names (SugarWOD / Parse Server)
+        date_val = (
+            item.get("scheduledDate")
+            or item.get("date")
+            or item.get("workoutDate")
+            or item.get("scheduledAt")
+            or item.get("performedAt")
+            or item.get("programDate")
+            or item.get("workout_date")
+            or item.get("scheduled_date")
+            or item.get("createdAt")  # last resort
+        )
         if isinstance(date_val, dict):
-            date_val = date_val.get("iso", "")
+            date_val = date_val.get("iso", "") or date_val.get("value", "")
+        date_str = ""
         if date_val:
             try:
                 date_str = datetime.fromisoformat(
-                    date_val.replace("Z", "+00:00")
+                    str(date_val).replace("Z", "+00:00")
                 ).strftime("%Y-%m-%d")
             except ValueError:
-                date_str = date_val[:10]
-        else:
-            date_str = ""
+                s = str(date_val)
+                date_str = s[:10] if len(s) >= 8 else ""
 
-        title = title_raw
+        if not date_str and monday_fallback:
+            # Fallback: assign Monday of the requested week
+            log.info("  No date for '%s' — assigning Monday %s",
+                     title_raw, monday_fallback.strftime("%Y-%m-%d"))
+            date_str = monday_fallback.strftime("%Y-%m-%d")
+
         description = (
             item.get("description")
             or item.get("content")
             or item.get("workout")
             or ""
         )
-        workouts.append({"date": date_str, "title": title, "description": description})
+        workouts.append({"date": date_str, "title": title_raw, "description": description})
     return workouts
 
 
