@@ -643,10 +643,18 @@ def _fetch_via_html(
     return _parse_workouts_html(resp.text, monday)
 
 
+_SKIP_TITLES = ("warm", "access")  # warming up + accessory (EN/NL)
+
+
 def _parse_parse_workouts(results: list[dict]) -> list[dict]:
     """Convert Parse Server workout objects to our standard format."""
     workouts = []
     for item in results:
+        title_raw = item.get("title") or item.get("name") or "WOD"
+        # Skip warming-up and accessory entries — they clutter the WOD display
+        if any(kw in title_raw.lower() for kw in _SKIP_TITLES):
+            continue
+
         # Scheduled date can be a Parse Date object or ISO string
         date_val = item.get("scheduledDate") or item.get("date") or item.get("workoutDate")
         if isinstance(date_val, dict):
@@ -661,7 +669,7 @@ def _parse_parse_workouts(results: list[dict]) -> list[dict]:
         else:
             date_str = ""
 
-        title = item.get("title") or item.get("name") or "WOD"
+        title = title_raw
         description = (
             item.get("description")
             or item.get("content")
@@ -868,8 +876,19 @@ def main() -> int:
         log.error("No workouts fetched")
         return 1
 
+    # Build a date-keyed index so the PWA can look up workouts by date
+    # without iterating the full list.
+    by_date: dict[str, list[dict]] = {}
+    for w in workouts:
+        d = w.get("date")
+        if d:
+            by_date.setdefault(d, []).append(
+                {"title": w["title"], "description": w["description"]}
+            )
+
     wod_data = {
         "workouts": workouts,
+        "by_date": by_date,
         "fetched_at": datetime.now(timezone.utc).isoformat(),
     }
 
