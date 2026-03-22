@@ -1707,7 +1707,6 @@ def main() -> int:
     #   1. Sportbit signup data (most reliable — sign-up = went to the box)
     #   2. SugarWOD logbook (workouts actually scored; athlete doesn't always log)
     #   3. All programmed past WODs (last resort)
-    next_workout = upcoming_workouts[0] if upcoming_workouts else None
 
     # Per date: prefer the main workout (METCON/WEIGHTLIFTING/TEAM METCON) over
     # accessories (Bird Dog, Prone Extensions, etc. which have empty descriptions).
@@ -1732,6 +1731,20 @@ def main() -> int:
         [d for d in sportbit_attended if d < today.isoformat()],
         reverse=True,
     )
+    # Use next Sportbit signup as next_workout so the coach addresses the actual
+    # next planned class, not just the first programmed SugarWOD on or after today
+    # (which may be a day without a class, e.g. Sunday).
+    future_sportbit_dates = sorted(d for d in sportbit_attended if d >= today.isoformat())
+    if future_sportbit_dates:
+        next_date = future_sportbit_dates[0]
+        next_workout = date_to_workout.get(next_date) or {
+            "date": next_date, "title": "CrossFit WOD", "description": ""
+        }
+        log.info("Next workout from Sportbit signup: %s", next_date)
+    else:
+        next_workout = upcoming_workouts[0] if upcoming_workouts else None
+        log.info("Next workout from SugarWOD schedule: %s",
+                 next_workout.get("date") if next_workout else "none")
     if past_sportbit_dates:
         attended_workouts = [
             date_to_workout[d]
