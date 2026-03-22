@@ -1221,7 +1221,7 @@ def _fetch_via_html(
     return _parse_workouts_html(resp.text, monday)
 
 
-_SKIP_TITLES = ("warm", "access")  # warming up + accessory (EN/NL)
+_SKIP_TITLES = ("warm",)  # warming up only; accessory workouts are now shown in the UI
 
 
 def _parse_parse_workouts(results: list[dict], week_str: str | None = None) -> list[dict]:
@@ -1237,7 +1237,7 @@ def _parse_parse_workouts(results: list[dict], week_str: str | None = None) -> l
     workouts = []
     for item in results:
         title_raw = item.get("title") or item.get("name") or "WOD"
-        # Skip warming-up and accessory entries — they clutter the WOD display
+        # Skip warming-up entries (accessory workouts are now shown in the UI)
         if any(kw in title_raw.lower() for kw in _SKIP_TITLES):
             continue
 

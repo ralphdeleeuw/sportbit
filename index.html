@@ -927,7 +927,7 @@
 
     function renderLogSection(date) {
       const entry = workoutLog[date];
-      const mainWods = getMainWods(date);
+      const mainWods = wodByDate[date] || [];
       const checkedTitles = entry ? (entry.workouts_done || []) : [];
       const existingNotes = entry ? (entry.notes || '') : '';
 
@@ -1021,7 +1021,7 @@
 
     function renderPastCard(item, delay) {
       const wods = wodByDate[item.date] || [];
-      const hasWod = wods.some(w => w.description);
+      const hasWod = wods.length > 0;
       const metaHtml = `<div class="card-meta">
         <span>${item.time}</span>
         ${item.signed_up_at ? `<span>Ingeschreven op ${item.signed_up_at.slice(0, 10)}</span>` : ''}
@@ -1029,10 +1029,9 @@
 
       const wodSections = hasWod ? wods.map(w => {
         const desc = stripHtml(w.description || '').trim();
-        if (!desc) return '';
         return `<div class="wod-section">
           <div class="wod-section-title">${w.title}</div>
-          <div class="wod-section-body">${desc}</div>
+          ${desc ? `<div class="wod-section-body">${desc}</div>` : ''}
         </div>`;
       }).join('') : '';
 
@@ -1060,10 +1059,9 @@
     function renderWodSections(wods, date) {
       const sections = wods.map(w => {
         const desc = stripHtml(w.description || '').trim();
-        if (!desc) return '';
         return `<div class="wod-section">
           <div class="wod-section-title">${w.title}</div>
-          <div class="wod-section-body">${desc}</div>
+          ${desc ? `<div class="wod-section-body">${desc}</div>` : ''}
         </div>`;
       }).join('');
 
