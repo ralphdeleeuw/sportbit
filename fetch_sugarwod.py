@@ -1638,9 +1638,11 @@ def main() -> int:
     now = datetime.now(AMS)
     this_monday = get_monday(now)
     next_monday = this_monday + timedelta(weeks=1)
+    # Always fetch the past 4 weeks so the recovery coach has real WOD descriptions
+    # for attended dates instead of falling back on empty "CrossFit WOD" entries.
+    weeks = [this_monday - timedelta(weeks=i) for i in range(3, 0, -1)] + [this_monday]
     # Include next week only from Sunday onwards — coaches typically publish
     # next week's programming on Sunday.
-    weeks = [this_monday]
     if now.weekday() == 6:  # 6 = Sunday
         weeks.append(next_monday)
         log.info("Sunday: also fetching next week (%s)", next_monday.strftime("%Y%m%d"))
@@ -1745,23 +1747,26 @@ def main() -> int:
         next_workout = upcoming_workouts[0] if upcoming_workouts else None
         log.info("Next workout from SugarWOD schedule: %s",
                  next_workout.get("date") if next_workout else "none")
+    # All main workouts per date (METCON + TEAM METCON + WEIGHTLIFTING, etc.) so the
+    # recovery coach sees every WOD the athlete could have done on a given day.
+    date_to_all_main_workouts: dict[str, list[dict]] = {}
+    for w in workouts:
+        if w.get("description") or any(kw in w.get("title", "").lower() for kw in _MAIN_KEYWORDS):
+            date_to_all_main_workouts.setdefault(w["date"], []).append(w)
+
     if past_sportbit_dates:
-        attended_workouts = [
-            date_to_workout[d]
-            for d in past_sportbit_dates[:5]
-            if d in date_to_workout
-        ]
-        # If WOD descriptions exist for fewer dates than we attended, still include
-        # all attended dates so the coach knows the training volume even without desc.
-        if len(attended_workouts) < len(past_sportbit_dates[:5]):
-            extra_dates = [d for d in past_sportbit_dates[:5] if d not in date_to_workout]
-            for d in extra_dates:
+        attended_workouts = []
+        for d in past_sportbit_dates[:5]:
+            main_wods = date_to_all_main_workouts.get(d)
+            if main_wods:
+                attended_workouts.extend(main_wods)
+            else:
                 attended_workouts.append({"date": d, "title": "CrossFit WOD", "description": ""})
-            attended_workouts.sort(key=lambda w: w["date"], reverse=True)
-        log.info("Coach advice: %d Sportbit attended dates → %d with WOD descriptions",
+        attended_workouts.sort(key=lambda w: w["date"], reverse=True)
+        log.info("Coach advice: %d Sportbit attended dates → %d workouts with descriptions",
                  len(past_sportbit_dates), len([w for w in attended_workouts if w.get("description")]))
         recovery_advice = generate_recovery_advice(
-            attended_workouts[:5], next_workout, barbell_lifts, ATHLETE_PROFILE, today
+            attended_workouts[:10], next_workout, barbell_lifts, ATHLETE_PROFILE, today
         )
 
     # 2. SugarWOD logbook (athlete scored a result)
