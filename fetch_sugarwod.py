@@ -1730,7 +1730,9 @@ def main() -> int:
     playwright_result = fetch_all_workouts_playwright(email, password, weeks, gist_id, token)
     if playwright_result is not None:
         workouts = playwright_result["workouts"]
-        barbell_lifts = playwright_result.get("barbell_lifts", {}) or BARBELL_LIFTS_FALLBACK
+        scraped = playwright_result.get("barbell_lifts", {})
+        barbell_lifts = scraped if scraped else BARBELL_LIFTS_FALLBACK
+        barbell_source = "scraper" if scraped else "fallback"
         personal_records = playwright_result.get("personal_records", [])
         benchmark_workouts = playwright_result.get("benchmark_workouts", [])
         athlete_logbook = playwright_result.get("athlete_logbook", [])
@@ -1740,6 +1742,8 @@ def main() -> int:
         )
     else:
         # ── Fallback: direct HTTP requests (workouts only) ────────────────
+        barbell_source = "fallback"
+        barbell_lifts = BARBELL_LIFTS_FALLBACK
         log.info("Falling back to HTTP request approach")
         csrf, session_token, athlete_id, affiliate_id = login(session, email, password)
         if csrf is None:
@@ -1905,6 +1909,7 @@ def main() -> int:
         "workouts": workouts,
         "by_date": by_date,
         "barbell_lifts": barbell_lifts,
+        "barbell_source": barbell_source,
         "personal_records": personal_records,
         "benchmark_workouts": benchmark_workouts,
         "workout_plans": workout_plans,
