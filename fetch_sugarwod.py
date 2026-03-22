@@ -1418,10 +1418,14 @@ def generate_recovery_advice(
     barbell_lifts: dict,
     athlete_profile: dict,
     today: "date | None" = None,
+    garmin_data: "dict | None" = None,
 ) -> str:
     """
     Generate a daily recovery/intensity advice based on recent workouts and
     what's coming up next.  Returns a markdown string.
+
+    If garmin_data is provided (HRV, sleep, body battery, stress, resting HR),
+    it is included in the prompt as primary physiological recovery indicators.
     """
     api_key = os.environ.get("ANTHROPIC_API_KEY", "").strip()
     if not api_key:
@@ -1465,6 +1469,53 @@ def generate_recovery_advice(
 
     today_str = today.isoformat() if today else "onbekend"
 
+    # Build Garmin biometric block (primary physiological recovery data)
+    garmin_block = ""
+    if garmin_data:
+        lines = []
+        hrv = garmin_data.get("hrv")
+        if hrv:
+            hrv_status_nl = {
+                "BALANCED": "Gebalanceerd (goed herstel)",
+                "UNBALANCED": "Ongebalanceerd (let op vermoeidheid)",
+                "LOW": "Laag (verhoogde belasting)",
+                "POOR": "Slecht (neem rust)",
+                "NONE": "Niet beschikbaar",
+            }.get(hrv.get("status", "NONE"), hrv.get("status", "—"))
+            lines.append(
+                f"- HRV gisternacht: {hrv.get('lastNight', '—')} ms "
+                f"(weekgemiddelde: {hrv.get('weeklyAvg', '—')} ms) — {hrv_status_nl}"
+            )
+        sleep = garmin_data.get("sleep")
+        if sleep:
+            score = sleep.get("score")
+            dur = sleep.get("duration_hours")
+            deep = sleep.get("deep_minutes")
+            rem = sleep.get("rem_minutes")
+            score_str = f"score {score}/100" if score is not None else "geen score"
+            dur_str = f"{dur}u" if dur is not None else "—"
+            deep_str = f"{deep}min diep" if deep is not None else ""
+            rem_str = f"{rem}min REM" if rem is not None else ""
+            details = ", ".join(filter(None, [deep_str, rem_str]))
+            lines.append(f"- Slaap: {score_str} — {dur_str} totaal ({details})")
+        bb = garmin_data.get("body_battery")
+        if bb:
+            charged = bb.get("charged", "—")
+            end_val = bb.get("end_value", "—")
+            lines.append(f"- Body Battery: opgeladen tot {charged}, huidig niveau {end_val}/100")
+        stress = garmin_data.get("stress_avg")
+        if stress is not None:
+            lines.append(f"- Gemiddelde stress: {stress}/100")
+        rhr = garmin_data.get("resting_hr")
+        if rhr:
+            lines.append(f"- Rustpols: {rhr} bpm")
+        if lines:
+            garmin_block = (
+                "\nGarmin biometrische data (gebruik dit als primaire fysiologische hersteldata):\n"
+                + "\n".join(lines)
+                + "\n"
+            )
+
     prompt = f"""Je bent een ervaren CrossFit coach. Geef een kort, persoonlijk hersteladvies voor vandaag.
 
 Vandaag is: {today_str}
@@ -1473,7 +1524,7 @@ Atleet: {athlete_profile['name']}, {athlete_profile['weight_kg']} kg, leeftijd 4
 Ervaring: {athlete_profile['experience']}
 Focusgebieden:
 {skill_focus_text}
-
+{garmin_block}
 Barbell maxima (kg):
 {barbell_text}
 
@@ -1486,7 +1537,7 @@ Volgende workout:
 {upcoming_text}
 
 Geef advies over:
-1. **Herstelniveau** — zijn er spiergroepen die extra rust nodig hebben op basis van de recente workouts?
+1. **Herstelniveau** — zijn er spiergroepen die extra rust nodig hebben op basis van de recente workouts?{"  Gebruik de Garmin HRV- en slaapdata als primaire herstelindIndicator als beschikbaar." if garmin_data else ""}
 2. **Intensiteitsadvies** — volledig gas geven, gecontroleerd trainen of bewust schalen vandaag?
 3. **Één concrete tip** voor de volgende workout rekening houdend met herstel (bijv. pacing, scaling keuze, specifieke beweging)
 
@@ -1783,6 +1834,19 @@ def main() -> int:
     upcoming_workouts = [w for w in workouts if w.get("date", "") >= today.isoformat()]
     workout_plans = generate_workout_plans(upcoming_workouts, barbell_lifts, ATHLETE_PROFILE)
 
+    # Fetch Garmin biometric data (HRV, sleep, body battery, stress, resting HR)
+    # Requires GARMIN_TOKENS secret — returns None if not configured.
+    try:
+        from fetch_garmin import fetch_garmin_data  # noqa: PLC0415
+        garmin_data = fetch_garmin_data(today)
+        if garmin_data:
+            log.info("Garmin data opgehaald voor %s (HRV: %s)", garmin_data.get("date"), garmin_data.get("hrv"))
+        else:
+            log.info("Geen Garmin data beschikbaar — coach gebruikt alleen workoutgeschiedenis")
+    except Exception as exc:
+        log.warning("Garmin fetch mislukt: %s", exc)
+        garmin_data = None
+
     # Generate daily recovery advice.
     # Priority for "which days did the athlete actually train":
     #   1. Sportbit signup data (most reliable — sign-up = went to the box)
@@ -1867,7 +1931,8 @@ def main() -> int:
         log.info("Coach advice: %d Sportbit attended dates → %d workouts with descriptions",
                  len(past_sportbit_dates), len([w for w in attended_workouts if w.get("description")]))
         recovery_advice = generate_recovery_advice(
-            attended_workouts[:10], next_workout, barbell_lifts, ATHLETE_PROFILE, today
+            attended_workouts[:10], next_workout, barbell_lifts, ATHLETE_PROFILE, today,
+            garmin_data=garmin_data,
         )
 
     # 2. SugarWOD logbook (athlete scored a result)
@@ -1891,7 +1956,8 @@ def main() -> int:
             })
         log.info("Coach advice: %d SugarWOD logbook entries", len(attended_workouts))
         recovery_advice = generate_recovery_advice(
-            attended_workouts[:5], next_workout, barbell_lifts, ATHLETE_PROFILE, today
+            attended_workouts[:5], next_workout, barbell_lifts, ATHLETE_PROFILE, today,
+            garmin_data=garmin_data,
         )
 
     # 3. Fallback: all programmed past workouts
@@ -1903,7 +1969,8 @@ def main() -> int:
         )
         log.info("Coach advice fallback: %d programmed past workouts", len(past_workouts_sorted))
         recovery_advice = generate_recovery_advice(
-            past_workouts_sorted[:3], next_workout, barbell_lifts, ATHLETE_PROFILE
+            past_workouts_sorted[:3], next_workout, barbell_lifts, ATHLETE_PROFILE,
+            garmin_data=garmin_data,
         )
 
     wod_data = {
@@ -1915,6 +1982,7 @@ def main() -> int:
         "benchmark_workouts": benchmark_workouts,
         "workout_plans": workout_plans,
         "recovery_advice": recovery_advice,
+        "garmin_data": garmin_data,
         "fetched_at": datetime.now(timezone.utc).isoformat(),
     }
 
