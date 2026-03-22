@@ -768,8 +768,8 @@ def fetch_all_workouts_playwright(
                                         if r.get(k)
                                     }
                         break
-                # Fall back to DOM parsing if XHR didn't yield data
-                if not barbell_lifts:
+                # Fall back to DOM parsing if XHR didn't yield usable data
+                if not barbell_lifts or not any(v for v in barbell_lifts.values()):
                     barbell_lifts = _extract_barbell_from_page(page)
                 log.info("[browser] Extracted %d barbell lifts", len(barbell_lifts))
             except Exception as exc:
@@ -1731,8 +1731,9 @@ def main() -> int:
     if playwright_result is not None:
         workouts = playwright_result["workouts"]
         scraped = playwright_result.get("barbell_lifts", {})
-        barbell_lifts = scraped if scraped else BARBELL_LIFTS_FALLBACK
-        barbell_source = "scraper" if scraped else "fallback"
+        has_values = scraped and any(v for v in scraped.values())
+        barbell_lifts = scraped if has_values else BARBELL_LIFTS_FALLBACK
+        barbell_source = "scraper" if has_values else "fallback"
         personal_records = playwright_result.get("personal_records", [])
         benchmark_workouts = playwright_result.get("benchmark_workouts", [])
         athlete_logbook = playwright_result.get("athlete_logbook", [])
