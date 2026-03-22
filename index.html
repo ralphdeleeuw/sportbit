@@ -983,10 +983,10 @@
       const logHtml = renderLogSection(item.date);
 
       return `
-        <div class="card has-wod" style="animation-delay:${delay}s" onclick="toggleWod(this)">
+        <div class="card has-wod" style="animation-delay:${delay}s">
           <div class="card-dot dot-active" style="opacity:0.4"></div>
           <div class="card-info">
-            <div class="card-header">
+            <div class="card-header" onclick="toggleWod(this.closest('.card'))" style="cursor:pointer">
               <div class="card-header-left">
                 <div class="card-title">${item.title}</div>
                 ${metaHtml}
@@ -1027,10 +1027,6 @@
       card.classList.toggle('open');
     }
 
-    // Prevent clicks inside the log section from toggling the card (bubble phase)
-    document.addEventListener('click', e => {
-      if (e.target.closest('.log-section')) e.stopPropagation();
-    });
 
     // ── Sign-up data ──────────────────────────────────────────
 
