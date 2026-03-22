@@ -93,9 +93,15 @@
       padding: 1rem 1.2rem;
       margin-bottom: 2rem;
       display: flex;
+      flex-direction: column;
+      gap: 0.6rem;
+      animation: fadeUp 0.6s 0.1s ease both;
+    }
+
+    .config-row {
+      display: flex;
       gap: 0.8rem;
       align-items: center;
-      animation: fadeUp 0.6s 0.1s ease both;
     }
 
     .config input {
@@ -130,6 +136,101 @@
 
     .config button:hover { opacity: 0.85; }
     .config button:active { transform: scale(0.97); }
+
+    /* Workout log form */
+    .log-section {
+      margin-top: 0.85rem;
+      padding-top: 0.85rem;
+      border-top: 1px solid var(--border);
+    }
+
+    .log-section-title {
+      font-size: 0.67rem;
+      letter-spacing: 0.16em;
+      text-transform: uppercase;
+      color: var(--muted);
+      font-weight: 600;
+      margin-bottom: 0.6rem;
+    }
+
+    .log-checkboxes {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.5rem;
+      margin-bottom: 0.7rem;
+    }
+
+    .log-checkbox {
+      display: flex;
+      align-items: center;
+      gap: 0.4rem;
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      border-radius: 20px;
+      padding: 0.3rem 0.8rem;
+      font-size: 0.8rem;
+      cursor: pointer;
+      transition: border-color 0.15s, color 0.15s;
+      user-select: none;
+    }
+
+    .log-checkbox:hover { border-color: #3a3a3a; }
+    .log-checkbox.checked { border-color: var(--accent); color: var(--accent); }
+
+    .log-checkbox input[type="checkbox"] {
+      accent-color: var(--accent);
+      cursor: pointer;
+    }
+
+    .log-textarea {
+      width: 100%;
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 0.6rem 0.9rem;
+      color: var(--text);
+      font-family: 'DM Sans', sans-serif;
+      font-size: 0.82rem;
+      outline: none;
+      resize: vertical;
+      min-height: 56px;
+      transition: border-color 0.2s;
+      margin-bottom: 0.6rem;
+    }
+
+    .log-textarea:focus { border-color: var(--accent); }
+    .log-textarea::placeholder { color: var(--muted); }
+
+    .log-actions {
+      display: flex;
+      align-items: center;
+      justify-content: flex-end;
+      gap: 0.8rem;
+    }
+
+    .log-save-btn {
+      background: transparent;
+      color: var(--accent);
+      border: 1px solid var(--accent);
+      border-radius: 8px;
+      padding: 0.4rem 1rem;
+      font-family: 'DM Sans', sans-serif;
+      font-size: 0.8rem;
+      font-weight: 500;
+      cursor: pointer;
+      transition: background 0.15s;
+    }
+
+    .log-save-btn:hover { background: #1a2200; }
+
+    .log-status {
+      font-size: 0.78rem;
+      color: var(--muted);
+      transition: color 0.2s;
+    }
+
+    .log-status.ok  { color: #80c040; }
+    .log-status.err { color: var(--accent2); }
 
     /* Stats row */
     .stats {
@@ -619,8 +720,13 @@
     <div id="content"></div>
 
     <div class="config">
-      <input type="text" id="gistId" placeholder="Jouw Gist ID" />
-      <button onclick="loadData()">Laden</button>
+      <div class="config-row">
+        <input type="text" id="gistId" placeholder="Jouw Gist ID" />
+        <button onclick="loadData()">Laden</button>
+      </div>
+      <div class="config-row">
+        <input type="password" id="githubToken" placeholder="GitHub Token (voor workout loggen)" />
+      </div>
     </div>
 
     <footer>
@@ -703,6 +809,19 @@
     let recoveryAdvice = null;
     let personalRecords = [];
     let benchmarkWorkouts = [];
+    let workoutLog = {};   // {date: entry} from workout_log.json
+    let currentGistId = '';
+
+    const MAIN_KEYWORDS = ['metcon', 'weightlifting', 'team metcon', 'strength', 'conditioning'];
+
+    // Load saved token
+    const savedToken = localStorage.getItem('sportbit_github_token');
+    if (savedToken) document.getElementById('githubToken').value = savedToken;
+
+    document.getElementById('githubToken').addEventListener('change', () => {
+      const t = document.getElementById('githubToken').value.trim();
+      if (t) localStorage.setItem('sportbit_github_token', t);
+    });
 
     function stripHtml(html) {
       const div = document.createElement('div');
@@ -711,11 +830,25 @@
     }
 
     async function loadWod(gistId) {
+      currentGistId = gistId;
       const el = document.getElementById('wod-status');
       try {
         const resp = await fetch(`https://api.github.com/gists/${gistId}`);
         if (!resp.ok) { if (el) el.textContent = `WOD: API fout ${resp.status}`; return; }
         const gist = await resp.json();
+
+        // Load workout log
+        const logFile = gist.files['workout_log.json'];
+        if (logFile) {
+          try {
+            const logData = JSON.parse(logFile.content);
+            workoutLog = {};
+            for (const entry of (logData.entries || [])) {
+              workoutLog[entry.date] = entry;
+            }
+          } catch (e) { /* ignore parse errors */ }
+        }
+
         const file = gist.files['sugarwod_wod.json'];
         if (!file) { if (el) el.textContent = 'WOD: sugarwod_wod.json niet gevonden in Gist'; return; }
         const data = JSON.parse(file.content);
@@ -728,6 +861,149 @@
         const n = Object.keys(wodByDate).length;
         if (el) el.textContent = n > 0 ? `WOD geladen voor ${n} dag(en)` : 'WOD: geen workouts in by_date (fetch mislukt?)';
       } catch (e) { if (el) el.textContent = `WOD fout: ${e.message}`; }
+    }
+
+    function getMainWods(date) {
+      return (wodByDate[date] || []).filter(w =>
+        w.description || MAIN_KEYWORDS.some(k => (w.title || '').toLowerCase().includes(k))
+      );
+    }
+
+    function renderLogSection(date) {
+      const entry = workoutLog[date];
+      const mainWods = getMainWods(date);
+      const checkedTitles = entry ? (entry.workouts_done || []) : [];
+      const existingNotes = entry ? (entry.notes || '') : '';
+
+      const checkboxes = mainWods.map(w => {
+        const isChecked = checkedTitles.includes(w.title);
+        return `<label class="log-checkbox${isChecked ? ' checked' : ''}" onclick="toggleLogCheckbox(this)">
+          <input type="checkbox" data-date="${date}" value="${escapeHtml(w.title)}"${isChecked ? ' checked' : ''} style="display:none">
+          ${escapeHtml(w.title)}
+        </label>`;
+      }).join('');
+
+      const savedLabel = entry ? `<span class="log-status ok" id="log-status-${date}">✓ Opgeslagen</span>` :
+                                  `<span class="log-status" id="log-status-${date}"></span>`;
+
+      return `<div class="log-section">
+        <div class="log-section-title">Wat heb je gedaan?</div>
+        ${mainWods.length > 0
+          ? `<div class="log-checkboxes" id="log-checks-${date}">${checkboxes}</div>`
+          : `<div style="font-size:0.8rem;color:var(--muted);margin-bottom:0.6rem">Geen workouts bekend voor deze dag</div>`}
+        <textarea class="log-textarea" id="log-notes-${date}" placeholder="Gewichten & notities (bijv. Deadlift 60kg, Box Jump step-down…)">${escapeHtml(existingNotes)}</textarea>
+        <div class="log-actions">
+          ${savedLabel}
+          <button class="log-save-btn" onclick="saveWorkoutLog('${date}')">Opslaan</button>
+        </div>
+      </div>`;
+    }
+
+    function toggleLogCheckbox(label) {
+      const cb = label.querySelector('input[type="checkbox"]');
+      cb.checked = !cb.checked;
+      label.classList.toggle('checked', cb.checked);
+    }
+
+    async function saveWorkoutLog(date) {
+      const token = document.getElementById('githubToken').value.trim();
+      const statusEl = document.getElementById(`log-status-${date}`);
+
+      if (!token) {
+        if (statusEl) { statusEl.textContent = '⚠ Voer eerst een GitHub Token in'; statusEl.className = 'log-status err'; }
+        return;
+      }
+
+      // Collect checked workouts
+      const checks = document.querySelectorAll(`#log-checks-${date} input[type="checkbox"]:checked`);
+      const workoutsDone = Array.from(checks).map(cb => cb.value);
+
+      const notes = (document.getElementById(`log-notes-${date}`) || {}).value || '';
+
+      const newEntry = {
+        date,
+        workouts_done: workoutsDone,
+        notes,
+        logged_at: new Date().toISOString(),
+      };
+
+      if (statusEl) { statusEl.textContent = 'Opslaan…'; statusEl.className = 'log-status'; }
+
+      try {
+        // Fetch current log
+        const resp = await fetch(`https://api.github.com/gists/${currentGistId}`, {
+          headers: { Authorization: `token ${token}` },
+        });
+        if (!resp.ok) throw new Error(`GitHub API ${resp.status}`);
+        const gist = await resp.json();
+
+        let entries = [];
+        const existing = gist.files['workout_log.json'];
+        if (existing) {
+          try { entries = JSON.parse(existing.content).entries || []; } catch(e) {}
+        }
+
+        // Replace entry for this date
+        entries = entries.filter(e => e.date !== date);
+        entries.push(newEntry);
+        entries.sort((a, b) => b.date.localeCompare(a.date));
+
+        const patch = await fetch(`https://api.github.com/gists/${currentGistId}`, {
+          method: 'PATCH',
+          headers: {
+            Authorization: `token ${token}`,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            files: { 'workout_log.json': { content: JSON.stringify({ entries }, null, 2) } }
+          }),
+        });
+
+        if (!patch.ok) throw new Error(`Opslaan mislukt: ${patch.status}`);
+
+        workoutLog[date] = newEntry;
+        if (statusEl) { statusEl.textContent = '✓ Opgeslagen'; statusEl.className = 'log-status ok'; }
+      } catch(e) {
+        if (statusEl) { statusEl.textContent = `❌ ${e.message}`; statusEl.className = 'log-status err'; }
+      }
+    }
+
+    function renderPastCard(item, delay) {
+      const wods = wodByDate[item.date] || [];
+      const hasWod = wods.some(w => w.description);
+      const metaHtml = `<div class="card-meta">
+        <span>${item.time}</span>
+        ${item.signed_up_at ? `<span>Ingeschreven op ${item.signed_up_at.slice(0, 10)}</span>` : ''}
+      </div>`;
+
+      const wodSections = hasWod ? wods.map(w => {
+        const desc = stripHtml(w.description || '').trim();
+        if (!desc) return '';
+        return `<div class="wod-section">
+          <div class="wod-section-title">${w.title}</div>
+          <div class="wod-section-body">${desc}</div>
+        </div>`;
+      }).join('') : '';
+
+      const logHtml = renderLogSection(item.date);
+
+      return `
+        <div class="card has-wod" style="animation-delay:${delay}s" onclick="toggleWod(this)">
+          <div class="card-dot dot-active" style="opacity:0.4"></div>
+          <div class="card-info">
+            <div class="card-header">
+              <div class="card-header-left">
+                <div class="card-title">${item.title}</div>
+                ${metaHtml}
+              </div>
+              <div class="card-right">
+                <div class="card-date">${formatDate(item.date)}</div>
+                <div class="wod-chevron">▾</div>
+              </div>
+            </div>
+            <div class="card-wod">${wodSections}${logHtml}</div>
+          </div>
+        </div>`;
     }
 
     function renderWodSections(wods, date) {
@@ -755,6 +1031,11 @@
       wod.style.display = wod.style.display === 'block' ? 'none' : 'block';
       card.classList.toggle('open');
     }
+
+    // Prevent clicks inside the log section from toggling the card
+    document.addEventListener('click', e => {
+      if (e.target.closest('.log-section')) e.stopPropagation();
+    }, true);
 
     // ── Sign-up data ──────────────────────────────────────────
 
@@ -829,7 +1110,7 @@
         // Past
         if (past.length > 0) {
           html += `<div class="section-title">Eerder</div><div class="cards">`;
-          past.slice(-5).reverse().forEach((e, i) => html += renderCard(e, 'past', i * 0.05));
+          past.slice(-5).reverse().forEach((e, i) => html += renderPastCard(e, i * 0.05));
           html += `</div>`;
         }
 

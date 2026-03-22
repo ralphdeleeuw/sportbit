@@ -1597,6 +1597,30 @@ def load_sportbit_attended_dates(gist_id: str, token: str) -> set[str]:
         return set()
 
 
+def load_workout_log(gist_id: str, token: str) -> dict[str, dict]:
+    """Read workout_log.json from the gist. Returns {date: entry}."""
+    if not gist_id or not token:
+        return {}
+    try:
+        resp = requests.get(
+            f"https://api.github.com/gists/{gist_id}",
+            headers={"Authorization": f"token {token}", "Accept": "application/json"},
+            timeout=15,
+        )
+        resp.raise_for_status()
+        raw = resp.json().get("files", {}).get("workout_log.json", {}).get("content", "")
+        if not raw:
+            log.info("[gist] workout_log.json not found or empty")
+            return {}
+        entries = json.loads(raw).get("entries", [])
+        result = {e["date"]: e for e in entries if "date" in e}
+        log.info("[gist] workout_log.json loaded: %d entries", len(result))
+        return result
+    except Exception as exc:
+        log.warning("[gist] Failed to load workout_log.json: %s", exc)
+        return {}
+
+
 def save_to_gist(gist_id: str, token: str, wod_data: dict) -> None:
     payload = {
         "files": {
@@ -1754,14 +1778,36 @@ def main() -> int:
         if w.get("description") or any(kw in w.get("title", "").lower() for kw in _MAIN_KEYWORDS):
             date_to_all_main_workouts.setdefault(w["date"], []).append(w)
 
+    workout_log = load_workout_log(gist_id, token)
+
     if past_sportbit_dates:
         attended_workouts = []
         for d in past_sportbit_dates[:5]:
-            main_wods = date_to_all_main_workouts.get(d)
-            if main_wods:
-                attended_workouts.extend(main_wods)
+            log_entry = workout_log.get(d)
+            if log_entry:
+                # Athlete explicitly logged which workouts they did + weights
+                workouts_done = log_entry.get("workouts_done") or []
+                notes = log_entry.get("notes", "")
+                if workouts_done:
+                    for title in workouts_done:
+                        base = next(
+                            (w for w in date_to_all_main_workouts.get(d, []) if w.get("title") == title),
+                            {"date": d, "title": title, "description": ""},
+                        )
+                        extra = f"\nGebruikte gewichten/notities: {notes}" if notes else ""
+                        attended_workouts.append({**base, "description": base.get("description", "") + extra})
+                else:
+                    # Log entry exists but no workout selected — use notes only
+                    main_wods = date_to_all_main_workouts.get(d) or [{"date": d, "title": "CrossFit WOD", "description": ""}]
+                    for w in main_wods:
+                        extra = f"\nNotities atleet: {notes}" if notes else ""
+                        attended_workouts.append({**w, "description": w.get("description", "") + extra})
             else:
-                attended_workouts.append({"date": d, "title": "CrossFit WOD", "description": ""})
+                main_wods = date_to_all_main_workouts.get(d)
+                if main_wods:
+                    attended_workouts.extend(main_wods)
+                else:
+                    attended_workouts.append({"date": d, "title": "CrossFit WOD", "description": ""})
         attended_workouts.sort(key=lambda w: w["date"], reverse=True)
         log.info("Coach advice: %d Sportbit attended dates → %d workouts with descriptions",
                  len(past_sportbit_dates), len([w for w in attended_workouts if w.get("description")]))
