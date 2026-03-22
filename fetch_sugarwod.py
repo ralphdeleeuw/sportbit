@@ -50,6 +50,56 @@ BROWSER_HEADERS = {
 # Athlete profile (used for AI coaching plans)
 # ──────────────────────────────────────────────────────────────
 
+BARBELL_LIFTS_FALLBACK = {
+    "3 Position Clean (hang, below knee, floor)": {"1RM": 37.5, "3RM": 37},
+    "3 Position Snatch (High Hang, Above the Knee, Floor)": {"1RM": 25, "3RM": 35},
+    "Back Pause Squat": {"5RM": 43},
+    "Back Rack Lunges": {"1RM": 50, "2RM": 50, "3RM": 50, "5RM": 50},
+    "Back Squat": {"1RM": 67, "2RM": 60, "3RM": 62, "5RM": 56},
+    "Bench Press": {"1RM": 67.5, "2RM": 55, "3RM": 60, "5RM": 50},
+    "Bent Over Row": {"5RM": 30},
+    "Box Squat": {"1RM": 90},
+    "Clean": {"1RM": 50, "2RM": 53, "3RM": 40},
+    "Clean & Jerk": {"1RM": 58, "2RM": 32.5, "3RM": 53},
+    "Deadlift": {"1RM": 100, "2RM": 80, "3RM": 80, "5RM": 90},
+    "Front Pause Squat": {"2RM": 37.5},
+    "Front Rack Lunges": {"1RM": 35, "2RM": 35, "3RM": 35, "5RM": 35},
+    "Front Squat": {"1RM": 65, "3RM": 35, "5RM": 57},
+    "Front Squat + Jerk": {"5RM": 52.5},
+    "Full Grip, No Foot Clean + Tall Jerks": {"5RM": 50},
+    "Hang Clean": {"1RM": 55, "3RM": 40},
+    "Hang Power Clean": {"1RM": 57.5, "3RM": 43, "5RM": 50},
+    "Hang Power Snatch": {"1RM": 40, "2RM": 33, "3RM": 38},
+    "Hang Squat Clean": {"3RM": 42.5, "5RM": 30},
+    "Hang Squat Snatch": {"1RM": 35, "2RM": 35, "3RM": 32.5},
+    "In The Hole Front Squat": {"1RM": 45},
+    "Muscle Clean": {"5RM": 35},
+    "Overhead Squat": {"1RM": 48, "2RM": 44},
+    "Power Clean": {"1RM": 57, "2RM": 57, "3RM": 45},
+    "Power Clean & Jerk": {"1RM": 61, "2RM": 61, "3RM": 58},
+    "Power Snatch": {"1RM": 43, "2RM": 43, "3RM": 35, "5RM": 35},
+    "Pressing Complex": {"1RM": 50},
+    "Push Jerk": {"1RM": 61, "2RM": 61, "3RM": 50, "5RM": 40},
+    "Push Press": {"1RM": 57.5, "2RM": 50, "5RM": 40},
+    "Shoulder Press": {"1RM": 42.5, "2RM": 37.5, "3RM": 35, "5RM": 27},
+    "Snatch": {"1RM": 38, "2RM": 34, "3RM": 35},
+    "Snatch + Overhead Squat": {"2RM": 25},
+    "Snatch Balance": {"1RM": 37.5, "2RM": 30, "3RM": 25},
+    "Snatch Deadlift + High Hang Shrug": {"5RM": 37.5},
+    "Snatch Grip Deadlift": {"3RM": 37.5},
+    "Snatch Grip Push Press": {"5RM": 37.5},
+    "Snatch Pull": {"2RM": 40},
+    "Snatch Push Press + Overhead Squat": {"2RM": 40, "3RM": 27},
+    "Split Jerk": {"1RM": 50, "2RM": 58},
+    "Squat Clean": {"1RM": 53, "3RM": 40, "5RM": 35},
+    "Squat Snatch": {"1RM": 45, "3RM": 32, "5RM": 30},
+    "Sumo Deadlift": {"2RM": 50, "3RM": 50},
+    "Sumo Deadlift High Pull": {"5RM": 43},
+    "Thruster": {"1RM": 53, "2RM": 43, "3RM": 44, "5RM": 43},
+    "Weighted Chin Up": {"1RM": 7.5, "3RM": 7.5},
+    "Weighted Hip Thrust": {"5RM": 110},
+}
+
 ATHLETE_PROFILE = {
     "name": "Ralph de Leeuw",
     "weight_kg": 77,
@@ -1680,7 +1730,7 @@ def main() -> int:
     playwright_result = fetch_all_workouts_playwright(email, password, weeks, gist_id, token)
     if playwright_result is not None:
         workouts = playwright_result["workouts"]
-        barbell_lifts = playwright_result.get("barbell_lifts", {})
+        barbell_lifts = playwright_result.get("barbell_lifts", {}) or BARBELL_LIFTS_FALLBACK
         personal_records = playwright_result.get("personal_records", [])
         benchmark_workouts = playwright_result.get("benchmark_workouts", [])
         athlete_logbook = playwright_result.get("athlete_logbook", [])
