@@ -692,6 +692,47 @@
     @keyframes spin {
       to { transform: rotate(360deg); }
     }
+
+    footer {
+      margin-top: 3rem;
+      font-size: 0.75rem;
+      color: var(--muted);
+    }
+
+    .footer-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 1rem;
+    }
+
+    .sync-btn {
+      background: var(--surface2);
+      color: var(--text);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 4px 10px;
+      font-size: 0.75rem;
+      cursor: pointer;
+      transition: background 0.2s;
+    }
+
+    .sync-btn:hover { background: var(--border); }
+    .sync-btn:disabled { opacity: 0.5; cursor: default; }
+
+    .sync-status {
+      margin-top: 4px;
+      min-height: 1em;
+      font-size: 0.72rem;
+    }
+
+    .barbell-status {
+      margin-top: 4px;
+      font-size: 0.72rem;
+    }
+
+    .barbell-status.ok { color: #4caf50; }
+    .barbell-status.fallback { color: #ff9800; }
   </style>
 </head>
 <body>
@@ -730,7 +771,12 @@
     </div>
 
     <footer>
-      Bijgewerkt door CrossFit Auto Sign-Up · <span id="lastUpdated">—</span>
+      <div class="footer-row">
+        <span>Bijgewerkt · <span id="lastUpdated">—</span></span>
+        <button id="syncBtn" class="sync-btn" onclick="triggerSync()">↻ Sync</button>
+      </div>
+      <div id="syncStatus" class="sync-status"></div>
+      <div id="barbellStatus" class="barbell-status"></div>
     </footer>
   </div>
 
@@ -860,6 +906,23 @@
         benchmarkWorkouts = data.benchmark_workouts || [];
         const n = Object.keys(wodByDate).length;
         if (el) el.textContent = n > 0 ? `WOD geladen voor ${n} dag(en)` : 'WOD: geen workouts in by_date (fetch mislukt?)';
+
+        // Barbell source indicator
+        const bsEl = document.getElementById('barbellStatus');
+        if (bsEl) {
+          const source = data.barbell_source;
+          const liftCount = Object.keys(barbellLifts).length;
+          if (source === 'scraper') {
+            bsEl.textContent = `Barbell maxima: ${liftCount} lifts live opgehaald via SugarWOD`;
+            bsEl.className = 'barbell-status ok';
+          } else if (source === 'fallback') {
+            bsEl.textContent = `Barbell maxima: fallback gebruikt (${liftCount} lifts) — scraper kon niet inloggen`;
+            bsEl.className = 'barbell-status fallback';
+          } else {
+            bsEl.textContent = `Barbell maxima: ${liftCount} lifts`;
+            bsEl.className = 'barbell-status';
+          }
+        }
       } catch (e) { if (el) el.textContent = `WOD fout: ${e.message}`; }
     }
 
@@ -1133,6 +1196,52 @@
 
       } catch (e) {
         content.innerHTML = `<div class="error-msg">❌ ${e.message}</div>`;
+      }
+    }
+
+    async function triggerSync() {
+      const token = document.getElementById('githubToken').value.trim();
+      const statusEl = document.getElementById('syncStatus');
+      const btn = document.getElementById('syncBtn');
+
+      if (!token) {
+        statusEl.textContent = 'Vul eerst je GitHub Token in (nodig om workflow te starten)';
+        statusEl.style.color = 'var(--accent2)';
+        return;
+      }
+
+      btn.disabled = true;
+      btn.textContent = '↻ Bezig…';
+      statusEl.textContent = 'Workflow starten…';
+      statusEl.style.color = 'var(--muted)';
+
+      try {
+        const resp = await fetch(
+          'https://api.github.com/repos/ralphdeleeuw/sportbit/actions/workflows/fetch_sugarwod.yml/dispatches',
+          {
+            method: 'POST',
+            headers: {
+              Authorization: `token ${token}`,
+              Accept: 'application/vnd.github+json',
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({ ref: 'main' }),
+          }
+        );
+        if (resp.status === 204) {
+          statusEl.textContent = 'Workflow gestart! Duurt ~3 min. Daarna opnieuw laden.';
+          statusEl.style.color = '#4caf50';
+        } else {
+          const body = await resp.json().catch(() => ({}));
+          statusEl.textContent = `Fout ${resp.status}: ${body.message || 'onbekend'}`;
+          statusEl.style.color = 'var(--accent2)';
+        }
+      } catch (e) {
+        statusEl.textContent = `Netwerkfout: ${e.message}`;
+        statusEl.style.color = 'var(--accent2)';
+      } finally {
+        btn.disabled = false;
+        btn.textContent = '↻ Sync';
       }
     }
 
