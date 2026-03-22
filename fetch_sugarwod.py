@@ -1708,7 +1708,23 @@ def main() -> int:
     #   2. SugarWOD logbook (workouts actually scored; athlete doesn't always log)
     #   3. All programmed past WODs (last resort)
     next_workout = upcoming_workouts[0] if upcoming_workouts else None
-    date_to_workout = {w["date"]: w for w in workouts}
+
+    # Per date: prefer the main workout (METCON/WEIGHTLIFTING/TEAM METCON) over
+    # accessories (Bird Dog, Prone Extensions, etc. which have empty descriptions).
+    # Priority: 1) title contains METCON/WEIGHTLIFTING, 2) has description, 3) any
+    _MAIN_KEYWORDS = ("metcon", "weightlifting", "team metcon", "strength", "conditioning")
+    def _pick_main_workout(workouts_for_date: list[dict]) -> dict:
+        for kw in _MAIN_KEYWORDS:
+            for w in workouts_for_date:
+                if kw in w.get("title", "").lower():
+                    return w
+        # fallback: pick the one with the longest description
+        return max(workouts_for_date, key=lambda w: len(w.get("description", "")))
+
+    _by_date_all: dict[str, list[dict]] = {}
+    for w in workouts:
+        _by_date_all.setdefault(w["date"], []).append(w)
+    date_to_workout = {d: _pick_main_workout(ws) for d, ws in _by_date_all.items()}
 
     # 1. Sportbit attended dates (signed up, not cancelled)
     sportbit_attended = load_sportbit_attended_dates(gist_id, token)
