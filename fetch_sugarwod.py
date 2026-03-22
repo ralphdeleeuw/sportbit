@@ -1440,12 +1440,41 @@ def generate_recovery_advice(
 
     client = anthropic.Anthropic(api_key=api_key)
 
+    # Build activities-by-date lookup for WOD matching
+    activities_by_date: dict = {}
+    if garmin_data:
+        activities_by_date = garmin_data.get("activities_by_date") or {}
+
     past_text = ""
     for w in past_workouts:
         date = w.get("date", "?")
         title = w.get("title", "WOD")
         desc = _strip_html(w.get("description", ""))[:400]
         past_text += f"\n**{date} — {title}**\n{desc}\n"
+        # Append matched Garmin activity data for this WOD date
+        if date in activities_by_date:
+            for act in activities_by_date[date]:
+                avg_hr = act.get("avg_hr")
+                max_hr = act.get("max_hr")
+                dur = act.get("duration_min")
+                aero_te = act.get("aerobic_te")
+                ana_te = act.get("anaerobic_te")
+                cal = act.get("calories")
+                zones = act.get("hr_zones") or {}
+                zone_str = ", ".join(
+                    f"Z{i}: {zones.get(f'zone{i}_min', 0)}min" for i in range(1, 6)
+                    if zones.get(f"zone{i}_min")
+                )
+                garmin_line = (
+                    f"  ↳ Garmin: {dur}min"
+                    + (f", gem.HR {avg_hr} bpm" if avg_hr else "")
+                    + (f", max.HR {max_hr} bpm" if max_hr else "")
+                    + (f", TE aerobe {aero_te:.1f}" if aero_te else "")
+                    + (f"/ anaerobe {ana_te:.1f}" if ana_te else "")
+                    + (f", {cal} kcal" if cal else "")
+                    + (f" [{zone_str}]" if zone_str else "")
+                )
+                past_text += garmin_line + "\n"
 
     upcoming_text = ""
     if upcoming_workout:
@@ -1530,14 +1559,15 @@ Barbell maxima (kg):
 
 Afgelopen CrossFit-boxsessies die de atleet DAADWERKELIJK heeft gevolgd (meest recent eerst).
 Dit zijn allemaal echte CrossFit WODs — ook als de WOD-beschrijving ontbreekt of leeg is.
-Ga er nooit van uit dat een sessie "licht" of "accessory" was puur op basis van een ontbrekende beschrijving:
+Waar beschikbaar is Garmin-data (↳) toegevoegd: hartslag, duur, Training Effect (aerobe/anaerobe) en HR-zones.
+Gebruik dit om de werkelijke intensiteit te beoordelen, NIET alleen de WOD-beschrijving:
 {past_text if past_text.strip() else "Geen recente trainingen bekend."}
 
 Volgende workout:
 {upcoming_text}
 
 Geef advies over:
-1. **Herstelniveau** — zijn er spiergroepen die extra rust nodig hebben op basis van de recente workouts?{"  Gebruik de Garmin HRV- en slaapdata als primaire herstelindIndicator als beschikbaar." if garmin_data else ""}
+1. **Herstelniveau** — zijn er spiergroepen die extra rust nodig hebben op basis van de recente workouts?{"  Gebruik de Garmin HRV- en slaapdata als primaire fysiologische herstelIndicator. Gebruik de Garmin workout-data (hartslag, HR-zones, Training Effect) om de werkelijke trainingsbelasting per sessie te beoordelen." if garmin_data else ""}
 2. **Intensiteitsadvies** — volledig gas geven, gecontroleerd trainen of bewust schalen vandaag?
 3. **Één concrete tip** voor de volgende workout rekening houdend met herstel (bijv. pacing, scaling keuze, specifieke beweging)
 

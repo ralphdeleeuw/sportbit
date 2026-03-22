@@ -42,6 +42,7 @@ import subprocess
 import tempfile
 from datetime import date, timedelta, timezone
 from datetime import datetime as dt
+from typing import Any
 
 log = logging.getLogger(__name__)
 
@@ -64,12 +65,93 @@ def _restore_garth_tokens(tokens_b64: str, target_dir: str) -> bool:
         return False
 
 
+def _parse_activity(raw: dict) -> dict:
+    """Parse a raw Garmin activity dict into a clean summary."""
+    start_local = raw.get("startTimeLocal", "")
+    # startTimeLocal format: "2026-03-22 20:05:00"
+    activity_date = start_local[:10] if start_local else None
+
+    duration_s = raw.get("duration") or raw.get("elapsedDuration") or 0
+    duration_min = round(duration_s / 60) if duration_s else None
+
+    avg_hr = raw.get("averageHR")
+    max_hr = raw.get("maxHR")
+    calories = raw.get("calories") or raw.get("activeKilocalories")
+    aerobic_te = raw.get("aerobicTrainingEffect")
+    anaerobic_te = raw.get("anaerobicTrainingEffect")
+
+    # HR zones: seconds spent in each zone
+    zones: dict[str, Any] = {}
+    for i in range(1, 6):
+        key = f"hrTimeInZone_{i}"
+        val = raw.get(key)
+        if val is not None:
+            zones[f"zone{i}_min"] = round(val / 60)
+
+    activity_type = raw.get("activityType", {})
+    type_key = activity_type.get("typeKey", "") if isinstance(activity_type, dict) else ""
+
+    return {
+        "date": activity_date,
+        "start_time": start_local,
+        "activity_id": raw.get("activityId"),
+        "name": raw.get("activityName", ""),
+        "type": type_key,
+        "duration_min": duration_min,
+        "avg_hr": avg_hr,
+        "max_hr": max_hr,
+        "calories": calories,
+        "aerobic_te": aerobic_te,
+        "anaerobic_te": anaerobic_te,
+        "hr_zones": zones if zones else None,
+    }
+
+
+def fetch_recent_activities(garmin, days: int = 14) -> dict[str, list[dict]]:
+    """
+    Fetch recent Garmin activities for the past `days` days.
+
+    Returns a dict keyed by date string (YYYY-MM-DD), each value a list of
+    activity summaries for that day (avg/max HR, duration, training effect,
+    HR zones, calories).
+    """
+    end_date = date.today()
+    start_date = end_date - timedelta(days=days)
+
+    try:
+        activities_raw = garmin.get_activities_by_date(
+            start_date.isoformat(), end_date.isoformat()
+        )
+    except Exception as exc:
+        log.warning("Activiteiten ophalen mislukt: %s", exc)
+        return {}
+
+    by_date: dict[str, list[dict]] = {}
+    for raw in (activities_raw or []):
+        parsed = _parse_activity(raw)
+        d = parsed.get("date")
+        if d:
+            by_date.setdefault(d, []).append(parsed)
+            log.info(
+                "Activiteit %s: %s, gem.HR %s, max.HR %s, TE %.1f/%.1f",
+                d,
+                parsed["name"],
+                parsed["avg_hr"],
+                parsed["max_hr"],
+                parsed["aerobic_te"] or 0,
+                parsed["anaerobic_te"] or 0,
+            )
+
+    log.info("Totaal %d activiteiten opgehaald over afgelopen %d dagen", len(activities_raw or []), days)
+    return by_date
+
+
 def fetch_garmin_data(target_date: date | None = None) -> dict | None:
     """
     Fetch recovery metrics from Garmin Connect for the given date.
 
-    Returns a dict with HRV, sleep, body battery, stress and resting HR,
-    or None if GARMIN_TOKENS is not configured.
+    Returns a dict with HRV, sleep, body battery, stress, resting HR and
+    recent activities (keyed by date), or None if GARMIN_TOKENS is not configured.
 
     Falls back to the previous day if today's data is not yet synced to
     Garmin Connect (Fenix 6 watches sync in batches).
@@ -104,6 +186,9 @@ def fetch_garmin_data(target_date: date | None = None) -> dict | None:
             log.warning("Garmin login mislukt: %s", exc)
             return None
 
+        # Fetch recent activities (last 14 days) for WOD matching
+        activities_by_date = fetch_recent_activities(garmin, days=14)
+
         # Try today, fall back to yesterday if data is incomplete
         for delta in (0, 1):
             query_date = target_date - timedelta(days=delta)
@@ -115,6 +200,7 @@ def fetch_garmin_data(target_date: date | None = None) -> dict | None:
                         target_date,
                         query_date,
                     )
+                data["activities_by_date"] = activities_by_date
                 return data
 
     log.warning("Geen Garmin data beschikbaar voor %s of %s", target_date, target_date - timedelta(days=1))
