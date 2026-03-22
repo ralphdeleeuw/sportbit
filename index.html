@@ -877,8 +877,9 @@
 
       const checkboxes = mainWods.map(w => {
         const isChecked = checkedTitles.includes(w.title);
-        return `<label class="log-checkbox${isChecked ? ' checked' : ''}" onclick="toggleLogCheckbox(this)">
-          <input type="checkbox" data-date="${date}" value="${escapeHtml(w.title)}"${isChecked ? ' checked' : ''} style="display:none">
+        return `<label class="log-checkbox${isChecked ? ' checked' : ''}">
+          <input type="checkbox" data-date="${date}" value="${escapeHtml(w.title)}"${isChecked ? ' checked' : ''}
+            onchange="this.closest('.log-checkbox').classList.toggle('checked', this.checked)">
           ${escapeHtml(w.title)}
         </label>`;
       }).join('');
@@ -897,12 +898,6 @@
           <button class="log-save-btn" onclick="saveWorkoutLog('${date}')">Opslaan</button>
         </div>
       </div>`;
-    }
-
-    function toggleLogCheckbox(label) {
-      const cb = label.querySelector('input[type="checkbox"]');
-      cb.checked = !cb.checked;
-      label.classList.toggle('checked', cb.checked);
     }
 
     async function saveWorkoutLog(date) {
@@ -1032,10 +1027,10 @@
       card.classList.toggle('open');
     }
 
-    // Prevent clicks inside the log section from toggling the card
+    // Prevent clicks inside the log section from toggling the card (bubble phase)
     document.addEventListener('click', e => {
       if (e.target.closest('.log-section')) e.stopPropagation();
-    }, true);
+    });
 
     // ── Sign-up data ──────────────────────────────────────────
 
