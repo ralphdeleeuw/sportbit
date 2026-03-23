@@ -1447,7 +1447,7 @@ def fetch_keukenbaas_meals() -> list[dict]:
             f"{url}/rest/v1/meal_plans",
             headers=headers,
             params=[
-                ("select", "date,custom_text,notes,recipes(title,description,category)"),
+                ("select", "date,custom_text,notes,recipes(title,description,category,recipe_ingredients(name,quantity,unit,order_index))"),
                 ("date", f"gte.{start}"),
                 ("date", f"lte.{end}"),
                 ("order", "date.asc"),
@@ -1463,11 +1463,22 @@ def fetch_keukenbaas_meals() -> list[dict]:
     for row in resp.json():
         recipe = row.get("recipes") or {}
         meal_name = recipe.get("title") or row.get("custom_text") or "Maaltijd"
+        raw_ingredients = recipe.get("recipe_ingredients") or []
+        raw_ingredients.sort(key=lambda i: i.get("order_index") or 0)
+        ingredients = [
+            {
+                "name": i.get("name", ""),
+                "quantity": i.get("quantity"),
+                "unit": i.get("unit") or "",
+            }
+            for i in raw_ingredients
+        ]
         meals.append({
             "date": row.get("date", ""),
             "meal_name": meal_name,
             "category": recipe.get("category") or "",
             "description": recipe.get("description") or "",
+            "ingredients": ingredients,
         })
 
     log.info("Keukenbaas: %d meals fetched (%s → %s)", len(meals), start, end)
@@ -1582,6 +1593,10 @@ def generate_recovery_advice(
                 if upcoming_meal['category']:
                     meals_text += f" ({upcoming_meal['category']})"
                 meals_text += "\n"
+                if upcoming_meal.get("ingredients"):
+                    for ing in upcoming_meal["ingredients"]:
+                        qty = f"{ing['quantity']} {ing['unit']}".strip() if ing.get("quantity") else ""
+                        meals_text += f"  • {ing['name']}{': ' + qty if qty else ''}\n"
 
     # Build Garmin biometric block (primary physiological recovery data)
     garmin_block = ""
