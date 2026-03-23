@@ -1,37 +1,59 @@
 #!/usr/bin/env python3
 """
-Garmin Connect data fetcher for the SportBit CrossFit dashboard.
+Garmin Connect data fetcher voor het SportBit CrossFit dashboard.
 
-Uses the unofficial Garmin Connect API via the `garth` library (OAuth token
-caching — no plain-text password needed on every run).
+Ondersteunt twee authenticatiemethoden (in volgorde van voorkeur):
 
-────────────────────────────────────────────────────────────
-ONE-TIME TOKEN SETUP (run locally, once per ~12 months)
-────────────────────────────────────────────────────────────
+══════════════════════════════════════════════════════════════
+METHODE 1 — garth OAuth2-tokens (voorkeur, ~12 maanden geldig)
+══════════════════════════════════════════════════════════════
+Vereist GitHub Secret: GARMIN_TOKENS
+
+ONE-TIME TOKEN SETUP (run lokaal, eenmalig per ~12 maanden):
+
 1. Install deps:
        pip install garth garminconnect
 
-2. Authenticate and save tokens:
+2. Authenticeer en sla tokens op:
        python3 -c "
        import garth, getpass
        garth.login('ralph.deleeuw@gmail.com', getpass.getpass('Garmin wachtwoord: '))
        garth.save('garth_tokens')
        print('Tokens opgeslagen in ./garth_tokens/')
        "
-   Approves MFA in the Garmin Connect app als gevraagd.
+   Keur MFA goed in de Garmin Connect app als gevraagd.
 
 3. Exporteer tokens als base64:
        tar czf - garth_tokens | base64 -w0 > garth_tokens.b64
        # op macOS: tar czf - garth_tokens | base64 > garth_tokens.b64
 
-4. Kopieer de inhoud van garth_tokens.b64 en voeg toe als GitHub Secret:
+4. Voeg toe als GitHub Secret:
        Repo → Settings → Secrets and variables → Actions → New secret
        Name : GARMIN_TOKENS
        Value: <plak hier de base64-string>
 
-5. Verwijder de lokale tokens-map en het .b64 bestand:
+5. Verwijder lokale bestanden:
        rm -rf garth_tokens garth_tokens.b64
-────────────────────────────────────────────────────────────
+
+══════════════════════════════════════════════════════════════
+METHODE 2 — browser SESSIONID (noodoplossing, weken/maanden geldig)
+══════════════════════════════════════════════════════════════
+Vereist GitHub Secret: GARMIN_SESSION_ID
+
+Gebruik dit als GARMIN_TOKENS verlopen is én de OAuth2-login
+tijdelijk geblokkeerd is (429 rate-limit).
+
+Hoe de SESSIONID ophalen:
+1. Log in op https://connect.garmin.com in Chrome/Firefox
+2. Open DevTools → Application → Cookies → connect.garmin.com
+3. Kopieer de waarde van het cookie "SESSIONID"
+4. Voeg toe als GitHub Secret:
+       Name : GARMIN_SESSION_ID
+       Value: <SESSIONID-waarde>
+
+Opmerking: methode 2 werkt NIET als het browsertabblad en alle
+sessies uitgelogd zijn. De SESSIONID blijft geldig zolang je
+ingelogd blijft op connect.garmin.com.
 """
 
 import base64
@@ -146,6 +168,250 @@ def fetch_recent_activities(garmin, days: int = 14) -> dict[str, list[dict]]:
     return by_date
 
 
+# ── Methode 2: web-session (SESSIONID) ───────────────────────────────────────
+
+_GARMIN_WEB_BASE = "https://connect.garmin.com/modern/proxy"
+_GARMIN_WEB_HEADERS = {
+    "NK": "NT",  # Garmin CSRF-bypass header (vereist voor proxy-endpoints)
+    "X-Requested-With": "XMLHttpRequest",
+    "Accept": "application/json, text/javascript, */*; q=0.01",
+    "User-Agent": (
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+        "AppleWebKit/537.36 (KHTML, like Gecko) "
+        "Chrome/124.0.0.0 Safari/537.36"
+    ),
+}
+
+
+def _refresh_jwt_from_session(session_id: str) -> str | None:
+    """
+    Gebruik de SESSIONID-cookie om een verse JWT_WEB te krijgen.
+
+    Garmin's Connect-webserver valideert de sessie en stuurt een nieuwe
+    JWT_WEB terug als Set-Cookie zodra de SESSIONID nog geldig is.
+    """
+    try:
+        import requests  # noqa: PLC0415
+    except ImportError:
+        log.warning("requests niet geïnstalleerd — web-session methode niet beschikbaar")
+        return None
+
+    s = requests.Session()
+    s.cookies.set("SESSIONID", session_id, domain=".garmin.com")
+    try:
+        s.get(
+            "https://connect.garmin.com/modern/",
+            headers={"User-Agent": _GARMIN_WEB_HEADERS["User-Agent"]},
+            timeout=15,
+            allow_redirects=True,
+        )
+        jwt = s.cookies.get("JWT_WEB")
+        if jwt:
+            log.info("JWT_WEB succesvol vernieuwd via SESSIONID")
+        else:
+            log.warning("SESSIONID geldig maar geen JWT_WEB ontvangen — sessie mogelijk verlopen")
+        return jwt
+    except Exception as exc:
+        log.warning("JWT refresh via SESSIONID mislukt: %s", exc)
+        return None
+
+
+def _web_get(jwt: str, path: str, params: dict | None = None) -> dict | list | None:
+    """GET-verzoek naar de Garmin Connect web-proxy API."""
+    try:
+        import requests  # noqa: PLC0415
+    except ImportError:
+        return None
+
+    url = f"{_GARMIN_WEB_BASE}/{path}"
+    headers = {**_GARMIN_WEB_HEADERS, "Authorization": f"Bearer {jwt}"}
+    try:
+        resp = requests.get(url, headers=headers, params=params, timeout=15)
+        resp.raise_for_status()
+        return resp.json()
+    except Exception as exc:
+        log.warning("Garmin web-API fout [%s]: %s", path, exc)
+        return None
+
+
+def _get_web_user_id(jwt: str) -> str | None:
+    """Haal de Garmin gebruikers-ID op via het sociaal-profiel endpoint."""
+    profile = _web_get(jwt, "userprofile-service/socialProfile")
+    if isinstance(profile, dict):
+        return str(profile.get("profileId") or profile.get("userId") or "")
+    return None
+
+
+def _fetch_metrics_web(jwt: str, user_id: str, query_date: date) -> dict | None:
+    """
+    Haal alle herstelmetrieken op via de Garmin Connect web-API
+    (zelfde data als _fetch_metrics maar via JWT_WEB i.p.v. OAuth2).
+    """
+    date_str = query_date.isoformat()
+    result: dict = {
+        "date": date_str,
+        "hrv": None,
+        "sleep": None,
+        "body_battery": None,
+        "stress_avg": None,
+        "resting_hr": None,
+        "fetched_at": dt.now(timezone.utc).isoformat(),
+    }
+    has_any_data = False
+
+    # ── HRV ──────────────────────────────────────────────────────────────
+    hrv_raw = _web_get(jwt, f"wellness-service/wellness/hrv/{date_str}")
+    if hrv_raw and isinstance(hrv_raw, dict):
+        summary = hrv_raw.get("hrvSummary", hrv_raw)
+        last_night = summary.get("lastNight")
+        weekly_avg = summary.get("weeklyAvg")
+        if last_night or weekly_avg:
+            result["hrv"] = {
+                "lastNight": last_night,
+                "weeklyAvg": weekly_avg,
+                "status": summary.get("status", "NONE"),
+            }
+            has_any_data = True
+            log.info("HRV: %sms (weekgemiddelde: %s)", last_night, weekly_avg)
+
+    # ── Slaap ─────────────────────────────────────────────────────────────
+    sleep_raw = _web_get(jwt, f"sleep-service/sleep/{date_str}")
+    if sleep_raw and isinstance(sleep_raw, dict):
+        daily = sleep_raw.get("dailySleepDTO", {})
+        scores = sleep_raw.get("sleepScores", {})
+        score_value = None
+        if isinstance(scores, dict):
+            score_value = (
+                scores.get("overall", {}).get("value")
+                or scores.get("totalDuration", {}).get("value")
+            )
+        if score_value is None:
+            score_value = daily.get("sleepScoreValue")
+        total_s = daily.get("sleepTimeSeconds", 0) or 0
+        if total_s > 0 or score_value is not None:
+            result["sleep"] = {
+                "score": score_value,
+                "duration_hours": round(total_s / 3600, 1) if total_s else None,
+                "deep_minutes": round((daily.get("deepSleepSeconds") or 0) / 60) or None,
+                "rem_minutes": round((daily.get("remSleepSeconds") or 0) / 60) or None,
+                "light_minutes": round((daily.get("lightSleepSeconds") or 0) / 60) or None,
+                "awake_minutes": round((daily.get("awakeSleepSeconds") or 0) / 60) or None,
+            }
+            has_any_data = True
+            log.info("Slaap: %.1fu (score: %s)", total_s / 3600, score_value)
+
+    # ── Body Battery ──────────────────────────────────────────────────────
+    bb_raw = _web_get(
+        jwt,
+        "wellness-service/wellness/bodyBattery/events",
+        params={"startDate": date_str, "endDate": date_str},
+    )
+    if bb_raw and isinstance(bb_raw, list) and bb_raw:
+        day = bb_raw[0]
+        charged = day.get("charged")
+        readings = day.get("bodyBatteryValuesArray", [])
+        end_value = readings[-1][1] if readings else None
+        if charged is not None or end_value is not None:
+            result["body_battery"] = {
+                "charged": charged,
+                "drained": day.get("drained"),
+                "end_value": end_value,
+            }
+            has_any_data = True
+            log.info("Body Battery: opgeladen %s, huidig %s", charged, end_value)
+
+    # ── Stress ────────────────────────────────────────────────────────────
+    stress_raw = _web_get(jwt, f"wellness-service/wellness/dailyStress/{date_str}")
+    if stress_raw and isinstance(stress_raw, dict):
+        avg = stress_raw.get("avgStressLevel") or stress_raw.get("overallStressLevel")
+        if avg is not None and avg >= 0:
+            result["stress_avg"] = avg
+            has_any_data = True
+            log.info("Gemiddelde stress: %s/100", avg)
+
+    # ── Rustpols (dagelijkse samenvatting) ────────────────────────────────
+    stats_raw = _web_get(
+        jwt,
+        f"usersummary-service/usersummary/daily/{user_id}",
+        params={"calendarDate": date_str},
+    )
+    if stats_raw and isinstance(stats_raw, dict):
+        rhr = stats_raw.get("restingHeartRate")
+        if rhr:
+            result["resting_hr"] = rhr
+            has_any_data = True
+            log.info("Rustpols: %s bpm", rhr)
+
+    return result if has_any_data else None
+
+
+def _fetch_activities_web(jwt: str, days: int = 14) -> dict[str, list[dict]]:
+    """Haal recente activiteiten op via de Garmin Connect web-API."""
+    end_date = date.today()
+    start_date = end_date - timedelta(days=days)
+    raw = _web_get(
+        jwt,
+        "activitylist-service/activities/search/activities",
+        params={
+            "startDate": start_date.isoformat(),
+            "endDate": end_date.isoformat(),
+            "limit": 40,
+        },
+    )
+    by_date: dict[str, list[dict]] = {}
+    for activity in raw or []:
+        parsed = _parse_activity(activity)
+        d = parsed.get("date")
+        if d:
+            by_date.setdefault(d, []).append(parsed)
+    log.info("Web-API: %d activiteiten opgehaald over afgelopen %d dagen", len(raw or []), days)
+    return by_date
+
+
+def _fetch_garmin_via_web_session(target_date: date) -> dict | None:
+    """
+    Alternatieve Garmin-fetch via browser SESSIONID (geen garth/OAuth2 nodig).
+
+    Gebruik dit als GARMIN_TOKENS verlopen is. Sla de SESSIONID-cookie van
+    connect.garmin.com op als GitHub Secret 'GARMIN_SESSION_ID'.
+    """
+    session_id = os.environ.get("GARMIN_SESSION_ID", "").strip()
+    if not session_id:
+        return None
+
+    log.info("GARMIN_TOKENS niet beschikbaar — probeer GARMIN_SESSION_ID...")
+    jwt = _refresh_jwt_from_session(session_id)
+    if not jwt:
+        log.warning("Kon geen JWT_WEB verkrijgen via SESSIONID — web-session methode mislukt")
+        return None
+
+    user_id = _get_web_user_id(jwt) or ""
+    if not user_id:
+        log.warning("Kon gebruikers-ID niet ophalen — rustpols-data mogelijk niet beschikbaar")
+
+    activities_by_date = _fetch_activities_web(jwt, days=14)
+
+    for delta in (0, 1):
+        query_date = target_date - timedelta(days=delta)
+        data = _fetch_metrics_web(jwt, user_id, query_date)
+        if data is not None:
+            if delta > 0:
+                log.info(
+                    "Web-session: data voor %s niet beschikbaar, valt terug op %s",
+                    target_date,
+                    query_date,
+                )
+            data["activities_by_date"] = activities_by_date
+            log.info("Garmin data succesvol opgehaald via web-session methode")
+            return data
+
+    log.warning("Web-session: geen data beschikbaar voor %s of eerder", target_date)
+    return None
+
+
+# ── Hoofdfunctie ──────────────────────────────────────────────────────────────
+
+
 def fetch_garmin_data(target_date: date | None = None) -> dict | None:
     """
     Fetch recovery metrics from Garmin Connect for the given date.
@@ -158,8 +424,10 @@ def fetch_garmin_data(target_date: date | None = None) -> dict | None:
     """
     tokens_b64 = os.environ.get("GARMIN_TOKENS", "").strip()
     if not tokens_b64:
-        log.info("GARMIN_TOKENS not set — skipping Garmin data fetch")
-        return None
+        log.info("GARMIN_TOKENS not set — probeer web-session methode")
+        if target_date is None:
+            target_date = date.today()
+        return _fetch_garmin_via_web_session(target_date)
 
     try:
         import garth  # noqa: PLC0415
@@ -183,8 +451,8 @@ def fetch_garmin_data(target_date: date | None = None) -> dict | None:
             garmin.login()
             log.info("Garmin Connect authenticatie geslaagd via opgeslagen tokens")
         except Exception as exc:
-            log.warning("Garmin login mislukt: %s", exc)
-            return None
+            log.warning("Garmin login mislukt: %s — probeer web-session methode als fallback", exc)
+            return _fetch_garmin_via_web_session(target_date)
 
         # Fetch recent activities (last 14 days) for WOD matching
         activities_by_date = fetch_recent_activities(garmin, days=14)
