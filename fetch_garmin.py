@@ -183,12 +183,14 @@ _GARMIN_WEB_HEADERS = {
 }
 
 
-def _refresh_jwt_from_session(session_id: str) -> str | None:
+def _refresh_jwt_from_session(session_id: str, sso_session: str = "") -> str | None:
     """
-    Gebruik de SESSIONID-cookie om een verse JWT_WEB te krijgen.
+    Gebruik de SESSIONID-cookie (en optioneel de SSO 'session'-cookie) om
+    een verse JWT_WEB te krijgen van connect.garmin.com.
 
-    Garmin's Connect-webserver valideert de sessie en stuurt een nieuwe
-    JWT_WEB terug als Set-Cookie zodra de SESSIONID nog geldig is.
+    - SESSIONID  → connect.garmin.com app-sessie (base64-encoded UUID)
+    - sso_session → sso.garmin.com Fe26.2-sessie (optioneel, geeft meer kans
+                    op succes als de SESSIONID net verlopen is)
     """
     try:
         import requests  # noqa: PLC0415
@@ -197,7 +199,9 @@ def _refresh_jwt_from_session(session_id: str) -> str | None:
         return None
 
     s = requests.Session()
-    s.cookies.set("SESSIONID", session_id, domain=".garmin.com")
+    s.cookies.set("SESSIONID", session_id, domain="connect.garmin.com")
+    if sso_session:
+        s.cookies.set("session", sso_session, domain="sso.garmin.com")
     try:
         s.get(
             "https://connect.garmin.com/modern/",
@@ -379,8 +383,9 @@ def _fetch_garmin_via_web_session(target_date: date) -> dict | None:
     if not session_id:
         return None
 
+    sso_session = os.environ.get("GARMIN_SSO_SESSION", "").strip()
     log.info("GARMIN_TOKENS niet beschikbaar — probeer GARMIN_SESSION_ID...")
-    jwt = _refresh_jwt_from_session(session_id)
+    jwt = _refresh_jwt_from_session(session_id, sso_session)
     if not jwt:
         log.warning("Kon geen JWT_WEB verkrijgen via SESSIONID — web-session methode mislukt")
         return None

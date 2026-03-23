@@ -32,4 +32,5 @@ jobs:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
           GARMIN_TOKENS: ${{ secrets.GARMIN_TOKENS }}
           GARMIN_SESSION_ID: ${{ secrets.GARMIN_SESSION_ID }}
+          GARMIN_SSO_SESSION: ${{ secrets.GARMIN_SSO_SESSION }}
         run: python3 fetch_sugarwod.py
