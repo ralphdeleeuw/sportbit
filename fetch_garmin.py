@@ -170,7 +170,7 @@ def fetch_recent_activities(garmin, days: int = 14) -> dict[str, list[dict]]:
 
 # ── Methode 2: web-session (SESSIONID) ───────────────────────────────────────
 
-_GARMIN_WEB_BASE = "https://connect.garmin.com/modern/proxy"
+_GARMIN_WEB_BASE = "https://connect.garmin.com/app/proxy"
 _GARMIN_WEB_HEADERS = {
     "NK": "NT",  # Garmin CSRF-bypass header (vereist voor proxy-endpoints)
     "X-Requested-With": "XMLHttpRequest",
