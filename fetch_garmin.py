@@ -183,14 +183,16 @@ _GARMIN_WEB_HEADERS = {
 }
 
 
-def _refresh_jwt_from_session(session_id: str, sso_session: str = "") -> str | None:
+def _build_garmin_session(session_id: str, jwt_web: str = "", sso_session: str = ""):
     """
-    Gebruik de SESSIONID-cookie (en optioneel de SSO 'session'-cookie) om
-    een verse JWT_WEB te krijgen van connect.garmin.com.
+    Bouw een requests.Session met de juiste Garmin-cookies.
 
-    - SESSIONID  → connect.garmin.com app-sessie (base64-encoded UUID)
-    - sso_session → sso.garmin.com Fe26.2-sessie (optioneel, geeft meer kans
-                    op succes als de SESSIONID net verlopen is)
+    - SESSIONID  → connect.garmin.com app-sessie (vereist)
+    - jwt_web    → JWT_WEB-cookie (optioneel, geeft toegang tot extra endpoints)
+    - sso_session → sso.garmin.com session-cookie (optioneel)
+
+    De SESSIONID + NK:NT header is voldoende voor de meeste proxy-endpoints.
+    JWT_WEB als Bearer token is NIET vereist — cookie-authenticatie werkt direct.
     """
     try:
         import requests  # noqa: PLC0415
@@ -200,37 +202,19 @@ def _refresh_jwt_from_session(session_id: str, sso_session: str = "") -> str | N
 
     s = requests.Session()
     s.cookies.set("SESSIONID", session_id, domain="connect.garmin.com")
+    if jwt_web:
+        s.cookies.set("JWT_WEB", jwt_web, domain="connect.garmin.com")
     if sso_session:
         s.cookies.set("session", sso_session, domain="sso.garmin.com")
-    try:
-        s.get(
-            "https://connect.garmin.com/modern/",
-            headers={"User-Agent": _GARMIN_WEB_HEADERS["User-Agent"]},
-            timeout=15,
-            allow_redirects=True,
-        )
-        jwt = s.cookies.get("JWT_WEB")
-        if jwt:
-            log.info("JWT_WEB succesvol vernieuwd via SESSIONID")
-        else:
-            log.warning("SESSIONID geldig maar geen JWT_WEB ontvangen — sessie mogelijk verlopen")
-        return jwt
-    except Exception as exc:
-        log.warning("JWT refresh via SESSIONID mislukt: %s", exc)
-        return None
+    s.headers.update(_GARMIN_WEB_HEADERS)
+    return s
 
 
-def _web_get(jwt: str, path: str, params: dict | None = None) -> dict | list | None:
-    """GET-verzoek naar de Garmin Connect web-proxy API."""
-    try:
-        import requests  # noqa: PLC0415
-    except ImportError:
-        return None
-
+def _web_get(session, path: str, params: dict | None = None) -> dict | list | None:
+    """GET-verzoek naar de Garmin Connect web-proxy API via cookie-sessie."""
     url = f"{_GARMIN_WEB_BASE}/{path}"
-    headers = {**_GARMIN_WEB_HEADERS, "Authorization": f"Bearer {jwt}"}
     try:
-        resp = requests.get(url, headers=headers, params=params, timeout=15)
+        resp = session.get(url, params=params, timeout=15)
         resp.raise_for_status()
         return resp.json()
     except Exception as exc:
@@ -238,18 +222,18 @@ def _web_get(jwt: str, path: str, params: dict | None = None) -> dict | list | N
         return None
 
 
-def _get_web_user_id(jwt: str) -> str | None:
+def _get_web_user_id(session) -> str | None:
     """Haal de Garmin gebruikers-ID op via het sociaal-profiel endpoint."""
-    profile = _web_get(jwt, "userprofile-service/socialProfile")
+    profile = _web_get(session, "userprofile-service/socialProfile")
     if isinstance(profile, dict):
         return str(profile.get("profileId") or profile.get("userId") or "")
     return None
 
 
-def _fetch_metrics_web(jwt: str, user_id: str, query_date: date) -> dict | None:
+def _fetch_metrics_web(session, user_id: str, query_date: date) -> dict | None:
     """
     Haal alle herstelmetrieken op via de Garmin Connect web-API
-    (zelfde data als _fetch_metrics maar via JWT_WEB i.p.v. OAuth2).
+    (zelfde data als _fetch_metrics maar via cookie-sessie i.p.v. OAuth2).
     """
     date_str = query_date.isoformat()
     result: dict = {
@@ -264,7 +248,7 @@ def _fetch_metrics_web(jwt: str, user_id: str, query_date: date) -> dict | None:
     has_any_data = False
 
     # ── HRV ──────────────────────────────────────────────────────────────
-    hrv_raw = _web_get(jwt, f"wellness-service/wellness/hrv/{date_str}")
+    hrv_raw = _web_get(session, f"wellness-service/wellness/hrv/{date_str}")
     if hrv_raw and isinstance(hrv_raw, dict):
         summary = hrv_raw.get("hrvSummary", hrv_raw)
         last_night = summary.get("lastNight")
@@ -279,7 +263,7 @@ def _fetch_metrics_web(jwt: str, user_id: str, query_date: date) -> dict | None:
             log.info("HRV: %sms (weekgemiddelde: %s)", last_night, weekly_avg)
 
     # ── Slaap ─────────────────────────────────────────────────────────────
-    sleep_raw = _web_get(jwt, f"sleep-service/sleep/{date_str}")
+    sleep_raw = _web_get(session, f"sleep-service/sleep/{date_str}")
     if sleep_raw and isinstance(sleep_raw, dict):
         daily = sleep_raw.get("dailySleepDTO", {})
         scores = sleep_raw.get("sleepScores", {})
@@ -306,7 +290,7 @@ def _fetch_metrics_web(jwt: str, user_id: str, query_date: date) -> dict | None:
 
     # ── Body Battery ──────────────────────────────────────────────────────
     bb_raw = _web_get(
-        jwt,
+        session,
         "wellness-service/wellness/bodyBattery/events",
         params={"startDate": date_str, "endDate": date_str},
     )
@@ -325,7 +309,7 @@ def _fetch_metrics_web(jwt: str, user_id: str, query_date: date) -> dict | None:
             log.info("Body Battery: opgeladen %s, huidig %s", charged, end_value)
 
     # ── Stress ────────────────────────────────────────────────────────────
-    stress_raw = _web_get(jwt, f"wellness-service/wellness/dailyStress/{date_str}")
+    stress_raw = _web_get(session, f"wellness-service/wellness/dailyStress/{date_str}")
     if stress_raw and isinstance(stress_raw, dict):
         avg = stress_raw.get("avgStressLevel") or stress_raw.get("overallStressLevel")
         if avg is not None and avg >= 0:
@@ -335,7 +319,7 @@ def _fetch_metrics_web(jwt: str, user_id: str, query_date: date) -> dict | None:
 
     # ── Rustpols (dagelijkse samenvatting) ────────────────────────────────
     stats_raw = _web_get(
-        jwt,
+        session,
         f"usersummary-service/usersummary/daily/{user_id}",
         params={"calendarDate": date_str},
     )
@@ -349,12 +333,12 @@ def _fetch_metrics_web(jwt: str, user_id: str, query_date: date) -> dict | None:
     return result if has_any_data else None
 
 
-def _fetch_activities_web(jwt: str, days: int = 14) -> dict[str, list[dict]]:
+def _fetch_activities_web(session, days: int = 14) -> dict[str, list[dict]]:
     """Haal recente activiteiten op via de Garmin Connect web-API."""
     end_date = date.today()
     start_date = end_date - timedelta(days=days)
     raw = _web_get(
-        jwt,
+        session,
         "activitylist-service/activities/search/activities",
         params={
             "startDate": start_date.isoformat(),
@@ -378,27 +362,34 @@ def _fetch_garmin_via_web_session(target_date: date) -> dict | None:
 
     Gebruik dit als GARMIN_TOKENS verlopen is. Sla de SESSIONID-cookie van
     connect.garmin.com op als GitHub Secret 'GARMIN_SESSION_ID'.
+
+    Optioneel kan ook GARMIN_JWT_WEB worden ingesteld (JWT_WEB-cookie uit DevTools)
+    voor extra authenticatie, maar SESSIONID alleen is voldoende.
     """
     session_id = os.environ.get("GARMIN_SESSION_ID", "").strip()
     if not session_id:
         return None
 
+    jwt_web = os.environ.get("GARMIN_JWT_WEB", "").strip()
     sso_session = os.environ.get("GARMIN_SSO_SESSION", "").strip()
     log.info("GARMIN_TOKENS niet beschikbaar — probeer GARMIN_SESSION_ID...")
-    jwt = _refresh_jwt_from_session(session_id, sso_session)
-    if not jwt:
-        log.warning("Kon geen JWT_WEB verkrijgen via SESSIONID — web-session methode mislukt")
+
+    garmin_session = _build_garmin_session(session_id, jwt_web, sso_session)
+    if garmin_session is None:
+        log.warning("Kon geen web-sessie opbouwen — requests niet beschikbaar")
         return None
 
-    user_id = _get_web_user_id(jwt) or ""
+    user_id = _get_web_user_id(garmin_session) or ""
     if not user_id:
         log.warning("Kon gebruikers-ID niet ophalen — rustpols-data mogelijk niet beschikbaar")
+    else:
+        log.info("Garmin gebruikers-ID opgehaald: %s", user_id)
 
-    activities_by_date = _fetch_activities_web(jwt, days=14)
+    activities_by_date = _fetch_activities_web(garmin_session, days=14)
 
     for delta in (0, 1):
         query_date = target_date - timedelta(days=delta)
-        data = _fetch_metrics_web(jwt, user_id, query_date)
+        data = _fetch_metrics_web(garmin_session, user_id, query_date)
         if data is not None:
             if delta > 0:
                 log.info(
