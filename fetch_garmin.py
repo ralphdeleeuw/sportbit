@@ -744,13 +744,12 @@ def fetch_garmin_data(target_date: date | None = None) -> dict | None:
         target_date = date.today()
 
     tokens_b64 = os.environ.get("GARMIN_TOKENS", "").strip()
-    if not tokens_b64:
-        log.info("GARMIN_TOKENS not set — probeer Playwright methode")
-        result = _fetch_garmin_via_playwright(target_date)
-        if result is not None:
-            return result
-        log.info("Playwright methode niet beschikbaar — probeer web-session methode")
-        return _fetch_garmin_via_web_session(target_date)
+    garmin_email = os.environ.get("GARMIN_EMAIL", "").strip()
+    garmin_password = os.environ.get("GARMIN_PASSWORD", "").strip()
+
+    if not tokens_b64 and not (garmin_email and garmin_password):
+        log.info("Geen Garmin credentials — geen data beschikbaar")
+        return None
 
     try:
         import garth  # noqa: PLC0415
@@ -759,40 +758,51 @@ def fetch_garmin_data(target_date: date | None = None) -> dict | None:
         log.warning("garth/garminconnect not installed — skipping Garmin fetch")
         return None
 
-    if target_date is None:
-        target_date = date.today()
+    garmin = None
 
-    # Restore tokens to a temp directory
-    with tempfile.TemporaryDirectory() as token_dir:
-        if not _restore_garth_tokens(tokens_b64, token_dir):
-            log.warning("Could not restore garth tokens — skipping Garmin fetch")
-            return None
+    if tokens_b64:
+        # Methode 1: herstel opgeslagen OAuth-tokens
+        with tempfile.TemporaryDirectory() as token_dir:
+            if _restore_garth_tokens(tokens_b64, token_dir):
+                try:
+                    garth.resume(token_dir)
+                    garmin = Garmin()
+                    garmin.login()
+                    log.info("Garmin authenticatie geslaagd via opgeslagen tokens")
+                except Exception as exc:
+                    log.warning("Garmin token-login mislukt: %s — probeer email/wachtwoord", exc)
 
+    if garmin is None and garmin_email and garmin_password:
+        # Methode 2: fresh login via garth (OAuth API, geen browser/CAPTCHA)
         try:
-            garth.resume(token_dir)
+            log.info("Garmin: inloggen via garth (email/wachtwoord)...")
+            garth.login(garmin_email, garmin_password)
             garmin = Garmin()
             garmin.login()
-            log.info("Garmin Connect authenticatie geslaagd via opgeslagen tokens")
+            log.info("Garmin authenticatie geslaagd via email/wachtwoord")
         except Exception as exc:
-            log.warning("Garmin login mislukt: %s — probeer web-session methode als fallback", exc)
-            return _fetch_garmin_via_web_session(target_date)
+            log.warning("Garmin email/wachtwoord login mislukt: %s", exc)
 
-        # Fetch recent activities (last 14 days) for WOD matching
-        activities_by_date = fetch_recent_activities(garmin, days=14)
+    if garmin is None:
+        log.info("Garmin login mislukt — geen data beschikbaar")
+        return None
 
-        # Try today, fall back to yesterday if data is incomplete
-        for delta in (0, 1):
-            query_date = target_date - timedelta(days=delta)
-            data = _fetch_metrics(garmin, query_date)
-            if data is not None:
-                if delta > 0:
-                    log.info(
-                        "Garmin data voor %s niet beschikbaar, valt terug op %s",
-                        target_date,
-                        query_date,
-                    )
-                data["activities_by_date"] = activities_by_date
-                return data
+    # Fetch recent activities (last 14 days) for WOD matching
+    activities_by_date = fetch_recent_activities(garmin, days=14)
+
+    # Try today, fall back to yesterday if data is incomplete
+    for delta in (0, 1):
+        query_date = target_date - timedelta(days=delta)
+        data = _fetch_metrics(garmin, query_date)
+        if data is not None:
+            if delta > 0:
+                log.info(
+                    "Garmin data voor %s niet beschikbaar, valt terug op %s",
+                    target_date,
+                    query_date,
+                )
+            data["activities_by_date"] = activities_by_date
+            return data
 
     log.warning("Geen Garmin data beschikbaar voor %s of %s", target_date, target_date - timedelta(days=1))
     return None
