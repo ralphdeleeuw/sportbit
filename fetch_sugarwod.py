@@ -1447,7 +1447,7 @@ def fetch_keukenbaas_meals() -> list[dict]:
             f"{url}/rest/v1/meal_plans",
             headers=headers,
             params=[
-                ("select", "date,custom_text,notes,recipes(title,description,category,recipe_ingredients(name,quantity,unit,order_index))"),
+                ("select", "date,custom_text,notes,recipes(title,description,category,energy_kcal,proteins_g,carbohydrates_g,fat_g,fiber_g,recipe_ingredients(name,quantity,unit,order_index))"),
                 ("date", f"gte.{start}"),
                 ("date", f"lte.{end}"),
                 ("order", "date.asc"),
@@ -1478,6 +1478,11 @@ def fetch_keukenbaas_meals() -> list[dict]:
             "meal_name": meal_name,
             "category": recipe.get("category") or "",
             "description": recipe.get("description") or "",
+            "energy_kcal": recipe.get("energy_kcal"),
+            "proteins_g": recipe.get("proteins_g"),
+            "carbohydrates_g": recipe.get("carbohydrates_g"),
+            "fat_g": recipe.get("fat_g"),
+            "fiber_g": recipe.get("fiber_g"),
             "ingredients": ingredients,
         })
 
@@ -1593,6 +1598,13 @@ def generate_recovery_advice(
                 if upcoming_meal['category']:
                     meals_text += f" ({upcoming_meal['category']})"
                 meals_text += "\n"
+                nutrition_parts = []
+                for label, key in [("kcal", "energy_kcal"), ("eiwit", "proteins_g"), ("koolh.", "carbohydrates_g"), ("vet", "fat_g"), ("vezel", "fiber_g")]:
+                    val = upcoming_meal.get(key)
+                    if val is not None:
+                        nutrition_parts.append(f"{label}: {val}")
+                if nutrition_parts:
+                    meals_text += f"  Voedingswaarden: {', '.join(nutrition_parts)}\n"
                 if upcoming_meal.get("ingredients"):
                     for ing in upcoming_meal["ingredients"]:
                         qty = f"{ing['quantity']} {ing['unit']}".strip() if ing.get("quantity") else ""
