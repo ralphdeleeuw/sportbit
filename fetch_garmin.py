@@ -475,23 +475,54 @@ def _fetch_garmin_via_playwright(target_date: date) -> dict | None:
             # ── 1. Inloggen ───────────────────────────────────────────────
             log.info("Garmin: navigeren naar inlogpagina...")
             page.goto("https://connect.garmin.com/signin", timeout=30_000)
-            page.wait_for_load_state("networkidle", timeout=20_000)
 
-            # E-mail invullen (SSO-pagina)
+            # Wacht tot een inputveld zichtbaar is (SSO-pagina is React, laadt async)
+            try:
+                page.wait_for_selector(
+                    'input[type="email"], input[type="text"], input[name="username"], '
+                    'input[name="email"], #email, #username',
+                    timeout=15_000,
+                )
+            except Exception:
+                pass
+
+            log.info("Garmin: SSO URL = %s", page.url)
+
+            # Debug-screenshot opslaan zodat je het formulier kunt zien
+            try:
+                import tempfile as _tf
+                import os as _os
+                _ss = _os.path.join(_tf.gettempdir(), "garmin_sso_debug.png")
+                page.screenshot(path=_ss)
+                log.info("Garmin: debug-screenshot opgeslagen: %s", _ss)
+            except Exception:
+                pass
+
+            # E-mail invullen — gebruik .type() voor React onChange-compatibiliteit
             email_input = page.locator(
-                'input[type="email"], input[name="email"], #email'
+                'input[type="email"], input[type="text"][name="username"], '
+                'input[type="text"][name="email"], input[name="username"], '
+                'input[name="email"], #email, #username'
             ).first
-            email_input.fill(email)
+            try:
+                email_input.wait_for(state="visible", timeout=5_000)
+            except Exception:
+                pass
+            email_input.click()
+            email_input.type(email, delay=50)
+            log.info("Garmin: e-mail ingevuld")
 
-            # Sommige SSO-versies hebben een "Volgende" knop vóór het wachtwoord
+            # Sommige SSO-versies hebben een "Volgende/Continue" knop vóór wachtwoord
             try:
                 nxt = page.locator(
-                    '#login-btn-usernameSubmit, button:has-text("Next"), '
-                    'button:has-text("Volgende")'
+                    '#login-btn-usernameSubmit, '
+                    'button:has-text("Continue"), button:has-text("Next"), '
+                    'button:has-text("Volgende"), button:has-text("Doorgaan")'
                 ).first
-                if nxt.is_visible(timeout=2_000):
+                if nxt.is_visible(timeout=3_000):
                     nxt.click()
-                    page.wait_for_load_state("networkidle", timeout=10_000)
+                    log.info("Garmin: 'Volgende' knop geklikt")
+                    page.wait_for_timeout(2_000)
             except Exception:
                 pass
 
@@ -499,7 +530,13 @@ def _fetch_garmin_via_playwright(target_date: date) -> dict | None:
             pw_input = page.locator(
                 'input[type="password"], input[name="password"], #password'
             ).first
-            pw_input.fill(password)
+            try:
+                pw_input.wait_for(state="visible", timeout=5_000)
+            except Exception:
+                pass
+            pw_input.click()
+            pw_input.type(password, delay=50)
+            log.info("Garmin: wachtwoord ingevuld")
 
             # Indienen
             try:
@@ -507,8 +544,10 @@ def _fetch_garmin_via_playwright(target_date: date) -> dict | None:
                     '#login-btn-signin, button[type="submit"]'
                 ).first
                 submit.click()
+                log.info("Garmin: submit geklikt")
             except Exception:
                 pw_input.press("Enter")
+                log.info("Garmin: Enter ingedrukt als submit")
 
             # Wacht op doorstuur terug naar connect.garmin.com
             try:
@@ -518,7 +557,16 @@ def _fetch_garmin_via_playwright(target_date: date) -> dict | None:
 
             current = page.url
             log.info("Garmin: na login URL = %s", current)
-            if "signin" in current or "sso.garmin.com" in current:
+
+            # Debug-screenshot na login poging
+            try:
+                _ss2 = _os.path.join(_tf.gettempdir(), "garmin_post_login_debug.png")
+                page.screenshot(path=_ss2)
+                log.info("Garmin: post-login screenshot: %s", _ss2)
+            except Exception:
+                pass
+
+            if "sign-in" in current or "signin" in current or "sso.garmin.com" in current:
                 log.warning(
                     "Garmin: login mislukt of 2FA vereist — controleer GARMIN_EMAIL/PASSWORD"
                 )
