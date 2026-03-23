@@ -31,6 +31,8 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GIST_TOKEN }}
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
           GARMIN_TOKENS: ${{ secrets.GARMIN_TOKENS }}
+          GARMIN_EMAIL: ${{ secrets.GARMIN_EMAIL }}
+          GARMIN_PASSWORD: ${{ secrets.GARMIN_PASSWORD }}
           GARMIN_SESSION_ID: ${{ secrets.GARMIN_SESSION_ID }}
           GARMIN_SSO_SESSION: ${{ secrets.GARMIN_SSO_SESSION }}
         run: python3 fetch_sugarwod.py

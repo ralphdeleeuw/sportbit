@@ -405,6 +405,280 @@ def _fetch_garmin_via_web_session(target_date: date) -> dict | None:
     return None
 
 
+# ── Methode 3: Playwright browser login ───────────────────────────────────────
+
+
+def _fetch_garmin_via_playwright(target_date: date) -> dict | None:
+    """
+    Fetch Garmin hersteldata via een headless browser die inlogt met
+    GARMIN_EMAIL + GARMIN_PASSWORD en XHR-responses onderschept.
+
+    Dit omzeilt SESSIONID/JWT-problemen volledig — werkt zoals de SugarWOD
+    Playwright integratie. Vereist geen 2FA op het Garmin-account.
+    """
+    email = os.environ.get("GARMIN_EMAIL", "").strip()
+    password = os.environ.get("GARMIN_PASSWORD", "").strip()
+    if not email or not password:
+        return None
+
+    try:
+        from playwright.sync_api import sync_playwright  # noqa: PLC0415
+    except ImportError:
+        log.warning("playwright niet geïnstalleerd — Garmin Playwright methode niet beschikbaar")
+        return None
+
+    log.info("Garmin: starten Playwright browser...")
+    date_str = target_date.isoformat()
+    prev_date_str = (target_date - timedelta(days=1)).isoformat()
+
+    # Sla ruwe XHR-responses op, gekeyed op endpoint-sleutelwoord
+    raw: dict[str, object] = {}
+
+    def _on_response(response) -> None:
+        try:
+            if response.status != 200:
+                return
+            ct = response.headers.get("content-type", "")
+            if "json" not in ct:
+                return
+            url = response.url
+            if "connect.garmin.com" not in url:
+                return
+            data = response.json()
+            for key in (
+                "hrv",
+                "sleep-service",
+                "bodyBattery",
+                "dailyStress",
+                "usersummary",
+                "socialProfile",
+                "activities/search",
+            ):
+                if key in url and key not in raw:
+                    raw[key] = {"url": url, "data": data}
+                    log.info("Garmin XHR onderschept: %s", key)
+        except Exception:
+            pass
+
+    try:
+        with sync_playwright() as pw:
+            browser = pw.chromium.launch(headless=True, args=["--no-sandbox"])
+            context = browser.new_context(
+                user_agent=(
+                    "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 "
+                    "(KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36"
+                )
+            )
+            page = context.new_page()
+            page.on("response", _on_response)
+
+            # ── 1. Inloggen ───────────────────────────────────────────────
+            log.info("Garmin: navigeren naar inlogpagina...")
+            page.goto("https://connect.garmin.com/signin", timeout=30_000)
+            page.wait_for_load_state("networkidle", timeout=20_000)
+
+            # E-mail invullen (SSO-pagina)
+            email_input = page.locator(
+                'input[type="email"], input[name="email"], #email'
+            ).first
+            email_input.fill(email)
+
+            # Sommige SSO-versies hebben een "Volgende" knop vóór het wachtwoord
+            try:
+                nxt = page.locator(
+                    '#login-btn-usernameSubmit, button:has-text("Next"), '
+                    'button:has-text("Volgende")'
+                ).first
+                if nxt.is_visible(timeout=2_000):
+                    nxt.click()
+                    page.wait_for_load_state("networkidle", timeout=10_000)
+            except Exception:
+                pass
+
+            # Wachtwoord invullen
+            pw_input = page.locator(
+                'input[type="password"], input[name="password"], #password'
+            ).first
+            pw_input.fill(password)
+
+            # Indienen
+            try:
+                submit = page.locator(
+                    '#login-btn-signin, button[type="submit"]'
+                ).first
+                submit.click()
+            except Exception:
+                pw_input.press("Enter")
+
+            # Wacht op doorstuur terug naar connect.garmin.com
+            try:
+                page.wait_for_url("*connect.garmin.com/*", timeout=30_000)
+            except Exception:
+                pass
+
+            current = page.url
+            log.info("Garmin: na login URL = %s", current)
+            if "signin" in current or "sso.garmin.com" in current:
+                log.warning(
+                    "Garmin: login mislukt of 2FA vereist — controleer GARMIN_EMAIL/PASSWORD"
+                )
+                browser.close()
+                return None
+
+            page.wait_for_load_state("networkidle", timeout=20_000)
+
+            # ── 2. Wellness-pagina voor doeldatum ─────────────────────────
+            log.info("Garmin: laden wellness-pagina voor %s...", date_str)
+            page.goto(
+                f"https://connect.garmin.com/wellness/{date_str}",
+                timeout=30_000,
+            )
+            page.wait_for_load_state("networkidle", timeout=20_000)
+
+            # Wacht maximaal 5s op kern-responses
+            deadline = 5_000
+            for _ in range(10):
+                if "hrv" in raw and "sleep-service" in raw:
+                    break
+                page.wait_for_timeout(500)
+                deadline -= 500
+
+            # Vorige dag als fallback als data ontbreekt
+            if "hrv" not in raw and "sleep-service" not in raw:
+                log.info("Garmin: geen data voor %s — probeer %s", date_str, prev_date_str)
+                page.goto(
+                    f"https://connect.garmin.com/wellness/{prev_date_str}",
+                    timeout=30_000,
+                )
+                page.wait_for_load_state("networkidle", timeout=20_000)
+                page.wait_for_timeout(3_000)
+
+            # ── 3. Activiteiten ophalen ───────────────────────────────────
+            if "activities/search" not in raw:
+                end_d = date.today().isoformat()
+                start_d = (date.today() - timedelta(days=14)).isoformat()
+                page.goto(
+                    f"https://connect.garmin.com/app/proxy/activitylist-service/"
+                    f"activities/search/activities?startDate={start_d}"
+                    f"&endDate={end_d}&limit=40",
+                    timeout=20_000,
+                )
+                page.wait_for_load_state("networkidle", timeout=10_000)
+
+            log.info("Garmin Playwright: %d responses onderschept", len(raw))
+            browser.close()
+
+    except Exception as exc:
+        log.warning("Garmin Playwright fout: %s", exc)
+        return None
+
+    # ── 4. Parsen van onderschepte responses ──────────────────────────────
+    result: dict = {
+        "date": date_str,
+        "hrv": None,
+        "sleep": None,
+        "body_battery": None,
+        "stress_avg": None,
+        "resting_hr": None,
+        "activities_by_date": {},
+        "fetched_at": dt.now(timezone.utc).isoformat(),
+    }
+    has_any_data = False
+
+    if "hrv" in raw:
+        hrv_raw = raw["hrv"]["data"]
+        if isinstance(hrv_raw, dict):
+            summary = hrv_raw.get("hrvSummary", hrv_raw)
+            last_night = summary.get("lastNight")
+            weekly_avg = summary.get("weeklyAvg")
+            if last_night or weekly_avg:
+                result["hrv"] = {
+                    "lastNight": last_night,
+                    "weeklyAvg": weekly_avg,
+                    "status": summary.get("status", "NONE"),
+                }
+                has_any_data = True
+                log.info("HRV: %sms (weekgemiddelde: %s)", last_night, weekly_avg)
+
+    if "sleep-service" in raw:
+        sleep_raw = raw["sleep-service"]["data"]
+        if isinstance(sleep_raw, dict):
+            daily = sleep_raw.get("dailySleepDTO", {})
+            scores = sleep_raw.get("sleepScores", {})
+            score_value = None
+            if isinstance(scores, dict):
+                score_value = (
+                    scores.get("overall", {}).get("value")
+                    or scores.get("totalDuration", {}).get("value")
+                )
+            if score_value is None:
+                score_value = daily.get("sleepScoreValue")
+            total_s = daily.get("sleepTimeSeconds", 0) or 0
+            if total_s > 0 or score_value is not None:
+                result["sleep"] = {
+                    "score": score_value,
+                    "duration_hours": round(total_s / 3600, 1) if total_s else None,
+                    "deep_minutes": round((daily.get("deepSleepSeconds") or 0) / 60) or None,
+                    "rem_minutes": round((daily.get("remSleepSeconds") or 0) / 60) or None,
+                    "light_minutes": round((daily.get("lightSleepSeconds") or 0) / 60) or None,
+                    "awake_minutes": round((daily.get("awakeSleepSeconds") or 0) / 60) or None,
+                }
+                has_any_data = True
+                log.info("Slaap: %.1fu (score: %s)", total_s / 3600, score_value)
+
+    if "bodyBattery" in raw:
+        bb_raw = raw["bodyBattery"]["data"]
+        if isinstance(bb_raw, list) and bb_raw:
+            day = bb_raw[0]
+            charged = day.get("charged")
+            readings = day.get("bodyBatteryValuesArray", [])
+            end_value = readings[-1][1] if readings else None
+            if charged is not None or end_value is not None:
+                result["body_battery"] = {
+                    "charged": charged,
+                    "drained": day.get("drained"),
+                    "end_value": end_value,
+                }
+                has_any_data = True
+                log.info("Body Battery: opgeladen %s, huidig %s", charged, end_value)
+
+    if "dailyStress" in raw:
+        stress_raw = raw["dailyStress"]["data"]
+        if isinstance(stress_raw, dict):
+            avg = stress_raw.get("avgStressLevel") or stress_raw.get("overallStressLevel")
+            if avg is not None and avg >= 0:
+                result["stress_avg"] = avg
+                has_any_data = True
+                log.info("Gemiddelde stress: %s/100", avg)
+
+    if "usersummary" in raw:
+        stats_raw = raw["usersummary"]["data"]
+        if isinstance(stats_raw, dict):
+            rhr = stats_raw.get("restingHeartRate")
+            if rhr:
+                result["resting_hr"] = rhr
+                has_any_data = True
+                log.info("Rustpols: %s bpm", rhr)
+
+    if "activities/search" in raw:
+        activities_raw = raw["activities/search"]["data"]
+        by_date: dict[str, list[dict]] = {}
+        for activity in activities_raw or []:
+            parsed = _parse_activity(activity)
+            d = parsed.get("date")
+            if d:
+                by_date.setdefault(d, []).append(parsed)
+        result["activities_by_date"] = by_date
+        log.info("Activiteiten via Playwright: %d over 14 dagen", len(activities_raw or []))
+
+    if not has_any_data:
+        log.warning("Garmin Playwright: geen hersteldata onderschept")
+        return None
+
+    log.info("Garmin data succesvol opgehaald via Playwright")
+    return result
+
+
 # ── Hoofdfunctie ──────────────────────────────────────────────────────────────
 
 
@@ -418,11 +692,16 @@ def fetch_garmin_data(target_date: date | None = None) -> dict | None:
     Falls back to the previous day if today's data is not yet synced to
     Garmin Connect (Fenix 6 watches sync in batches).
     """
+    if target_date is None:
+        target_date = date.today()
+
     tokens_b64 = os.environ.get("GARMIN_TOKENS", "").strip()
     if not tokens_b64:
-        log.info("GARMIN_TOKENS not set — probeer web-session methode")
-        if target_date is None:
-            target_date = date.today()
+        log.info("GARMIN_TOKENS not set — probeer Playwright methode")
+        result = _fetch_garmin_via_playwright(target_date)
+        if result is not None:
+            return result
+        log.info("Playwright methode niet beschikbaar — probeer web-session methode")
         return _fetch_garmin_via_web_session(target_date)
 
     try:
