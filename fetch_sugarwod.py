@@ -1223,6 +1223,9 @@ def _fetch_via_html(
 
 _SKIP_TITLES = ("warm",)  # warming up only; accessory workouts are now shown in the UI
 
+# Keywords that identify a "main" workout (METCON, strength, etc.) vs accessories
+_MAIN_KEYWORDS = ("metcon", "weightlifting", "team metcon", "strength", "conditioning")
+
 
 def _parse_parse_workouts(results: list[dict], week_str: str | None = None) -> list[dict]:
     """Convert Parse Server workout objects to our standard format."""
@@ -1620,13 +1623,39 @@ def generate_workout_plans(
         else "Niet beschikbaar"
     )
 
+    # Group workouts by date so we can pick the main one per date
+    by_date: dict[str, list[dict]] = {}
+    for w in upcoming_workouts:
+        d = w.get("date", "")
+        if d:
+            by_date.setdefault(d, []).append(w)
+
+    def _pick_main(ws: list[dict]) -> dict:
+        """Return the main workout from a list of workouts for a single date."""
+        for kw in _MAIN_KEYWORDS:
+            for w in ws:
+                if kw in w.get("title", "").lower():
+                    return w
+        # Fallback: pick the one with the longest description
+        return max(ws, key=lambda w: len(w.get("description", "")))
+
     plans: dict[str, str] = {}
-    for workout in upcoming_workouts:
-        date = workout.get("date", "")
-        title = workout.get("title", "WOD")
-        description = _strip_html(workout.get("description", ""))
+    for date, day_workouts in sorted(by_date.items()):
+        main = _pick_main(day_workouts)
+        title = main.get("title", "WOD")
+        description = _strip_html(main.get("description", ""))
         if not description:
             continue
+
+        # Collect accessory titles so the coach has context but stays focused on the main WOD
+        accessory_titles = [
+            w["title"] for w in day_workouts
+            if w is not main and w.get("title")
+        ]
+        accessory_context = (
+            f"\nAccessory work op deze dag (ter info, niet het primaire focuspunt): {', '.join(accessory_titles)}"
+            if accessory_titles else ""
+        )
 
         skill_focus_text = "\n".join(
             f"- {s}" for s in athlete_profile.get("skill_focus", [])
@@ -1646,8 +1675,10 @@ Persoonlijke focusgebieden (bewegen waarbij groei gewenst is):
 Barbell maxima (kg):
 {barbell_text}
 
-Workout ({date} — {title}):
-{description}
+Hoofdworkout ({date} — {title}):
+{description}{accessory_context}
+
+Het uitvoeringsplan moet UITSLUITEND gaan over de hoofdworkout hierboven. Ga niet in op de accessory work.
 
 Geef een plan met:
 1. Aanbevolen gewichten voor barbell movements (met % van 1RM als referentie)
@@ -1885,8 +1916,6 @@ def main() -> int:
 
     # Per date: prefer the main workout (METCON/WEIGHTLIFTING/TEAM METCON) over
     # accessories (Bird Dog, Prone Extensions, etc. which have empty descriptions).
-    # Priority: 1) title contains METCON/WEIGHTLIFTING, 2) has description, 3) any
-    _MAIN_KEYWORDS = ("metcon", "weightlifting", "team metcon", "strength", "conditioning")
     def _pick_main_workout(workouts_for_date: list[dict]) -> dict:
         for kw in _MAIN_KEYWORDS:
             for w in workouts_for_date:
