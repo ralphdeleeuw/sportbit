@@ -18,7 +18,7 @@ jobs:
           python-version: '3.12'
 
       - name: Install dependencies
-        run: pip install requests beautifulsoup4 playwright anthropic
+        run: pip install requests beautifulsoup4 playwright anthropic garth garminconnect
 
       - name: Install Playwright browsers
         run: playwright install chromium --with-deps
@@ -32,4 +32,9 @@ jobs:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
+          GARMIN_TOKENS: ${{ secrets.GARMIN_TOKENS }}
+          GARMIN_EMAIL: ${{ secrets.GARMIN_EMAIL }}
+          GARMIN_PASSWORD: ${{ secrets.GARMIN_PASSWORD }}
+          GARMIN_SESSION_ID: ${{ secrets.GARMIN_SESSION_ID }}
+          GARMIN_SSO_SESSION: ${{ secrets.GARMIN_SSO_SESSION }}
         run: python3 fetch_sugarwod.py
