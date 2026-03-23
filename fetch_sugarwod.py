@@ -1415,12 +1415,72 @@ def _strip_html(html: str) -> str:
     return BeautifulSoup(html, "html.parser").get_text(separator="\n").strip()
 
 
+# ──────────────────────────────────────────────────────────────
+# Keukenbaas meal data
+# ──────────────────────────────────────────────────────────────
+
+def fetch_keukenbaas_meals() -> list[dict]:
+    """
+    Fetch meal plan data from Keukenbaas (Supabase) for the past 14 days
+    and the next 7 days.  Returns a list of dicts:
+        {date, meal_name, category, description}
+    Returns an empty list if credentials are missing or the request fails.
+    """
+    url = os.environ.get("SUPABASE_URL", "").strip().rstrip("/")
+    key = os.environ.get("SUPABASE_KEY", "").strip()
+    if not url or not key:
+        log.warning("SUPABASE_URL or SUPABASE_KEY not set — skipping Keukenbaas fetch")
+        return []
+
+    today = datetime.now(timezone.utc).date()
+    start = (today - timedelta(days=14)).isoformat()
+    end = (today + timedelta(days=7)).isoformat()
+
+    headers = {
+        "apikey": key,
+        "Authorization": f"Bearer {key}",
+        "Accept": "application/json",
+    }
+
+    try:
+        resp = requests.get(
+            f"{url}/rest/v1/meal_plans",
+            headers=headers,
+            params=[
+                ("select", "date,custom_text,notes,recipes(title,description,category)"),
+                ("date", f"gte.{start}"),
+                ("date", f"lte.{end}"),
+                ("order", "date.asc"),
+            ],
+            timeout=15,
+        )
+        resp.raise_for_status()
+    except requests.RequestException as exc:
+        log.warning("Keukenbaas fetch failed: %s", exc)
+        return []
+
+    meals: list[dict] = []
+    for row in resp.json():
+        recipe = row.get("recipes") or {}
+        meal_name = recipe.get("title") or row.get("custom_text") or "Maaltijd"
+        meals.append({
+            "date": row.get("date", ""),
+            "meal_name": meal_name,
+            "category": recipe.get("category") or "",
+            "description": recipe.get("description") or "",
+        })
+
+    log.info("Keukenbaas: %d meals fetched (%s → %s)", len(meals), start, end)
+    return meals
+
+
 def generate_recovery_advice(
     past_workouts: list[dict],
     upcoming_workout: dict | None,
     barbell_lifts: dict,
     athlete_profile: dict,
     today: "date | None" = None,
+    meals: list[dict] | None = None,
 ) -> str:
     """
     Generate a daily recovery/intensity advice based on recent workouts and
@@ -1468,6 +1528,28 @@ def generate_recovery_advice(
 
     today_str = today.isoformat() if today else "onbekend"
 
+    # Build meal context: recent dinners + upcoming dinner on next workout day
+    meals_text = ""
+    if meals:
+        today_iso = today.isoformat() if today else ""
+        upcoming_date = upcoming_workout.get("date", "") if upcoming_workout else ""
+        recent = [m for m in meals if m["date"] < today_iso][-5:]
+        upcoming_meal = next((m for m in meals if m["date"] == upcoming_date), None)
+        if recent or upcoming_meal:
+            meals_text = "\n\nMaaltijdinformatie (avondmaaltijden uit Keukenbaas):\n"
+            if recent:
+                meals_text += "Recente maaltijden:\n"
+                for m in recent:
+                    meals_text += f"- {m['date']}: {m['meal_name']}"
+                    if m['category']:
+                        meals_text += f" ({m['category']})"
+                    meals_text += "\n"
+            if upcoming_meal:
+                meals_text += f"Avondmaaltijd op de dag van de volgende workout ({upcoming_date}): {upcoming_meal['meal_name']}"
+                if upcoming_meal['category']:
+                    meals_text += f" ({upcoming_meal['category']})"
+                meals_text += "\n"
+
     prompt = f"""Je bent een ervaren CrossFit coach. Geef een kort, persoonlijk hersteladvies voor vandaag.
 
 Vandaag is: {today_str}
@@ -1486,15 +1568,16 @@ Ga er nooit van uit dat een sessie "licht" of "accessory" was puur op basis van 
 {past_text if past_text.strip() else "Geen recente trainingen bekend."}
 
 Volgende workout:
-{upcoming_text}
+{upcoming_text}{meals_text}
 
 Geef advies over:
 1. **Herstelniveau** — zijn er spiergroepen die extra rust nodig hebben op basis van de recente workouts?
 2. **Intensiteitsadvies** — volledig gas geven, gecontroleerd trainen of bewust schalen vandaag?
 3. **Één concrete tip** voor de volgende workout rekening houdend met herstel (bijv. pacing, scaling keuze, specifieke beweging)
+4. **Voeding** — geef alleen dit onderdeel als maaltijdinformatie beschikbaar is: is de geplande maaltijd geschikt als herstelmaaltijd of pre-workout voeding? Één zin, alleen als het relevant is.
 
 Gebruik bij datumverwijzingen altijd de exacte datum (bijv. "donderdag 19 maart"), NOOIT vage termen als "gisteren" of "eergisteren".
-Wees direct, praktisch en bondig. Maximaal 150 woorden. Schrijf in het Nederlands. Geen inleiding."""
+Wees direct, praktisch en bondig. Maximaal 180 woorden. Schrijf in het Nederlands. Geen inleiding."""
 
     try:
         log.info("Generating recovery advice")
@@ -1515,6 +1598,7 @@ def generate_workout_plans(
     upcoming_workouts: list[dict],
     barbell_lifts: dict,
     athlete_profile: dict,
+    meals: list[dict] | None = None,
 ) -> dict[str, str]:
     """
     Call the Claude API to generate a personalised execution plan for each
@@ -1576,6 +1660,16 @@ def generate_workout_plans(
             if accessory_titles else ""
         )
 
+        # Meal context for this workout day
+        meal_context = ""
+        if meals:
+            day_meal = next((m for m in meals if m["date"] == date), None)
+            if day_meal:
+                meal_context = (
+                    f"\nAvondmaaltijd op deze dag (Keukenbaas): {day_meal['meal_name']}"
+                    + (f" ({day_meal['category']})" if day_meal.get("category") else "")
+                )
+
         skill_focus_text = "\n".join(
             f"- {s}" for s in athlete_profile.get("skill_focus", [])
         )
@@ -1595,7 +1689,7 @@ Barbell maxima (kg):
 {barbell_text}
 
 Hoofdworkout ({date} — {title}):
-{description}{accessory_context}
+{description}{accessory_context}{meal_context}
 
 Het uitvoeringsplan moet UITSLUITEND gaan over de hoofdworkout hierboven. Ga niet in op de accessory work.
 
@@ -1604,8 +1698,9 @@ Geef een plan met:
 2. Pacing strategie en sets/reps verdeling
 3. 1–2 concrete tips voor deze specifieke workout
 4. **Skill-tip**: Als een of meer van de focusgebieden in deze workout voorkomen, geef dan één gerichte verbeteringstip specifiek gericht op het sneller bereiken van RX-niveau voor die beweging (techniek, drills, mindset). Sla deze sectie over als geen van de focusgebieden aanwezig is.
+5. **Voeding**: geef alleen dit onderdeel als er een avondmaaltijd bekend is — is deze maaltijd geschikt als herstelmaaltijd na deze workout? Één zin.
 
-Wees direct en bondig. Maximaal 220 woorden. Geen inleiding."""
+Wees direct en bondig. Maximaal 240 woorden. Geen inleiding."""
 
         try:
             log.info("Generating AI plan for %s (%s)", date, title)
@@ -1702,14 +1797,21 @@ def load_workout_log(gist_id: str, token: str) -> dict[str, dict]:
         return {}
 
 
-def save_to_gist(gist_id: str, token: str, wod_data: dict) -> None:
-    payload = {
-        "files": {
-            GIST_FILENAME: {
-                "content": json.dumps(wod_data, ensure_ascii=False, indent=2)
-            }
+def save_to_gist(gist_id: str, token: str, wod_data: dict, meals: list[dict] | None = None) -> None:
+    files: dict = {
+        GIST_FILENAME: {
+            "content": json.dumps(wod_data, ensure_ascii=False, indent=2)
         }
     }
+    if meals is not None:
+        files["keukenbaas_meals.json"] = {
+            "content": json.dumps(
+                {"meals": meals, "fetched_at": datetime.now(timezone.utc).isoformat()},
+                ensure_ascii=False,
+                indent=2,
+            )
+        }
+    payload = {"files": files}
     resp = requests.patch(
         f"https://api.github.com/gists/{gist_id}",
         json=payload,
@@ -1810,9 +1912,12 @@ def main() -> int:
                 {"title": w["title"], "description": w["description"]}
             )
 
+    # Fetch Keukenbaas meal data (past 14 days + next 7 days)
+    keukenbaas_meals = fetch_keukenbaas_meals()
+
     # Generate AI coaching plans for upcoming workouts
     upcoming_workouts = [w for w in workouts if w.get("date", "") >= today.isoformat()]
-    workout_plans = generate_workout_plans(upcoming_workouts, barbell_lifts, ATHLETE_PROFILE)
+    workout_plans = generate_workout_plans(upcoming_workouts, barbell_lifts, ATHLETE_PROFILE, meals=keukenbaas_meals)
 
     # Generate daily recovery advice.
     # Priority for "which days did the athlete actually train":
@@ -1896,7 +2001,8 @@ def main() -> int:
         log.info("Coach advice: %d Sportbit attended dates → %d workouts with descriptions",
                  len(past_sportbit_dates), len([w for w in attended_workouts if w.get("description")]))
         recovery_advice = generate_recovery_advice(
-            attended_workouts[:10], next_workout, barbell_lifts, ATHLETE_PROFILE, today
+            attended_workouts[:10], next_workout, barbell_lifts, ATHLETE_PROFILE, today,
+            meals=keukenbaas_meals,
         )
 
     # 2. SugarWOD logbook (athlete scored a result)
@@ -1920,7 +2026,8 @@ def main() -> int:
             })
         log.info("Coach advice: %d SugarWOD logbook entries", len(attended_workouts))
         recovery_advice = generate_recovery_advice(
-            attended_workouts[:5], next_workout, barbell_lifts, ATHLETE_PROFILE, today
+            attended_workouts[:5], next_workout, barbell_lifts, ATHLETE_PROFILE, today,
+            meals=keukenbaas_meals,
         )
 
     # 3. Fallback: all programmed past workouts
@@ -1932,7 +2039,8 @@ def main() -> int:
         )
         log.info("Coach advice fallback: %d programmed past workouts", len(past_workouts_sorted))
         recovery_advice = generate_recovery_advice(
-            past_workouts_sorted[:3], next_workout, barbell_lifts, ATHLETE_PROFILE
+            past_workouts_sorted[:3], next_workout, barbell_lifts, ATHLETE_PROFILE,
+            meals=keukenbaas_meals,
         )
 
     wod_data = {
@@ -1949,7 +2057,7 @@ def main() -> int:
 
     if gist_id and token:
         try:
-            save_to_gist(gist_id, token, wod_data)
+            save_to_gist(gist_id, token, wod_data, meals=keukenbaas_meals)
         except requests.HTTPError as exc:
             log.error("Failed to save WOD to Gist: %s", exc)
             return 1
