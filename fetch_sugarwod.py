@@ -1448,15 +1448,23 @@ def _detect_team_size(text: str) -> int | None:
     return None
 
 
-def _training_time_context(date_str: str) -> str:
-    """Return a prompt snippet about training time and meal timing for the given date."""
+def _training_time_context(date_str: str, signed_up_times: dict[str, str] | None = None) -> str:
+    """Return a prompt snippet about training time and meal timing for the given date.
+
+    Uses actual sign-up time from the Gist state when available, falls back to
+    TRAINING_SCHEDULE (static weekday defaults) otherwise.
+    """
     from datetime import date as date_cls
     try:
         d = date_cls.fromisoformat(date_str)
     except ValueError:
         return ""
-    weekday = d.weekday()  # 0=Mon
-    time_str = TRAINING_SCHEDULE.get(weekday)
+    # Prefer actual sign-up time; fall back to static schedule
+    if signed_up_times and date_str in signed_up_times:
+        time_str = signed_up_times[date_str]
+    else:
+        weekday = d.weekday()  # 0=Mon
+        time_str = TRAINING_SCHEDULE.get(weekday)
     if not time_str:
         return ""
     # Compare training time to dinner time (DINNER_TIME = "18:00")
@@ -1566,6 +1574,7 @@ def generate_recovery_advice(
     meals: list[dict] | None = None,
     strava_data: "dict | None" = None,
     health_input: "dict | None" = None,
+    signed_up_times: dict[str, str] | None = None,
 ) -> str:
     """
     Generate a daily recovery/intensity advice based on recent workouts and
@@ -1629,7 +1638,7 @@ def generate_recovery_advice(
         title = upcoming_workout.get("title", "WOD")
         desc = _strip_html(upcoming_workout.get("description", ""))[:400]
         upcoming_text = f"**{date} — {title}**\n{desc}"
-        upcoming_timing_context = _training_time_context(date)
+        upcoming_timing_context = _training_time_context(date, signed_up_times)
     else:
         upcoming_text = "Geen aankomende workout bekend."
 
@@ -1752,6 +1761,7 @@ def generate_workout_plans(
     barbell_lifts: dict,
     athlete_profile: dict,
     meals: list[dict] | None = None,
+    signed_up_times: dict[str, str] | None = None,
 ) -> dict[str, str]:
     """
     Call the Claude API to generate a personalised execution plan for each
@@ -1838,7 +1848,7 @@ def generate_workout_plans(
         else:
             team_context = ""
 
-        timing_context = _training_time_context(date)
+        timing_context = _training_time_context(date, signed_up_times)
 
         prompt = f"""Je bent een ervaren CrossFit coach. Genereer een beknopt, praktisch uitvoeringsplan.
 
@@ -1923,20 +1933,20 @@ def load_health_input(gist_id: str, token: str) -> dict | None:
         return None
 
 
-def load_sportbit_attended_dates(gist_id: str, token: str) -> set[str]:
-    """Read sportbit_state.json from the shared gist and return ISO dates where the
-    athlete was signed up (and did NOT cancel) — i.e. days they actually went to the box.
+def load_sportbit_attended_dates(gist_id: str, token: str) -> tuple[set[str], dict[str, str]]:
+    """Read sportbit_state.json from the shared gist and return:
+    - A set of ISO dates where the athlete was signed up (and did NOT cancel),
+      filtered to scheduled class days (Mon/Wed/Thu/Sat).
+    - A dict of {date: time} for ALL non-cancelled signups (past + future),
+      used to look up actual training times.
 
-    Only includes class days (Mon/Wed/Thu/Sat) to filter out stale signups for
-    non-scheduled days.
-
-    Returns a set of "YYYY-MM-DD" strings.
+    Returns (set[str], dict[str, str]).
     """
     # Weekdays (0=Mon … 6=Sun) that are scheduled CrossFit class days
     SCHEDULED_WEEKDAYS = {0, 2, 3, 5}  # Mon, Wed, Thu, Sat
 
     if not gist_id or not token:
-        return set()
+        return set(), {}
     try:
         resp = requests.get(
             f"https://api.github.com/gists/{gist_id}",
@@ -1948,16 +1958,21 @@ def load_sportbit_attended_dates(gist_id: str, token: str) -> set[str]:
         raw = files.get("sportbit_state.json", {}).get("content", "")
         if not raw:
             log.warning("[gist] sportbit_state.json not found or empty")
-            return set()
+            return set(), {}
         state = json.loads(raw)
         signed_up: dict = state.get("signed_up", {})
         cancelled: dict = state.get("cancelled", {})
-        attended = set()
+        attended: set[str] = set()
+        signed_up_times: dict[str, str] = {}
         skipped = 0
         for event_id, info in signed_up.items():
             if event_id not in cancelled:
                 date = info.get("date", "")
+                time = info.get("time", "")
                 if date:
+                    # Build full date→time map for all non-cancelled signups
+                    if time:
+                        signed_up_times[date] = time
                     try:
                         weekday = datetime.strptime(date, "%Y-%m-%d").weekday()
                     except ValueError:
@@ -1968,10 +1983,11 @@ def load_sportbit_attended_dates(gist_id: str, token: str) -> set[str]:
                         skipped += 1
                         log.info("[gist] Skipping %s (weekday %d, not a scheduled class day)", date, weekday)
         log.info("[gist] Sportbit attended dates: %d (skipped %d non-class-day signups)", len(attended), skipped)
-        return attended
+        log.info("[gist] Signed-up times: %d dates with known training time", len(signed_up_times))
+        return attended, signed_up_times
     except Exception as exc:
         log.warning("[gist] Failed to load sportbit_state.json: %s", exc)
-        return set()
+        return set(), {}
 
 
 def load_workout_log(gist_id: str, token: str) -> dict[str, dict]:
@@ -2118,7 +2134,7 @@ def main() -> int:
 
     # Generate AI coaching plans for upcoming workouts
     upcoming_workouts = [w for w in workouts if w.get("date", "") >= today.isoformat()]
-    workout_plans = generate_workout_plans(upcoming_workouts, barbell_lifts, ATHLETE_PROFILE, meals=keukenbaas_meals)
+    workout_plans = generate_workout_plans(upcoming_workouts, barbell_lifts, ATHLETE_PROFILE, meals=keukenbaas_meals, signed_up_times=signed_up_times)
 
     # Fetch Strava activity data (hartslag, duur, calorieën per activiteit)
     # Requires STRAVA_CLIENT_ID / STRAVA_CLIENT_SECRET / STRAVA_REFRESH_TOKEN secrets.
@@ -2159,8 +2175,8 @@ def main() -> int:
         _by_date_all.setdefault(w["date"], []).append(w)
     date_to_workout = {d: _pick_main_workout(ws) for d, ws in _by_date_all.items()}
 
-    # 1. Sportbit attended dates (signed up, not cancelled)
-    sportbit_attended = load_sportbit_attended_dates(gist_id, token)
+    # 1. Sportbit attended dates (signed up, not cancelled) + actual training times
+    sportbit_attended, signed_up_times = load_sportbit_attended_dates(gist_id, token)
     past_sportbit_dates = sorted(
         [d for d in sportbit_attended if d < today.isoformat()],
         reverse=True,
@@ -2224,6 +2240,7 @@ def main() -> int:
             meals=keukenbaas_meals,
             strava_data=strava_data,
             health_input=health_input,
+            signed_up_times=signed_up_times,
         )
 
     # 2. SugarWOD logbook (athlete scored a result)
@@ -2251,6 +2268,7 @@ def main() -> int:
             meals=keukenbaas_meals,
             strava_data=strava_data,
             health_input=health_input,
+            signed_up_times=signed_up_times,
         )
 
     # 3. Fallback: all programmed past workouts
@@ -2266,6 +2284,7 @@ def main() -> int:
             meals=keukenbaas_meals,
             strava_data=strava_data,
             health_input=health_input,
+            signed_up_times=signed_up_times,
         )
 
     wod_data = {
