@@ -1418,14 +1418,18 @@ def generate_recovery_advice(
     barbell_lifts: dict,
     athlete_profile: dict,
     today: "date | None" = None,
-    garmin_data: "dict | None" = None,
+    strava_data: "dict | None" = None,
+    health_input: "dict | None" = None,
 ) -> str:
     """
     Generate a daily recovery/intensity advice based on recent workouts and
     what's coming up next.  Returns a markdown string.
 
-    If garmin_data is provided (HRV, sleep, body battery, stress, resting HR),
-    it is included in the prompt as primary physiological recovery indicators.
+    If strava_data is provided, activity details (HR, duration) per WOD date
+    are included to assess training load.
+
+    If health_input is provided (subjectieve scores: slaap, energie, spierpijn),
+    these are included as primary physiological recovery indicators.
     """
     api_key = os.environ.get("ANTHROPIC_API_KEY", "").strip()
     if not api_key:
@@ -1442,8 +1446,8 @@ def generate_recovery_advice(
 
     # Build activities-by-date lookup for WOD matching
     activities_by_date: dict = {}
-    if garmin_data:
-        activities_by_date = garmin_data.get("activities_by_date") or {}
+    if strava_data:
+        activities_by_date = strava_data.get("activities_by_date") or {}
 
     past_text = ""
     for w in past_workouts:
@@ -1451,30 +1455,22 @@ def generate_recovery_advice(
         title = w.get("title", "WOD")
         desc = _strip_html(w.get("description", ""))[:400]
         past_text += f"\n**{date} — {title}**\n{desc}\n"
-        # Append matched Garmin activity data for this WOD date
+        # Append matched Strava activity data for this WOD date
         if date in activities_by_date:
             for act in activities_by_date[date]:
                 avg_hr = act.get("avg_hr")
                 max_hr = act.get("max_hr")
                 dur = act.get("duration_min")
-                aero_te = act.get("aerobic_te")
-                ana_te = act.get("anaerobic_te")
                 cal = act.get("calories")
-                zones = act.get("hr_zones") or {}
-                zone_str = ", ".join(
-                    f"Z{i}: {zones.get(f'zone{i}_min', 0)}min" for i in range(1, 6)
-                    if zones.get(f"zone{i}_min")
+                act_name = act.get("name", "")
+                strava_line = (
+                    f"  ↳ Strava: {dur}min"
+                    + (f" ({act_name})" if act_name else "")
+                    + (f", gem.HR {avg_hr:.0f} bpm" if avg_hr else "")
+                    + (f", max.HR {max_hr:.0f} bpm" if max_hr else "")
+                    + (f", {cal:.0f} kcal" if cal else "")
                 )
-                garmin_line = (
-                    f"  ↳ Garmin: {dur}min"
-                    + (f", gem.HR {avg_hr} bpm" if avg_hr else "")
-                    + (f", max.HR {max_hr} bpm" if max_hr else "")
-                    + (f", TE aerobe {aero_te:.1f}" if aero_te else "")
-                    + (f"/ anaerobe {ana_te:.1f}" if ana_te else "")
-                    + (f", {cal} kcal" if cal else "")
-                    + (f" [{zone_str}]" if zone_str else "")
-                )
-                past_text += garmin_line + "\n"
+                past_text += strava_line + "\n"
 
     upcoming_text = ""
     if upcoming_workout:
@@ -1498,49 +1494,23 @@ def generate_recovery_advice(
 
     today_str = today.isoformat() if today else "onbekend"
 
-    # Build Garmin biometric block (primary physiological recovery data)
-    garmin_block = ""
-    if garmin_data:
+    # Build health input block (subjectieve hersteldata van atleet)
+    health_block = ""
+    if health_input:
         lines = []
-        hrv = garmin_data.get("hrv")
-        if hrv:
-            hrv_status_nl = {
-                "BALANCED": "Gebalanceerd (goed herstel)",
-                "UNBALANCED": "Ongebalanceerd (let op vermoeidheid)",
-                "LOW": "Laag (verhoogde belasting)",
-                "POOR": "Slecht (neem rust)",
-                "NONE": "Niet beschikbaar",
-            }.get(hrv.get("status", "NONE"), hrv.get("status", "—"))
-            lines.append(
-                f"- HRV gisternacht: {hrv.get('lastNight', '—')} ms "
-                f"(weekgemiddelde: {hrv.get('weeklyAvg', '—')} ms) — {hrv_status_nl}"
-            )
-        sleep = garmin_data.get("sleep")
-        if sleep:
-            score = sleep.get("score")
-            dur = sleep.get("duration_hours")
-            deep = sleep.get("deep_minutes")
-            rem = sleep.get("rem_minutes")
-            score_str = f"score {score}/100" if score is not None else "geen score"
-            dur_str = f"{dur}u" if dur is not None else "—"
-            deep_str = f"{deep}min diep" if deep is not None else ""
-            rem_str = f"{rem}min REM" if rem is not None else ""
-            details = ", ".join(filter(None, [deep_str, rem_str]))
-            lines.append(f"- Slaap: {score_str} — {dur_str} totaal ({details})")
-        bb = garmin_data.get("body_battery")
-        if bb:
-            charged = bb.get("charged", "—")
-            end_val = bb.get("end_value", "—")
-            lines.append(f"- Body Battery: opgeladen tot {charged}, huidig niveau {end_val}/100")
-        stress = garmin_data.get("stress_avg")
-        if stress is not None:
-            lines.append(f"- Gemiddelde stress: {stress}/100")
-        rhr = garmin_data.get("resting_hr")
-        if rhr:
-            lines.append(f"- Rustpols: {rhr} bpm")
+        slaap = health_input.get("slaap")
+        energie = health_input.get("energie")
+        spierpijn = health_input.get("spierpijn")
+        if slaap is not None:
+            lines.append(f"- Slaapkwaliteit: {slaap}/5")
+        if energie is not None:
+            lines.append(f"- Energieniveau: {energie}/5")
+        if spierpijn is not None:
+            lines.append(f"- Spierpijn/vermoeidheid: {spierpijn}/5")
         if lines:
-            garmin_block = (
-                "\nGarmin biometrische data (gebruik dit als primaire fysiologische hersteldata):\n"
+            health_block = (
+                "\nSubjectieve hersteldata (ingevuld door atleet — gebruik dit als primaire "
+                "fysiologische herstelIndicator):\n"
                 + "\n".join(lines)
                 + "\n"
             )
@@ -1553,13 +1523,13 @@ Atleet: {athlete_profile['name']}, {athlete_profile['weight_kg']} kg, leeftijd 4
 Ervaring: {athlete_profile['experience']}
 Focusgebieden:
 {skill_focus_text}
-{garmin_block}
+{health_block}
 Barbell maxima (kg):
 {barbell_text}
 
 Afgelopen CrossFit-boxsessies die de atleet DAADWERKELIJK heeft gevolgd (meest recent eerst).
 Dit zijn allemaal echte CrossFit WODs — ook als de WOD-beschrijving ontbreekt of leeg is.
-Waar beschikbaar is Garmin-data (↳) toegevoegd: hartslag, duur, Training Effect (aerobe/anaerobe) en HR-zones.
+Waar beschikbaar is Strava-data (↳) toegevoegd: hartslag, duur en calorieën.
 Gebruik dit om de werkelijke intensiteit te beoordelen, NIET alleen de WOD-beschrijving:
 {past_text if past_text.strip() else "Geen recente trainingen bekend."}
 
@@ -1567,7 +1537,7 @@ Volgende workout:
 {upcoming_text}
 
 Geef advies over:
-1. **Herstelniveau** — zijn er spiergroepen die extra rust nodig hebben op basis van de recente workouts?{"  Gebruik de Garmin HRV- en slaapdata als primaire fysiologische herstelIndicator. Gebruik de Garmin workout-data (hartslag, HR-zones, Training Effect) om de werkelijke trainingsbelasting per sessie te beoordelen." if garmin_data else ""}
+1. **Herstelniveau** — zijn er spiergroepen die extra rust nodig hebben op basis van de recente workouts?{"  Gebruik de subjectieve hersteldata (slaap, energie, spierpijn) als primaire fysiologische herstelIndicator. Gebruik de Strava workout-data (hartslag, duur) om de werkelijke trainingsbelasting per sessie te beoordelen." if health_input else ""}
 2. **Intensiteitsadvies** — volledig gas geven, gecontroleerd trainen of bewust schalen vandaag?
 3. **Één concrete tip** voor de volgende workout rekening houdend met herstel (bijv. pacing, scaling keuze, specifieke beweging)
 
@@ -1676,6 +1646,37 @@ Wees direct en bondig. Maximaal 220 woorden. Geen inleiding."""
 # ──────────────────────────────────────────────────────────────
 # Gist storage
 # ──────────────────────────────────────────────────────────────
+
+def load_health_input(gist_id: str, token: str) -> dict | None:
+    """Lees health_input.json uit de gist.
+
+    Retourneert een dict als {"slaap": 3, "energie": 4, "spierpijn": 2, "date": "YYYY-MM-DD"}
+    of None als het bestand niet bestaat of leeg is.
+    """
+    if not gist_id or not token:
+        return None
+    try:
+        resp = requests.get(
+            f"https://api.github.com/gists/{gist_id}",
+            headers={"Authorization": f"token {token}", "Accept": "application/json"},
+            timeout=15,
+        )
+        resp.raise_for_status()
+        files = resp.json().get("files", {})
+        raw = files.get("health_input.json", {}).get("content", "")
+        if not raw:
+            log.info("[gist] health_input.json niet gevonden — geen subjectieve hersteldata")
+            return None
+        data = json.loads(raw)
+        log.info(
+            "[gist] health_input geladen: slaap=%s energie=%s spierpijn=%s (datum: %s)",
+            data.get("slaap"), data.get("energie"), data.get("spierpijn"), data.get("date"),
+        )
+        return data
+    except Exception as exc:
+        log.warning("[gist] health_input.json laden mislukt: %s", exc)
+        return None
+
 
 def load_sportbit_attended_dates(gist_id: str, token: str) -> set[str]:
     """Read sportbit_state.json from the shared gist and return ISO dates where the
@@ -1864,18 +1865,23 @@ def main() -> int:
     upcoming_workouts = [w for w in workouts if w.get("date", "") >= today.isoformat()]
     workout_plans = generate_workout_plans(upcoming_workouts, barbell_lifts, ATHLETE_PROFILE)
 
-    # Fetch Garmin biometric data (HRV, sleep, body battery, stress, resting HR)
-    # Requires GARMIN_TOKENS secret — returns None if not configured.
+    # Fetch Strava activity data (hartslag, duur, calorieën per activiteit)
+    # Requires STRAVA_CLIENT_ID / STRAVA_CLIENT_SECRET / STRAVA_REFRESH_TOKEN secrets.
     try:
-        from fetch_garmin import fetch_garmin_data  # noqa: PLC0415
-        garmin_data = fetch_garmin_data(today)
-        if garmin_data:
-            log.info("Garmin data opgehaald voor %s (HRV: %s)", garmin_data.get("date"), garmin_data.get("hrv"))
+        from fetch_strava import fetch_strava_data  # noqa: PLC0415
+        strava_data = fetch_strava_data()
+        if strava_data:
+            n_acts = sum(len(v) for v in strava_data.get("activities_by_date", {}).values())
+            log.info("Strava data opgehaald: %d activiteiten", n_acts)
         else:
-            log.info("Geen Garmin data beschikbaar — coach gebruikt alleen workoutgeschiedenis")
+            log.info("Geen Strava data beschikbaar — coach gebruikt alleen workoutgeschiedenis")
     except Exception as exc:
-        log.warning("Garmin fetch mislukt: %s", exc)
-        garmin_data = None
+        log.warning("Strava fetch mislukt: %s", exc)
+        strava_data = None
+
+    # Lees subjectieve hersteldata (slaap/energie/spierpijn) uit de gist.
+    # De atleet vult dit in via het dashboard vóór de dagelijkse workflow draait.
+    health_input = load_health_input(gist_id, token)
 
     # Generate daily recovery advice.
     # Priority for "which days did the athlete actually train":
@@ -1962,7 +1968,8 @@ def main() -> int:
                  len(past_sportbit_dates), len([w for w in attended_workouts if w.get("description")]))
         recovery_advice = generate_recovery_advice(
             attended_workouts[:10], next_workout, barbell_lifts, ATHLETE_PROFILE, today,
-            garmin_data=garmin_data,
+            strava_data=strava_data,
+            health_input=health_input,
         )
 
     # 2. SugarWOD logbook (athlete scored a result)
@@ -1987,7 +1994,8 @@ def main() -> int:
         log.info("Coach advice: %d SugarWOD logbook entries", len(attended_workouts))
         recovery_advice = generate_recovery_advice(
             attended_workouts[:5], next_workout, barbell_lifts, ATHLETE_PROFILE, today,
-            garmin_data=garmin_data,
+            strava_data=strava_data,
+            health_input=health_input,
         )
 
     # 3. Fallback: all programmed past workouts
@@ -2000,7 +2008,8 @@ def main() -> int:
         log.info("Coach advice fallback: %d programmed past workouts", len(past_workouts_sorted))
         recovery_advice = generate_recovery_advice(
             past_workouts_sorted[:3], next_workout, barbell_lifts, ATHLETE_PROFILE,
-            garmin_data=garmin_data,
+            strava_data=strava_data,
+            health_input=health_input,
         )
 
     wod_data = {
@@ -2012,7 +2021,7 @@ def main() -> int:
         "benchmark_workouts": benchmark_workouts,
         "workout_plans": workout_plans,
         "recovery_advice": recovery_advice,
-        "garmin_data": garmin_data,
+        "strava_data": strava_data,
         "fetched_at": datetime.now(timezone.utc).isoformat(),
     }
 

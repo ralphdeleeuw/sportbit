@@ -667,8 +667,8 @@
 
     .recovery-block-body strong { color: #cce0ff; font-weight: 600; }
 
-    /* Garmin metrics block */
-    .garmin-metrics {
+    /* Health input block */
+    .health-input-block {
       background: #0f0a1a;
       border: 1px solid #2a1a4a;
       border-radius: 12px;
@@ -677,53 +677,80 @@
       animation: fadeUp 0.6s 0.1s ease both;
     }
 
-    .garmin-metrics-label {
+    .health-input-label {
       font-size: 0.67rem;
       letter-spacing: 0.18em;
       text-transform: uppercase;
       color: #9a70ff;
       font-weight: 600;
-      margin-bottom: 0.65rem;
+      margin-bottom: 0.75rem;
     }
 
-    .garmin-chips {
-      display: flex;
-      gap: 0.5rem;
-      flex-wrap: wrap;
-    }
-
-    .garmin-chip {
+    .health-sliders {
       display: flex;
       flex-direction: column;
+      gap: 0.6rem;
+    }
+
+    .health-slider-row {
+      display: flex;
       align-items: center;
-      background: #1a1228;
-      border: 1px solid #2d1f4a;
-      border-radius: 10px;
-      padding: 0.45rem 0.75rem;
-      min-width: 56px;
-      gap: 0.1rem;
+      gap: 0.75rem;
     }
 
-    .garmin-chip-value {
-      font-family: 'Bebas Neue', sans-serif;
-      font-size: 1.15rem;
-      line-height: 1;
-      letter-spacing: 0.02em;
-    }
-
-    .garmin-chip-label {
-      font-size: 0.58rem;
+    .health-slider-name {
+      font-size: 0.72rem;
       color: var(--muted);
       text-transform: uppercase;
-      letter-spacing: 0.1em;
-      white-space: nowrap;
+      letter-spacing: 0.08em;
+      width: 72px;
+      flex-shrink: 0;
     }
 
-    .garmin-chip-sub {
-      font-size: 0.6rem;
-      color: #6a5a8a;
-      white-space: nowrap;
+    .health-slider-row input[type=range] {
+      flex: 1;
+      accent-color: #9a70ff;
+      height: 4px;
+      cursor: pointer;
     }
+
+    .health-slider-val {
+      font-family: 'Bebas Neue', sans-serif;
+      font-size: 1.1rem;
+      width: 22px;
+      text-align: right;
+      color: #cce0ff;
+    }
+
+    .health-save-row {
+      display: flex;
+      align-items: center;
+      gap: 0.75rem;
+      margin-top: 0.7rem;
+    }
+
+    .health-save-btn {
+      background: #2a1a4a;
+      border: 1px solid #9a70ff;
+      color: #cce0ff;
+      border-radius: 8px;
+      padding: 0.3rem 0.9rem;
+      font-size: 0.75rem;
+      cursor: pointer;
+      font-family: inherit;
+      letter-spacing: 0.05em;
+      transition: background 0.15s;
+    }
+
+    .health-save-btn:hover { background: #3a2a5a; }
+
+    .health-save-status {
+      font-size: 0.7rem;
+      color: var(--muted);
+    }
+
+    .health-save-status.ok { color: #4caf50; }
+    .health-save-status.err { color: var(--accent2); }
 
     .chip-green  { color: #4caf50; }
     .chip-lime   { color: #a5d648; }
@@ -915,7 +942,8 @@
     let personalRecords = [];
     let benchmarkWorkouts = [];
     let workoutLog = {};   // {date: entry} from workout_log.json
-    let garminData = null; // Garmin Connect biometrische data
+    let stravaData = null; // Strava activiteiten data
+    let healthInput = {}; // Subjectieve hersteldata {slaap, energie, spierpijn}
     let currentGistId = '';
 
     const MAIN_KEYWORDS = ['metcon', 'weightlifting', 'team metcon', 'strength', 'conditioning'];
@@ -964,7 +992,13 @@
         recoveryAdvice = data.recovery_advice || null;
         personalRecords = data.personal_records || [];
         benchmarkWorkouts = data.benchmark_workouts || [];
-        garminData = data.garmin_data || null;
+        stravaData = data.strava_data || null;
+
+        // Laad health_input.json (subjectieve hersteldata)
+        const healthFile = gist.files['health_input.json'];
+        if (healthFile) {
+          try { healthInput = JSON.parse(healthFile.content) || {}; } catch(e) {}
+        }
         const n = Object.keys(wodByDate).length;
         if (el) el.textContent = n > 0 ? `WOD geladen voor ${n} dag(en)` : 'WOD: geen workouts in by_date (fetch mislukt?)';
 
@@ -1198,8 +1232,8 @@
 
         let html = '';
 
-        // Garmin biometric metrics
-        html += renderGarminBlock(garminData);
+        // Subjectieve hersteldata invoer
+        html += renderHealthInputBlock();
 
         // Recovery advice
         if (recoveryAdvice) {
@@ -1379,81 +1413,79 @@
       return raw;
     }
 
-    // ── Garmin chip helpers ───────────────────────────────────────────────
+    // ── Health input helpers ──────────────────────────────────────────────
 
-    function garminHrvChip(hrv) {
-      if (!hrv) return '';
-      const val = hrv.lastNight != null ? hrv.lastNight : '—';
-      const colorMap = { BALANCED: 'chip-green', UNBALANCED: 'chip-orange', LOW: 'chip-orange', POOR: 'chip-red', NONE: 'chip-muted' };
-      const cls = colorMap[hrv.status] || 'chip-muted';
-      const sub = hrv.weeklyAvg != null ? `gem ${hrv.weeklyAvg}ms` : '';
-      return `<div class="garmin-chip">
-        <span class="garmin-chip-value ${cls}">${val}</span>
-        <span class="garmin-chip-label">HRV ms</span>
-        ${sub ? `<span class="garmin-chip-sub">${sub}</span>` : ''}
+    function renderHealthInputBlock() {
+      const slaap   = healthInput.slaap    != null ? healthInput.slaap    : 3;
+      const energie = healthInput.energie  != null ? healthInput.energie  : 3;
+      const pijn    = healthInput.spierpijn != null ? healthInput.spierpijn : 3;
+      const gistId  = currentGistId;
+      const token   = document.getElementById('githubToken')?.value?.trim();
+
+      return `<div class="health-input-block">
+        <div class="health-input-label">Herstel vandaag</div>
+        <div class="health-sliders">
+          <div class="health-slider-row">
+            <span class="health-slider-name">Slaap</span>
+            <input type="range" id="sliderSlaap" min="1" max="5" step="1" value="${slaap}"
+              oninput="document.getElementById('valSlaap').textContent=this.value">
+            <span class="health-slider-val" id="valSlaap">${slaap}</span>
+          </div>
+          <div class="health-slider-row">
+            <span class="health-slider-name">Energie</span>
+            <input type="range" id="sliderEnergie" min="1" max="5" step="1" value="${energie}"
+              oninput="document.getElementById('valEnergie').textContent=this.value">
+            <span class="health-slider-val" id="valEnergie">${energie}</span>
+          </div>
+          <div class="health-slider-row">
+            <span class="health-slider-name">Spierpijn</span>
+            <input type="range" id="sliderSpierpijn" min="1" max="5" step="1" value="${pijn}"
+              oninput="document.getElementById('valSpierpijn').textContent=this.value">
+            <span class="health-slider-val" id="valSpierpijn">${pijn}</span>
+          </div>
+        </div>
+        <div class="health-save-row">
+          <button class="health-save-btn" onclick="saveHealthInput()">Opslaan</button>
+          <span class="health-save-status" id="healthSaveStatus"></span>
+        </div>
       </div>`;
     }
 
-    function garminBodyBatteryChip(bb) {
-      if (!bb) return '';
-      const val = bb.end_value != null ? bb.end_value : '—';
-      const cls = val >= 70 ? 'chip-green' : val >= 40 ? 'chip-lime' : val >= 20 ? 'chip-orange' : 'chip-red';
-      const sub = bb.charged != null ? `+${bb.charged} opgeladen` : '';
-      return `<div class="garmin-chip">
-        <span class="garmin-chip-value ${cls}">${val}</span>
-        <span class="garmin-chip-label">Body Bat.</span>
-        ${sub ? `<span class="garmin-chip-sub">${sub}</span>` : ''}
-      </div>`;
+    async function saveHealthInput() {
+      const gistId = currentGistId;
+      const token  = document.getElementById('githubToken')?.value?.trim();
+      const statusEl = document.getElementById('healthSaveStatus');
+
+      if (!gistId || !token) {
+        if (statusEl) { statusEl.textContent = 'Stel eerst Gist ID en token in'; statusEl.className = 'health-save-status err'; }
+        return;
+      }
+
+      const today = new Date().toISOString().slice(0, 10);
+      const data = {
+        date:      today,
+        slaap:     parseInt(document.getElementById('sliderSlaap').value),
+        energie:   parseInt(document.getElementById('sliderEnergie').value),
+        spierpijn: parseInt(document.getElementById('sliderSpierpijn').value),
+        updated_at: new Date().toISOString(),
+      };
+
+      try {
+        if (statusEl) { statusEl.textContent = 'Opslaan…'; statusEl.className = 'health-save-status'; }
+        const resp = await fetch(`https://api.github.com/gists/${gistId}`, {
+          method: 'PATCH',
+          headers: { Authorization: `token ${token}`, 'Content-Type': 'application/json' },
+          body: JSON.stringify({ files: { 'health_input.json': { content: JSON.stringify(data, null, 2) } } }),
+        });
+        if (!resp.ok) throw new Error(`${resp.status}`);
+        healthInput = data;
+        if (statusEl) { statusEl.textContent = '✓ Opgeslagen'; statusEl.className = 'health-save-status ok'; }
+      } catch(e) {
+        if (statusEl) { statusEl.textContent = `Fout: ${e.message}`; statusEl.className = 'health-save-status err'; }
+      }
     }
 
-    function garminSleepChip(sleep) {
-      if (!sleep) return '';
-      const score = sleep.score != null ? sleep.score : '—';
-      const dur = sleep.duration_hours != null ? `${sleep.duration_hours}u` : '';
-      const cls = score >= 80 ? 'chip-green' : score >= 60 ? 'chip-lime' : score >= 40 ? 'chip-orange' : 'chip-red';
-      return `<div class="garmin-chip">
-        <span class="garmin-chip-value ${score !== '—' ? cls : 'chip-muted'}">${score !== '—' ? score : dur || '—'}</span>
-        <span class="garmin-chip-label">Slaap${score !== '—' ? '/100' : ''}</span>
-        ${dur && score !== '—' ? `<span class="garmin-chip-sub">${dur}</span>` : ''}
-      </div>`;
-    }
-
-    function garminStressChip(stress) {
-      if (stress == null) return '';
-      const cls = stress <= 25 ? 'chip-green' : stress <= 50 ? 'chip-lime' : stress <= 75 ? 'chip-orange' : 'chip-red';
-      return `<div class="garmin-chip">
-        <span class="garmin-chip-value ${cls}">${stress}</span>
-        <span class="garmin-chip-label">Stress</span>
-      </div>`;
-    }
-
-    function garminRestingHrChip(rhr) {
-      if (!rhr) return '';
-      const cls = rhr <= 50 ? 'chip-green' : rhr <= 60 ? 'chip-blue' : rhr <= 70 ? 'chip-orange' : 'chip-red';
-      return `<div class="garmin-chip">
-        <span class="garmin-chip-value ${cls}">${rhr}</span>
-        <span class="garmin-chip-label">Rust HR</span>
-      </div>`;
-    }
-
-    function renderGarminBlock(data) {
-      if (!data) return '';
-      const dateLabel = data.date ? new Date(data.date + 'T12:00:00').toLocaleDateString('nl-NL', { weekday: 'short', day: 'numeric', month: 'short' }) : '';
-      const chips = [
-        garminHrvChip(data.hrv),
-        garminBodyBatteryChip(data.body_battery),
-        garminSleepChip(data.sleep),
-        garminStressChip(data.stress_avg),
-        garminRestingHrChip(data.resting_hr),
-      ].join('');
-      if (!chips) return '';
-      return `<div class="garmin-metrics">
-        <div class="garmin-metrics-label">Garmin Fenix${dateLabel ? ' — ' + dateLabel : ''}</div>
-        <div class="garmin-chips">${chips}</div>
-      </div>`;
-    }
-
-    // ── end Garmin helpers ────────────────────────────────────────────────
+    // ── end health input helpers ──────────────────────────────────────────
 
     function escapeHtml(str) {
       return String(str)
