@@ -1643,6 +1643,8 @@ Focusgebieden:
 Barbell maxima (kg):
 {barbell_text}
 
+Gewichtnotatie: Als gewichten genoteerd zijn als "X/Y lbs" of "X/Y kg", gebruik dan altijd het eerste getal (X) — dat is het gewicht voor mannen.
+
 Afgelopen CrossFit-boxsessies die de atleet DAADWERKELIJK heeft gevolgd (meest recent eerst).
 Dit zijn allemaal echte CrossFit WODs — ook als de WOD-beschrijving ontbreekt of leeg is.
 Waar beschikbaar is Strava-data (↳) toegevoegd: hartslag, duur en calorieën.
@@ -1769,6 +1771,8 @@ Persoonlijke focusgebieden (bewegen waarbij groei gewenst is):
 
 Barbell maxima (kg):
 {barbell_text}
+
+Gewichtnotatie: Als gewichten genoteerd zijn als "X/Y lbs" of "X/Y kg", gebruik dan altijd het eerste getal (X) — dat is het gewicht voor mannen.
 
 Hoofdworkout ({date} — {title}):
 {description}{accessory_context}{meal_context}
