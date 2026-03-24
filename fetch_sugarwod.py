@@ -2156,9 +2156,9 @@ def main() -> int:
     # Fetch Keukenbaas meal data (past 14 days + next 7 days)
     keukenbaas_meals = fetch_keukenbaas_meals()
 
-    # Generate AI coaching plans for upcoming workouts
+    # Generate AI coaching plans for upcoming workouts (moved below load_sportbit_attended_dates
+    # so that signed_up_times is available)
     upcoming_workouts = [w for w in workouts if w.get("date", "") >= today.isoformat()]
-    workout_plans = generate_workout_plans(upcoming_workouts, barbell_lifts, ATHLETE_PROFILE, meals=keukenbaas_meals, signed_up_times=signed_up_times)
 
     # Fetch Strava activity data (hartslag, duur, calorieën per activiteit)
     # Requires STRAVA_CLIENT_ID / STRAVA_CLIENT_SECRET / STRAVA_REFRESH_TOKEN secrets.
@@ -2201,6 +2201,9 @@ def main() -> int:
 
     # 1. Sportbit attended dates (signed up, not cancelled) + actual training times
     sportbit_attended, signed_up_times = load_sportbit_attended_dates(gist_id, token)
+
+    # Generate AI coaching plans for upcoming workouts (requires signed_up_times)
+    workout_plans = generate_workout_plans(upcoming_workouts, barbell_lifts, ATHLETE_PROFILE, meals=keukenbaas_meals, signed_up_times=signed_up_times)
     past_sportbit_dates = sorted(
         [d for d in sportbit_attended if d < today.isoformat()],
         reverse=True,
