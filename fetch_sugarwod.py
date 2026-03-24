@@ -118,6 +118,19 @@ ATHLETE_PROFILE = {
     ],
 }
 
+# Weekly training schedule: weekday (0=Mon) → start time
+# Mirrors the SCHEDULE in autosignup.py
+TRAINING_SCHEDULE: dict[int, str] = {
+    0: "20:00",  # Monday
+    2: "08:00",  # Wednesday
+    3: "20:00",  # Thursday
+    5: "09:00",  # Saturday
+    6: "09:00",  # Sunday
+}
+
+# Dinner time — used to reason about pre/post-workout nutrition
+DINNER_TIME = "18:00"
+
 # ──────────────────────────────────────────────────────────────
 # Logging
 # ──────────────────────────────────────────────────────────────
@@ -1435,6 +1448,40 @@ def _detect_team_size(text: str) -> int | None:
     return None
 
 
+def _training_time_context(date_str: str) -> str:
+    """Return a prompt snippet about training time and meal timing for the given date."""
+    from datetime import date as date_cls
+    try:
+        d = date_cls.fromisoformat(date_str)
+    except ValueError:
+        return ""
+    weekday = d.weekday()  # 0=Mon
+    time_str = TRAINING_SCHEDULE.get(weekday)
+    if not time_str:
+        return ""
+    # Compare training time to dinner time (DINNER_TIME = "18:00")
+    train_h, train_m = map(int, time_str.split(":"))
+    dinner_h, dinner_m = map(int, DINNER_TIME.split(":"))
+    train_minutes = train_h * 60 + train_m
+    dinner_minutes = dinner_h * 60 + dinner_m
+    if train_minutes < dinner_minutes - 60:
+        meal_relation = (
+            f"De training is 's ochtends/middags ({time_str}), ruim vóór het avondeten ({DINNER_TIME}). "
+            "De atleet traint dus nuchter of na een lichte maaltijd, en eet pas daarna de avondmaaltijd als herstelmaaaltijd."
+        )
+    elif train_minutes < dinner_minutes:
+        meal_relation = (
+            f"De training is kort vóór het avondeten ({time_str}, avondeten om {DINNER_TIME}). "
+            "De atleet kan direct na de training de avondmaaltijd als herstelmaaltijd nuttigen — ideaal timingsvenster."
+        )
+    else:
+        meal_relation = (
+            f"De training is 's avonds ({time_str}), ná het avondeten ({DINNER_TIME}). "
+            "De atleet heeft al gegeten voor de training; de maaltijdkeuze is minder kritisch voor direct herstel."
+        )
+    return f"\nTrainingstijdstip: {time_str}. {meal_relation}"
+
+
 # ──────────────────────────────────────────────────────────────
 # Keukenbaas meal data
 # ──────────────────────────────────────────────────────────────
@@ -1576,11 +1623,13 @@ def generate_recovery_advice(
     log.info("Strava matching: %d van %d WODs gematcht aan Strava-activiteit", matched_strava, len(past_workouts))
 
     upcoming_text = ""
+    upcoming_timing_context = ""
     if upcoming_workout:
         date = upcoming_workout.get("date", "?")
         title = upcoming_workout.get("title", "WOD")
         desc = _strip_html(upcoming_workout.get("description", ""))[:400]
         upcoming_text = f"**{date} — {title}**\n{desc}"
+        upcoming_timing_context = _training_time_context(date)
     else:
         upcoming_text = "Geen aankomende workout bekend."
 
@@ -1672,13 +1721,13 @@ Gebruik dit om de werkelijke intensiteit te beoordelen, NIET alleen de WOD-besch
 {past_text if past_text.strip() else "Geen recente trainingen bekend."}
 
 Volgende workout:
-{upcoming_text}{meals_text}
+{upcoming_text}{upcoming_timing_context}{meals_text}
 
 Geef advies over:
 1. **Herstelniveau** — zijn er spiergroepen die extra rust nodig hebben op basis van de recente workouts?{"  Gebruik de subjectieve hersteldata (slaap, energie, spierpijn) als primaire fysiologische herstelIndicator. Gebruik de Strava workout-data (hartslag, duur) om de werkelijke trainingsbelasting per sessie te beoordelen." if health_input else ""}
 2. **Intensiteitsadvies** — volledig gas geven, gecontroleerd trainen of bewust schalen vandaag?
 3. **Één concrete tip** voor de volgende workout rekening houdend met herstel (bijv. pacing, scaling keuze, specifieke beweging)
-4. **Voeding** — geef alleen dit onderdeel als maaltijdinformatie beschikbaar is: is de geplande maaltijd geschikt als herstelmaaltijd of pre-workout voeding? Één zin, alleen als het relevant is.
+4. **Voeding** — geef alleen dit onderdeel als maaltijdinformatie beschikbaar is: houd rekening met het trainingstijdstip (zie hierboven) — is de maaltijd een goede herstelmaaltijd (avondtraining) of pre-workout voorbereiding (ochtendtraining)? Één zin, alleen als relevant.
 
 Gebruik bij datumverwijzingen altijd de exacte datum (bijv. "donderdag 19 maart"), NOOIT vage termen als "gisteren" of "eergisteren".
 Wees direct, praktisch en bondig. Maximaal 180 woorden. Schrijf in het Nederlands. Geen inleiding."""
@@ -1789,6 +1838,8 @@ def generate_workout_plans(
         else:
             team_context = ""
 
+        timing_context = _training_time_context(date)
+
         prompt = f"""Je bent een ervaren CrossFit coach. Genereer een beknopt, praktisch uitvoeringsplan.
 
 Atleet: {athlete_profile['name']}
@@ -1808,7 +1859,8 @@ Gewichtnotatie: Als gewichten genoteerd zijn als "X/Y lbs" of "X/Y kg", gebruik 
 
 Hoofdworkout ({date} — {title}):
 {description}{accessory_context}{meal_context}
-{team_context}
+{team_context}{timing_context}
+
 Het uitvoeringsplan moet UITSLUITEND gaan over de hoofdworkout hierboven. Ga niet in op de accessory work.
 
 Geef een plan met:
@@ -1816,7 +1868,7 @@ Geef een plan met:
 2. Pacing strategie en sets/reps verdeling
 3. 1–2 concrete tips voor deze specifieke workout
 4. **Skill-tip**: Als een of meer van de focusgebieden in deze workout voorkomen, geef dan één gerichte verbeteringstip specifiek gericht op het sneller bereiken van RX-niveau voor die beweging (techniek, drills, mindset). Sla deze sectie over als geen van de focusgebieden aanwezig is.
-5. **Voeding**: geef alleen dit onderdeel als er een avondmaaltijd bekend is — is deze maaltijd geschikt als herstelmaaltijd na deze workout? Één zin.
+5. **Voeding**: geef alleen dit onderdeel als er een avondmaaltijd bekend is — houd rekening met het trainingstijdstip: is de maaltijd een goede herstelmaaltijd (avondtraining) of juiste voorbereiding (ochtendtraining)? Één zin.
 
 Wees direct en bondig. Maximaal 240 woorden. Geen inleiding."""
 
