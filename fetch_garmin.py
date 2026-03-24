@@ -784,6 +784,16 @@ def fetch_garmin_data(target_date: date | None = None) -> dict | None:
             log.warning("Garmin email/wachtwoord login mislukt: %s", exc)
 
     if garmin is None:
+        # Methode 3: web-sessie via GARMIN_SESSION_ID (geen garth nodig)
+        web_result = _fetch_garmin_via_web_session(target_date)
+        if web_result is not None:
+            return web_result
+
+        # Methode 4: Playwright headless browser login
+        pw_result = _fetch_garmin_via_playwright(target_date)
+        if pw_result is not None:
+            return pw_result
+
         log.info("Garmin login mislukt — geen data beschikbaar")
         return None
 
