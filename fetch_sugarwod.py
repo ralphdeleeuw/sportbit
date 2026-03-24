@@ -134,7 +134,12 @@ DINNER_TIME = "18:00"
 # Fixed breakfast — always the same high-protein meal, eaten around 07:00
 BREAKFAST = {
     "time": "07:00",
-    "description": "Eiwitrijk ontbijt: kwark met fruit en noten, of Griekse yoghurt met granola en eiwitpoeder — altijd eiwitrijk (~40-50g eiwit).",
+    "description": (
+        "Vast ontbijt (~838 kcal | ~56g eiwit | ~61g KH | ~36g vet): "
+        "Alpro Mild & Creamy zonder suikers (200ml) met Holie's Granola Protein Crunch (75g) "
+        "en Upfront Vegan Eiwit Shake chocolade (30g). "
+        "Daarnaast 2 volkoren boterhammen met AH amandelpasta (~15g) en een beetje pure hagelslag (~10g)."
+    ),
 }
 
 # ──────────────────────────────────────────────────────────────
