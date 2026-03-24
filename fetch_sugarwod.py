@@ -1415,6 +1415,26 @@ def _strip_html(html: str) -> str:
     return BeautifulSoup(html, "html.parser").get_text(separator="\n").strip()
 
 
+def _detect_team_size(text: str) -> int | None:
+    """Return team size (2 or 3) if workout is a partner/team workout, else None."""
+    import re
+    t = text.lower()
+    # Explicit team size: "teams of 3", "team of 2", "pair of 3", etc.
+    m = re.search(r'\bteam(?:s)?\s+of\s+(\d+)', t)
+    if m:
+        return int(m.group(1))
+    m = re.search(r'\bpair(?:s)?\s+of\s+(\d+)', t)
+    if m:
+        return int(m.group(1))
+    # "in pairs" / "with a partner" → 2
+    if re.search(r'\bin\s+pairs?\b', t) or re.search(r'\bwith\s+a\s+partner\b', t):
+        return 2
+    # Title contains "team metcon" → likely 2 unless description says otherwise
+    if 'team metcon' in t:
+        return 2
+    return None
+
+
 # ──────────────────────────────────────────────────────────────
 # Keukenbaas meal data
 # ──────────────────────────────────────────────────────────────
@@ -1734,6 +1754,9 @@ def generate_workout_plans(
         if not description:
             continue
 
+        # Detect team/partner format from description or title
+        team_size = _detect_team_size(description + " " + title)
+
         # Collect accessory titles so the coach has context but stays focused on the main WOD
         accessory_titles = [
             w["title"] for w in day_workouts
@@ -1757,6 +1780,15 @@ def generate_workout_plans(
         skill_focus_text = "\n".join(
             f"- {s}" for s in athlete_profile.get("skill_focus", [])
         )
+        if team_size:
+            team_context = (
+                f"\nLET OP: Dit is een teamworkout met {team_size} personen. "
+                f"De atleet doet dus slechts 1/{team_size} van het totale volume (reps/rondes worden gedeeld door {team_size}). "
+                f"Baseer pacing en gewichtsadvies op dit individuele aandeel."
+            )
+        else:
+            team_context = ""
+
         prompt = f"""Je bent een ervaren CrossFit coach. Genereer een beknopt, praktisch uitvoeringsplan.
 
 Atleet: {athlete_profile['name']}
@@ -1776,7 +1808,7 @@ Gewichtnotatie: Als gewichten genoteerd zijn als "X/Y lbs" of "X/Y kg", gebruik 
 
 Hoofdworkout ({date} — {title}):
 {description}{accessory_context}{meal_context}
-
+{team_context}
 Het uitvoeringsplan moet UITSLUITEND gaan over de hoofdworkout hierboven. Ga niet in op de accessory work.
 
 Geef een plan met:
