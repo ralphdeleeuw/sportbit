@@ -439,18 +439,30 @@ def _scrape_benchmark_table_js(page, category: str) -> list[dict]:
         return page.evaluate("""
         (category) => {
             const tables = document.querySelectorAll('table');
+            const RELEVANT = /name|benchmark|workout|result|score|time|reps|scaling|date|datum/i;
             for (const table of tables) {
-                const headers = [...table.querySelectorAll('th')]
-                    .map(th => th.textContent.trim().toLowerCase());
-                if (!headers.some(h => /benchmark|workout/i.test(h))) continue;
+                const thEls = [...table.querySelectorAll('th')];
+                const headers = thEls.map(th => th.textContent.trim().toLowerCase());
+                if (!headers.some(h => RELEVANT.test(h))) continue;
+
+                // Build a dynamic column index map based on actual header text
+                const idx = {};
+                headers.forEach((h, i) => {
+                    if (/name|benchmark|workout/i.test(h))       idx.name    = idx.name    ?? i;
+                    if (/result|score|time|reps|value/i.test(h)) idx.result  = idx.result  ?? i;
+                    if (/scal/i.test(h))                         idx.scaling = idx.scaling ?? i;
+                    if (/date|datum/i.test(h))                   idx.date    = idx.date    ?? i;
+                });
+
                 const rows = [...table.querySelectorAll('tbody tr')];
                 return rows.map(row => {
                     const cells = [...row.querySelectorAll('td')];
+                    const cell = (i) => i !== undefined ? (cells[i] || {textContent: ''}).textContent.trim() : '';
                     return {
-                        name:    (cells[0] || {textContent: ''}).textContent.trim(),
-                        date:    (cells[1] || {textContent: ''}).textContent.trim(),
-                        scaling: (cells[2] || {textContent: ''}).textContent.trim(),
-                        result:  (cells[3] || {textContent: ''}).textContent.trim(),
+                        name:     cell(idx.name    ?? 0),
+                        result:   cell(idx.result  ?? 1),
+                        scaling:  cell(idx.scaling ?? 2),
+                        date:     cell(idx.date    ?? 3),
                         category: category,
                     };
                 }).filter(r => r.name);
