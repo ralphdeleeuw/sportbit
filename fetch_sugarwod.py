@@ -131,6 +131,12 @@ TRAINING_SCHEDULE: dict[int, str] = {
 # Dinner time — used to reason about pre/post-workout nutrition
 DINNER_TIME = "18:00"
 
+# Fixed breakfast — always the same high-protein meal, eaten around 07:00
+BREAKFAST = {
+    "time": "07:00",
+    "description": "Eiwitrijk ontbijt: kwark met fruit en noten, of Griekse yoghurt met granola en eiwitpoeder — altijd eiwitrijk (~40-50g eiwit).",
+}
+
 # ──────────────────────────────────────────────────────────────
 # Logging
 # ──────────────────────────────────────────────────────────────
@@ -1467,15 +1473,28 @@ def _training_time_context(date_str: str, signed_up_times: dict[str, str] | None
         time_str = TRAINING_SCHEDULE.get(weekday)
     if not time_str:
         return ""
-    # Compare training time to dinner time (DINNER_TIME = "18:00")
+    # Compare training time to breakfast and dinner
     train_h, train_m = map(int, time_str.split(":"))
     dinner_h, dinner_m = map(int, DINNER_TIME.split(":"))
+    breakfast_h, breakfast_m = map(int, BREAKFAST["time"].split(":"))
     train_minutes = train_h * 60 + train_m
     dinner_minutes = dinner_h * 60 + dinner_m
-    if train_minutes < dinner_minutes - 60:
+    breakfast_minutes = breakfast_h * 60 + breakfast_m
+
+    if train_minutes <= breakfast_minutes + 30:
+        # Training at or just after breakfast — likely fasted or very light pre-workout
         meal_relation = (
-            f"De training is 's ochtends/middags ({time_str}), ruim vóór het avondeten ({DINNER_TIME}). "
-            "De atleet traint dus nuchter of na een lichte maaltijd, en eet pas daarna de avondmaaltijd als herstelmaaaltijd."
+            f"De training is vroeg ({time_str}), rond of vlak na het ontbijt ({BREAKFAST['time']}). "
+            f"Vaste ontbijt: {BREAKFAST['description']} "
+            "De atleet traint waarschijnlijk (half-)nuchter. Adviseer of ze beter iets kleins eten of nuchter trainen, "
+            "en benadruk herstelvoeding daarna."
+        )
+    elif train_minutes < dinner_minutes - 60:
+        # Morning/midday workout well before dinner — had breakfast, dinner is recovery meal
+        meal_relation = (
+            f"De training is 's ochtends ({time_str}). "
+            f"Vaste ontbijt (~{BREAKFAST['time']}): {BREAKFAST['description']} "
+            "De atleet heeft voor de training ontbeten (eiwitrijk). Het avondeten is de herstelmaaltijd."
         )
     elif train_minutes < dinner_minutes:
         meal_relation = (
