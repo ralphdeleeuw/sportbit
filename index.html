@@ -446,6 +446,39 @@
       line-height: 1.65;
     }
 
+    /* Strava activiteit blok */
+    .strava-block {
+      margin-top: 0.85rem;
+      padding: 0.65rem 0.9rem;
+      background: #0d1520;
+      border: 1px solid #1e2f45;
+      border-radius: 8px;
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.5rem 1.2rem;
+      align-items: baseline;
+    }
+
+    .strava-block-label {
+      font-size: 0.67rem;
+      letter-spacing: 0.16em;
+      text-transform: uppercase;
+      color: #fc4c02;
+      font-weight: 600;
+      width: 100%;
+      margin-bottom: 0.1rem;
+    }
+
+    .strava-stat {
+      font-size: 0.8rem;
+      color: #a8c0d8;
+    }
+
+    .strava-stat strong {
+      color: #d0e8f8;
+      font-weight: 600;
+    }
+
     /* AI coaching plan */
     .coach-plan {
       margin-top: 0.85rem;
@@ -1138,6 +1171,7 @@
       }).join('') : '';
 
       const logHtml = renderLogSection(item.date);
+      const stravaHtml = renderStravaBlock(item.date);
 
       return `
         <div class="card has-wod" style="animation-delay:${delay}s">
@@ -1153,7 +1187,7 @@
                 <div class="wod-chevron">▾</div>
               </div>
             </div>
-            <div class="card-wod">${wodSections}${logHtml}</div>
+            <div class="card-wod">${wodSections}${stravaHtml}${logHtml}</div>
           </div>
         </div>`;
     }
@@ -1175,6 +1209,23 @@
         </div>` : '';
 
       return sections + planHtml;
+    }
+
+    function renderStravaBlock(date) {
+      if (!stravaData) return '';
+      const acts = (stravaData.activities_by_date || {})[date];
+      if (!acts || acts.length === 0) return '';
+      return acts.map(act => {
+        const dur   = act.duration_min ? `<span class="strava-stat"><strong>${act.duration_min}</strong> min</span>` : '';
+        const hr    = act.avg_hr   ? `<span class="strava-stat">gem.HR <strong>${Math.round(act.avg_hr)}</strong> bpm</span>` : '';
+        const hrMax = act.max_hr   ? `<span class="strava-stat">max.HR <strong>${Math.round(act.max_hr)}</strong> bpm</span>` : '';
+        const cal   = act.calories ? `<span class="strava-stat"><strong>${Math.round(act.calories)}</strong> kcal</span>` : '';
+        const name  = act.name     ? ` — ${act.name}` : '';
+        return `<div class="strava-block">
+          <div class="strava-block-label">Strava${name}</div>
+          ${dur}${hr}${hrMax}${cal}
+        </div>`;
+      }).join('');
     }
 
     function toggleWod(card) {
