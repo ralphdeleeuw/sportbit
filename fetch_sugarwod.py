@@ -1527,8 +1527,10 @@ def generate_recovery_advice(
     activities_by_date: dict = {}
     if strava_data:
         activities_by_date = strava_data.get("activities_by_date") or {}
+        log.info("Strava matching: %d datums beschikbaar: %s", len(activities_by_date), sorted(activities_by_date.keys()))
 
     past_text = ""
+    matched_strava = 0
     for w in past_workouts:
         date = w.get("date", "?")
         title = w.get("title", "WOD")
@@ -1536,6 +1538,7 @@ def generate_recovery_advice(
         past_text += f"\n**{date} — {title}**\n{desc}\n"
         # Append matched Strava activity data for this WOD date
         if date in activities_by_date:
+            matched_strava += 1
             for act in activities_by_date[date]:
                 avg_hr = act.get("avg_hr")
                 max_hr = act.get("max_hr")
@@ -1550,6 +1553,7 @@ def generate_recovery_advice(
                     + (f", {cal:.0f} kcal" if cal else "")
                 )
                 past_text += strava_line + "\n"
+    log.info("Strava matching: %d van %d WODs gematcht aan Strava-activiteit", matched_strava, len(past_workouts))
 
     upcoming_text = ""
     if upcoming_workout:
