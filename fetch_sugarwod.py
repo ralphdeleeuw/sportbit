@@ -2152,6 +2152,8 @@ def main() -> int:
     password = os.environ.get("SUGARWOD_PASSWORD", "").strip()
     gist_id = os.environ.get("GIST_ID", "").strip()
     token = os.environ.get("GITHUB_TOKEN", "").strip()
+    skip_strava = os.environ.get("SKIP_STRAVA", "false").lower() in ("true", "1", "yes")
+    skip_ai = os.environ.get("SKIP_AI", "false").lower() in ("true", "1", "yes")
 
     if not email or not password:
         log.error("SUGARWOD_EMAIL and SUGARWOD_PASSWORD are required")
@@ -2239,17 +2241,21 @@ def main() -> int:
 
     # Fetch Strava activity data (hartslag, duur, calorieën per activiteit)
     # Requires STRAVA_CLIENT_ID / STRAVA_CLIENT_SECRET / STRAVA_REFRESH_TOKEN secrets.
-    try:
-        from fetch_strava import fetch_strava_data  # noqa: PLC0415
-        strava_data = fetch_strava_data()
-        if strava_data:
-            n_acts = sum(len(v) for v in strava_data.get("activities_by_date", {}).values())
-            log.info("Strava data opgehaald: %d activiteiten", n_acts)
-        else:
-            log.info("Geen Strava data beschikbaar — coach gebruikt alleen workoutgeschiedenis")
-    except Exception as exc:
-        log.warning("Strava fetch mislukt: %s", exc)
+    if skip_strava:
+        log.info("Strava fetch overgeslagen (SKIP_STRAVA=true)")
         strava_data = None
+    else:
+        try:
+            from fetch_strava import fetch_strava_data  # noqa: PLC0415
+            strava_data = fetch_strava_data()
+            if strava_data:
+                n_acts = sum(len(v) for v in strava_data.get("activities_by_date", {}).values())
+                log.info("Strava data opgehaald: %d activiteiten", n_acts)
+            else:
+                log.info("Geen Strava data beschikbaar — coach gebruikt alleen workoutgeschiedenis")
+        except Exception as exc:
+            log.warning("Strava fetch mislukt: %s", exc)
+            strava_data = None
 
     # Lees subjectieve hersteldata (slaap/energie/spierpijn) uit de gist.
     # De atleet vult dit in via het dashboard vóór de dagelijkse workflow draait.
@@ -2280,7 +2286,11 @@ def main() -> int:
     sportbit_attended, signed_up_times = load_sportbit_attended_dates(gist_id, token)
 
     # Generate AI coaching plans for upcoming workouts (requires signed_up_times)
-    workout_plans = generate_workout_plans(upcoming_workouts, barbell_lifts, ATHLETE_PROFILE, meals=keukenbaas_meals, signed_up_times=signed_up_times)
+    if skip_ai:
+        log.info("AI coaching overgeslagen (SKIP_AI=true)")
+        workout_plans = {}
+    else:
+        workout_plans = generate_workout_plans(upcoming_workouts, barbell_lifts, ATHLETE_PROFILE, meals=keukenbaas_meals, signed_up_times=signed_up_times)
     past_sportbit_dates = sorted(
         [d for d in sportbit_attended if d < today.isoformat()],
         reverse=True,
@@ -2308,7 +2318,9 @@ def main() -> int:
 
     workout_log = load_workout_log(gist_id, token)
 
-    if past_sportbit_dates:
+    if skip_ai:
+        recovery_advice = None
+    elif past_sportbit_dates:
         attended_workouts = []
         for d in past_sportbit_dates[:5]:
             log_entry = workout_log.get(d)
