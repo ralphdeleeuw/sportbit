@@ -400,22 +400,28 @@ def _extract_barbell_from_page(page) -> dict:
 
 
 def _extract_prs_from_page(page) -> list[dict]:
-    """Extract the Personal Records table from the athlete PRs page."""
+    """Extract the Personal Records from the athlete PRs page.
+
+    Tries <table> first; falls back to generic card/row div extraction
+    for SPAs that don't use traditional tables.
+    """
+    # Try table-based layout
     try:
-        page.wait_for_selector("table", timeout=8000)
+        page.wait_for_selector("table, [class*='pr'], [class*='PR'], [class*='personal'], [class*='record']", timeout=8000)
     except Exception:
-        log.warning("[browser] No table found on PRs page")
+        log.warning("[browser] No PR elements found on PRs page")
         return []
     try:
         result = page.evaluate("""
         () => {
+            // ── 1. Table-based layout ─────────────────────────────────────
             const tables = document.querySelectorAll('table');
             for (const table of tables) {
                 const headers = [...table.querySelectorAll('th')].map(th => th.textContent.trim());
                 const hasPR = headers.some(h => /pr|workout|personal/i.test(h));
                 if (!hasPR) continue;
                 const rows = [...table.querySelectorAll('tbody tr')];
-                return rows.map(row => {
+                const items = rows.map(row => {
                     const cells = [...row.querySelectorAll('td')];
                     return {
                         workout: (cells[0] || {textContent: ''}).textContent.trim(),
@@ -423,13 +429,57 @@ def _extract_prs_from_page(page) -> list[dict]:
                         notes:   (cells[2] || {textContent: ''}).textContent.trim(),
                     };
                 }).filter(r => r.workout);
+                if (items.length) return items;
             }
+
+            // ── 2. Card/row div layout ────────────────────────────────────
+            // SugarWOD renders PR rows as divs with class names like
+            // "pr-item", "PRItem", "personal-record", etc.
+            const rowSelectors = [
+                '[class*="pr-item"]', '[class*="PRItem"]', '[class*="PrItem"]',
+                '[class*="personal-record"]', '[class*="PersonalRecord"]',
+                '[class*="pr_item"]', '[class*="pr_row"]',
+            ];
+            for (const sel of rowSelectors) {
+                const rows = document.querySelectorAll(sel);
+                if (!rows.length) continue;
+                const items = [...rows].map(row => {
+                    const texts = [...row.querySelectorAll('span, div, p, td')]
+                        .map(el => el.childElementCount === 0 ? el.textContent.trim() : '')
+                        .filter(Boolean);
+                    return {
+                        workout: texts[0] || '',
+                        date:    texts.find(t => /\\d{4}/.test(t)) || '',
+                        notes:   texts.slice(1).filter(t => !/^\\d{4}/.test(t)).join(' ') || '',
+                    };
+                }).filter(r => r.workout);
+                if (items.length) return items;
+            }
+
+            // ── 3. Generic list items with workout-like text ──────────────
+            const allRows = document.querySelectorAll('li, [role="row"], [role="listitem"]');
+            const candidates = [...allRows].filter(el => {
+                const t = el.textContent;
+                return t.length > 3 && t.length < 200 && /\\d/.test(t);
+            });
+            if (candidates.length > 3) {
+                return candidates.map(el => {
+                    const t = el.textContent.trim();
+                    const dateMatch = t.match(/\\d{1,2}[\\/-]\\d{1,2}[\\/-]\\d{2,4}|\\d{4}-\\d{2}-\\d{2}/);
+                    return {
+                        workout: t.replace(dateMatch ? dateMatch[0] : '', '').trim(),
+                        date:    dateMatch ? dateMatch[0] : '',
+                        notes:   '',
+                    };
+                }).filter(r => r.workout.length > 1);
+            }
+
             return [];
         }
         """)
         return result or []
     except Exception as exc:
-        log.warning("[browser] Failed to extract PRs table: %s", exc)
+        log.warning("[browser] Failed to extract PRs from page: %s", exc)
         return []
 
 
@@ -483,9 +533,12 @@ def _extract_benchmarks_from_page(page) -> list[dict]:
     category if the dropdown cannot be found/clicked.
     """
     try:
-        page.wait_for_selector("table", timeout=10000)
+        page.wait_for_selector(
+            "table, [class*='benchmark'], [class*='Benchmark'], [class*='wod'], [class*='girls'], [class*='heroes']",
+            timeout=10000,
+        )
     except Exception:
-        log.warning("[browser] No table found on benchmarks page")
+        log.warning("[browser] No benchmark elements found on benchmarks page")
         return []
 
     all_benchmarks: list[dict] = []
@@ -787,6 +840,12 @@ def fetch_all_workouts_playwright(
             except Exception as exc:
                 log.warning("[browser] Barbell lifts fetch failed: %s", exc)
 
+            # ── 3b. Pre-extract PRs and benchmarks from barbell page XHRs ────
+            # The athletes/me page fires all athlete-data XHRs on first load.
+            # We scan captured now (before it's cleared) so we don't lose data
+            # that won't be re-fetched when React uses its client-side cache.
+            _barbell_page_captured = list(captured)
+
             # ── 4. Scrape personal records ────────────────────────────────────
             personal_records: list[dict] = []
             debug_html: dict[str, str] = {}  # saved to gist for diagnostics
@@ -811,8 +870,11 @@ def fetch_all_workouts_playwright(
                 log.info("[browser] Captured %d XHRs on PR page; URLs: %s",
                          len(captured), [c["url"] for c in captured])
 
+                # Combine current + barbell-page captured (React may skip re-fetching)
+                all_captured_for_prs = _barbell_page_captured + captured
+
                 # Strategy 1: URL-keyword match
-                for item in captured:
+                for item in all_captured_for_prs:
                     url_lower = item["url"].lower()
                     if any(k in url_lower for k in ("personal_record", "/prs", "/pr", "athlete_pr")):
                         log.info("[browser] PR data found by URL: %s", item["url"])
@@ -832,7 +894,7 @@ def fetch_all_workouts_playwright(
                 # Strategy 2: shape-based match across ALL captured XHRs
                 if not personal_records:
                     log.info("[browser] URL-match failed; trying shape-based XHR scan for PRs")
-                    for item in captured:
+                    for item in all_captured_for_prs:
                         data = item["data"]
                         arr = data if isinstance(data, list) else (
                             data.get("data") or data.get("results") or data.get("personal_records") or []
@@ -884,13 +946,16 @@ def fetch_all_workouts_playwright(
                 log.info("[browser] Captured %d XHRs on benchmarks page; URLs: %s",
                          len(captured), [c["url"] for c in captured])
 
+                # Combine current + barbell-page captured (React may skip re-fetching)
+                all_captured_for_benchmarks = _barbell_page_captured + captured
+
                 # Strategy 1: dedicated extractor (tries select + click interactions)
                 benchmark_workouts = _extract_benchmarks_from_page(page)
 
                 # Strategy 2: shape-based XHR scan if DOM gave nothing
                 if not benchmark_workouts:
                     log.info("[browser] DOM extraction empty; trying shape-based XHR scan for benchmarks")
-                    for item in captured:
+                    for item in all_captured_for_benchmarks:
                         data = item["data"]
                         arr = data if isinstance(data, list) else (
                             data.get("data") or data.get("results") or data.get("benchmarks") or []
