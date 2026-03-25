@@ -999,8 +999,10 @@
     async function loadWod(gistId) {
       currentGistId = gistId;
       const el = document.getElementById('wod-status');
+      const token = document.getElementById('githubToken').value.trim();
+      const authHeaders = token ? { Authorization: `token ${token}` } : {};
       try {
-        const resp = await fetch(`https://api.github.com/gists/${gistId}`);
+        const resp = await fetch(`https://api.github.com/gists/${gistId}`, { headers: authHeaders });
         if (!resp.ok) { if (el) el.textContent = `WOD: API fout ${resp.status}`; return; }
         const gist = await resp.json();
 
@@ -1247,8 +1249,11 @@
       content.innerHTML = `<div class="loader"><div class="spinner"></div></div>`;
       document.getElementById('stats').style.display = 'none';
 
+      const token = document.getElementById('githubToken').value.trim();
+      const authHeaders = token ? { Authorization: `token ${token}` } : {};
+
       try {
-        const resp = await fetch(`https://api.github.com/gists/${gistId}`);
+        const resp = await fetch(`https://api.github.com/gists/${gistId}`, { headers: authHeaders });
         if (!resp.ok) throw new Error(`GitHub API fout: ${resp.status}`);
         const gist = await resp.json();
 
