@@ -5,6 +5,17 @@ on:
     # Dagelijks om 06:00 UTC (08:00 Amsterdam zomertijd / 07:00 wintertijd)
     - cron: '0 6 * * *'
   workflow_dispatch:
+    inputs:
+      skip_strava:
+        description: 'Strava data overslaan'
+        required: false
+        default: 'false'
+        type: boolean
+      skip_ai:
+        description: 'AI coaching overslaan (sneller)'
+        required: false
+        default: 'false'
+        type: boolean
 
 jobs:
   fetch-wod:
@@ -35,4 +46,6 @@ jobs:
           STRAVA_REFRESH_TOKEN: ${{ secrets.STRAVA_REFRESH_TOKEN }}
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
+          SKIP_STRAVA: ${{ inputs.skip_strava || 'false' }}
+          SKIP_AI: ${{ inputs.skip_ai || 'false' }}
         run: python3 fetch_sugarwod.py
