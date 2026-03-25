@@ -934,10 +934,9 @@
       return `${DAY_NL[d.getDay()]} ${d.getDate()} ${MONTH_NL[d.getMonth()]}`;
     }
 
-    function isUpcoming(dateStr) {
-      const today = new Date();
-      today.setHours(0, 0, 0, 0);
-      return new Date(dateStr + 'T00:00:00') >= today;
+    function isUpcoming(dateStr, timeStr) {
+      const classStart = new Date(dateStr + 'T' + (timeStr || '00:00') + ':00');
+      return classStart > new Date();
     }
 
     function renderCard(item, type, delay, wods) {
@@ -1287,8 +1286,8 @@
         signedUp.sort((a, b) => a.date.localeCompare(b.date));
         cancelled.sort((a, b) => b.date.localeCompare(a.date));
 
-        const upcoming = signedUp.filter(e => isUpcoming(e.date));
-        const past = signedUp.filter(e => !isUpcoming(e.date));
+        const upcoming = signedUp.filter(e => isUpcoming(e.date, e.time));
+        const past = signedUp.filter(e => !isUpcoming(e.date, e.time));
 
         // Stats
         document.getElementById('statUpcoming').textContent = upcoming.length;
