@@ -516,6 +516,8 @@ def run(username: str, password: str, dry_run: bool, days_ahead: int, sync_calen
             results["already"].append(label)
             if state and not state.is_signed_up_by_script(eid):
                 state.mark_signed_up(eid, date_str, target_time, title)
+                if not create_calendar_event(event, date, sync_calendar):
+                    log.warning("Calendar sync failed for manually enrolled %s.", label)
             continue
 
         if on_waitlist:
@@ -545,6 +547,34 @@ def run(username: str, password: str, dry_run: bool, days_ahead: int, sync_calen
                     log.warning("Calendar sync failed for %s, but signup was successful.", label)
             else:
                 results["failed"].append(label)
+
+    # Scan non-scheduled days for manual enrollments
+    today = datetime.now(AMS).date()
+    scheduled_weekdays = {weekday for weekday, _ in SCHEDULE}
+    for offset in range(1, days_ahead + 1):
+        d = today + timedelta(days=offset)
+        if d.weekday() in scheduled_weekdays:
+            continue  # Already handled above
+        date_str = d.strftime("%Y-%m-%d")
+        if date_str not in events_cache:
+            events_cache[date_str] = client.get_events(date_str)
+        for event in events_cache[date_str]:
+            if not event.get("aangemeld", False):
+                continue
+            eid = event["id"]
+            if state and state.is_signed_up_by_script(eid):
+                continue
+            title = event.get("titel", "?")
+            start = event.get("start", "")
+            time_str = start[11:16] if len(start) > 15 else "?"
+            day_name = DAY_NAMES[d.weekday()]
+            label = f"{day_name} {date_str} {time_str}"
+            log.info("Detected manual enrollment for %s at %s [%s].", title, label, eid)
+            if state:
+                state.mark_signed_up(eid, date_str, time_str, title)
+            if not create_calendar_event(event, d, sync_calendar):
+                log.warning("Calendar sync failed for manually enrolled %s.", label)
+            results["already"].append(f"{label} (manual)")
 
     # Summary
     log.info("=== Summary ===")
