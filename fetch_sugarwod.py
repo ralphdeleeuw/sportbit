@@ -2044,7 +2044,7 @@ def load_sportbit_attended_dates(gist_id: str, token: str) -> tuple[set[str], di
     Returns (set[str], dict[str, str]).
     """
     # Weekdays (0=Mon … 6=Sun) that are scheduled CrossFit class days
-    SCHEDULED_WEEKDAYS = {0, 2, 3, 5}  # Mon, Wed, Thu, Sat
+    SCHEDULED_WEEKDAYS = {0, 2, 3, 5, 6}  # Mon, Wed, Thu, Sat, Sun
 
     if not gist_id or not token:
         return set(), {}
@@ -2306,7 +2306,9 @@ def main() -> int:
         }
         log.info("Next workout from Sportbit signup: %s", next_date)
     else:
-        next_workout = upcoming_workouts[0] if upcoming_workouts else None
+        # Only use workouts strictly after today as fallback — avoids presenting
+        # today's programmed WOD as "next workout" when the athlete has no signup for it.
+        next_workout = next((w for w in upcoming_workouts if w.get("date", "") > today.isoformat()), None)
         log.info("Next workout from SugarWOD schedule: %s",
                  next_workout.get("date") if next_workout else "none")
     # All main workouts per date (METCON + TEAM METCON + WEIGHTLIFTING, etc.) so the
