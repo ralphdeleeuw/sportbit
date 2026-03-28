@@ -12,6 +12,7 @@
   <link rel="apple-touch-icon" href="icon.svg" />
   <link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=DM+Sans:wght@300;400;500&display=swap" rel="stylesheet" />
   <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4/dist/chart.umd.min.js"></script>
   <style>
     :root {
       --bg: #0d0d0d;
@@ -867,6 +868,142 @@
 
     .barbell-status.ok { color: #4caf50; }
     .barbell-status.fallback { color: #ff9800; }
+
+    /* ── Skeleton loading ────────────────────────────────────── */
+    @keyframes skeleton-pulse {
+      0%   { background-position: 200% 0; }
+      100% { background-position: -200% 0; }
+    }
+    .skeleton {
+      background: linear-gradient(90deg, var(--surface) 25%, var(--surface2) 50%, var(--surface) 75%);
+      background-size: 200% 100%;
+      animation: skeleton-pulse 1.4s ease infinite;
+      border-radius: 8px;
+    }
+    .skeleton-card {
+      height: 72px;
+      margin-bottom: 0.6rem;
+      border-radius: 12px;
+    }
+    .skeleton-section-title {
+      height: 22px;
+      width: 140px;
+      margin-bottom: 0.8rem;
+    }
+    .skeleton-stat {
+      border-radius: 12px;
+    }
+
+    /* ── Capacity badge ──────────────────────────────────────── */
+    .capacity-badge {
+      font-size: 0.68rem;
+      color: var(--muted);
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      border-radius: 20px;
+      padding: 0.15rem 0.55rem;
+      white-space: nowrap;
+      letter-spacing: 0.04em;
+    }
+    .capacity-badge.near-full { color: #ff9800; border-color: #3a2800; }
+    .capacity-badge.full      { color: var(--accent2); border-color: #5a2020; }
+    .capacity-badge.open      { color: #4caf50; border-color: #1a3a1a; }
+
+    /* ── Barbell chart section ───────────────────────────────── */
+    .chart-section {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 1rem 1.2rem;
+      margin-bottom: 2rem;
+      animation: fadeUp 0.4s ease both;
+    }
+    .chart-controls {
+      display: flex;
+      gap: 0.5rem;
+      flex-wrap: wrap;
+      margin-bottom: 0.8rem;
+      align-items: center;
+    }
+    .chart-lift-btn {
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      border-radius: 20px;
+      padding: 0.25rem 0.75rem;
+      font-size: 0.72rem;
+      font-family: 'DM Sans', sans-serif;
+      color: var(--muted);
+      cursor: pointer;
+      transition: all 0.15s;
+    }
+    .chart-lift-btn:hover { border-color: #3a3a3a; color: var(--text); }
+    .chart-lift-btn.active { background: var(--accent); border-color: var(--accent); color: #000; }
+    .chart-container { position: relative; height: 180px; }
+    .chart-empty { text-align: center; padding: 2rem; color: var(--muted); font-size: 0.82rem; }
+
+    /* ── Meals section ───────────────────────────────────────── */
+    .meals-block {
+      background: #0a1508;
+      border: 1px solid #1a3a10;
+      border-radius: 12px;
+      padding: 1rem 1.2rem;
+      margin-bottom: 2rem;
+      animation: fadeUp 0.6s 0.15s ease both;
+    }
+    .meals-block-label {
+      font-size: 0.67rem;
+      letter-spacing: 0.18em;
+      text-transform: uppercase;
+      color: #6bd46b;
+      font-weight: 600;
+      margin-bottom: 0.6rem;
+    }
+    .meal-row {
+      display: flex;
+      align-items: baseline;
+      gap: 0.8rem;
+      padding: 0.4rem 0;
+      border-bottom: 1px solid #1a3010;
+    }
+    .meal-row:last-child { border-bottom: none; }
+    .meal-date {
+      font-family: 'Bebas Neue', sans-serif;
+      font-size: 0.95rem;
+      color: #6bd46b;
+      letter-spacing: 0.04em;
+      flex-shrink: 0;
+      width: 56px;
+    }
+    .meal-name {
+      font-size: 0.83rem;
+      color: #c8e8b8;
+      flex: 1;
+    }
+    .meal-kcal {
+      font-size: 0.72rem;
+      color: var(--muted);
+      flex-shrink: 0;
+    }
+
+    /* ── Health trend ────────────────────────────────────────── */
+    .health-trend {
+      margin-top: 0.6rem;
+      font-size: 0.7rem;
+      color: var(--muted);
+    }
+    .health-trend-row {
+      display: flex;
+      gap: 0.3rem;
+      margin-top: 0.4rem;
+      flex-wrap: wrap;
+    }
+    .health-pip {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      display: inline-block;
+      flex-shrink: 0;
+    }
   </style>
 </head>
 <body>
@@ -941,10 +1078,23 @@
       return classStart > new Date();
     }
 
+    function renderCapacityBadge(date, time) {
+      const key = `${date}_${time}`;
+      const cap = classCapacity[key];
+      if (!cap || !cap.max) return '';
+      const pct = cap.current / cap.max;
+      let cls = 'open';
+      if (pct >= 1) cls = 'full';
+      else if (pct >= 0.8) cls = 'near-full';
+      return `<span class="capacity-badge ${cls}">${cap.current}/${cap.max}</span>`;
+    }
+
     function renderCard(item, type, delay, wods) {
       const cancelled = type === 'cancelled';
+      const capacityBadge = !cancelled ? renderCapacityBadge(item.date, item.time) : '';
       const metaHtml = `<div class="card-meta">
         <span>${item.time}</span>
+        ${capacityBadge}
         ${cancelled ? `<span>Uitgeschreven op ${item.cancelled_at?.slice(0, 10) ?? '—'}</span>` : ''}
         ${!cancelled && item.signed_up_at ? `<span>Ingeschreven op ${item.signed_up_at.slice(0, 10)}</span>` : ''}
       </div>`;
@@ -991,12 +1141,18 @@
     let wodByDate = {};
     let workoutPlans = {};
     let barbellLifts = {};
+    let barbellLiftsHistory = []; // [{date, lifts: {...}}]
     let recoveryAdvice = null;
     let personalRecords = [];
     let benchmarkWorkouts = [];
     let workoutLog = {};   // {date: entry} from workout_log.json
     let stravaData = null; // Strava activiteiten data
     let healthInput = {}; // Subjectieve hersteldata {slaap, energie, spierpijn}
+    let healthHistory = []; // [{date, slaap, energie, spierpijn}]
+    let classCapacity = {}; // {"YYYY-MM-DD_HH:MM": {current, max, checked_at}}
+    let keukenbaasData = null; // {meals: [...], fetched_at}
+    let activeChartLift = null;
+    let liftChart = null;
     let currentGistId = '';
 
     const MAIN_KEYWORDS = ['metcon', 'weightlifting', 'team metcon', 'strength', 'conditioning'];
@@ -1016,7 +1172,80 @@
       return div.textContent || div.innerText || '';
     }
 
+    function parseGistFiles(gist) {
+      // Parse all relevant files from a gist response (single network call)
+      const files = gist.files || {};
+
+      // workout_log.json
+      const logFile = files['workout_log.json'];
+      if (logFile) {
+        try {
+          const logData = JSON.parse(logFile.content);
+          workoutLog = {};
+          for (const entry of (logData.entries || [])) workoutLog[entry.date] = entry;
+        } catch (e) { /* ignore */ }
+      }
+
+      // sugarwod_wod.json
+      const wodFile = files['sugarwod_wod.json'];
+      if (wodFile) {
+        try {
+          const data = JSON.parse(wodFile.content);
+          wodByDate = data.by_date || {};
+          workoutPlans = data.workout_plans || {};
+          barbellLifts = data.barbell_lifts || {};
+          barbellLiftsHistory = data.barbell_lifts_history || [];
+          recoveryAdvice = data.recovery_advice || null;
+          personalRecords = data.personal_records || [];
+          benchmarkWorkouts = data.benchmark_workouts || [];
+          stravaData = data.strava_data || null;
+
+          const bsEl = document.getElementById('barbellStatus');
+          if (bsEl) {
+            const source = data.barbell_source;
+            const liftCount = Object.keys(barbellLifts).length;
+            if (source === 'scraper') {
+              bsEl.textContent = `Barbell maxima: ${liftCount} lifts live opgehaald via SugarWOD`;
+              bsEl.className = 'barbell-status ok';
+            } else if (source === 'fallback') {
+              bsEl.textContent = `Barbell maxima: fallback gebruikt (${liftCount} lifts) — scraper kon niet inloggen`;
+              bsEl.className = 'barbell-status fallback';
+            } else {
+              bsEl.textContent = `Barbell maxima: ${liftCount} lifts`;
+              bsEl.className = 'barbell-status';
+            }
+          }
+        } catch (e) { /* ignore */ }
+      }
+
+      // health_input.json
+      const healthFile = files['health_input.json'];
+      if (healthFile) {
+        try {
+          const h = JSON.parse(healthFile.content) || {};
+          healthInput = h;
+          healthHistory = h.history || [];
+        } catch(e) {}
+      }
+
+      // sportbit_state.json — class_capacity
+      const stateFile = files['sportbit_state.json'];
+      if (stateFile) {
+        try {
+          const st = JSON.parse(stateFile.content);
+          classCapacity = st.class_capacity || {};
+        } catch(e) {}
+      }
+
+      // keukenbaas_meals.json
+      const mealsFile = files['keukenbaas_meals.json'];
+      if (mealsFile) {
+        try { keukenbaasData = JSON.parse(mealsFile.content); } catch(e) {}
+      }
+    }
+
     async function loadWod(gistId) {
+      // Legacy: kept for compatibility but now just re-fetches and calls parseGistFiles
       currentGistId = gistId;
       const el = document.getElementById('wod-status');
       const token = document.getElementById('githubToken').value.trim();
@@ -1025,54 +1254,9 @@
         const resp = await fetch(`https://api.github.com/gists/${gistId}`, { headers: authHeaders });
         if (!resp.ok) { if (el) el.textContent = `WOD: API fout ${resp.status}`; return; }
         const gist = await resp.json();
-
-        // Load workout log
-        const logFile = gist.files['workout_log.json'];
-        if (logFile) {
-          try {
-            const logData = JSON.parse(logFile.content);
-            workoutLog = {};
-            for (const entry of (logData.entries || [])) {
-              workoutLog[entry.date] = entry;
-            }
-          } catch (e) { /* ignore parse errors */ }
-        }
-
-        const file = gist.files['sugarwod_wod.json'];
-        if (!file) { if (el) el.textContent = 'WOD: sugarwod_wod.json niet gevonden in Gist'; return; }
-        const data = JSON.parse(file.content);
-        wodByDate = data.by_date || {};
-        workoutPlans = data.workout_plans || {};
-        barbellLifts = data.barbell_lifts || {};
-        recoveryAdvice = data.recovery_advice || null;
-        personalRecords = data.personal_records || [];
-        benchmarkWorkouts = data.benchmark_workouts || [];
-        stravaData = data.strava_data || null;
-
-        // Laad health_input.json (subjectieve hersteldata)
-        const healthFile = gist.files['health_input.json'];
-        if (healthFile) {
-          try { healthInput = JSON.parse(healthFile.content) || {}; } catch(e) {}
-        }
+        parseGistFiles(gist);
         const n = Object.keys(wodByDate).length;
         if (el) el.textContent = n > 0 ? `WOD geladen voor ${n} dag(en)` : 'WOD: geen workouts in by_date (fetch mislukt?)';
-
-        // Barbell source indicator
-        const bsEl = document.getElementById('barbellStatus');
-        if (bsEl) {
-          const source = data.barbell_source;
-          const liftCount = Object.keys(barbellLifts).length;
-          if (source === 'scraper') {
-            bsEl.textContent = `Barbell maxima: ${liftCount} lifts live opgehaald via SugarWOD`;
-            bsEl.className = 'barbell-status ok';
-          } else if (source === 'fallback') {
-            bsEl.textContent = `Barbell maxima: fallback gebruikt (${liftCount} lifts) — scraper kon niet inloggen`;
-            bsEl.className = 'barbell-status fallback';
-          } else {
-            bsEl.textContent = `Barbell maxima: ${liftCount} lifts`;
-            bsEl.className = 'barbell-status';
-          }
-        }
       } catch (e) { if (el) el.textContent = `WOD fout: ${e.message}`; }
     }
 
@@ -1259,57 +1443,66 @@
 
     // ── Sign-up data ──────────────────────────────────────────
 
+    function buildSkeleton() {
+      const stats = `<div class="stats" style="margin-bottom:2rem">
+        ${[1,2,3].map(() => `<div class="stat skeleton skeleton-stat" style="height:80px"></div>`).join('')}
+      </div>`;
+      const cards = [1,2,3].map(i =>
+        `<div class="skeleton skeleton-card" style="animation-delay:${i*0.1}s"></div>`
+      ).join('');
+      return stats +
+        `<div class="skeleton skeleton-section-title" style="margin-bottom:0.8rem"></div>` +
+        cards;
+    }
+
     async function loadData() {
       const gistId = document.getElementById('gistId').value.trim();
       if (!gistId) return;
 
       localStorage.setItem('sportbit_gist_id', gistId);
+      currentGistId = gistId;
 
       const content = document.getElementById('content');
-      content.innerHTML = `<div class="loader"><div class="spinner"></div></div>`;
+      content.innerHTML = buildSkeleton();
       document.getElementById('stats').style.display = 'none';
 
       const token = document.getElementById('githubToken').value.trim();
       const authHeaders = token ? { Authorization: `token ${token}` } : {};
 
       try {
+        // Single fetch — parse all files from one response
         const resp = await fetch(`https://api.github.com/gists/${gistId}`, { headers: authHeaders });
         if (!resp.ok) throw new Error(`GitHub API fout: ${resp.status}`);
         const gist = await resp.json();
 
-        const file = gist.files['sportbit_state.json'];
-        if (!file) throw new Error('sportbit_state.json niet gevonden in Gist');
+        // Parse all file types from this single response
+        parseGistFiles(gist);
 
-        const state = JSON.parse(file.content);
+        const stateFile = gist.files['sportbit_state.json'];
+        if (!stateFile) throw new Error('sportbit_state.json niet gevonden in Gist');
+
+        const state = JSON.parse(stateFile.content);
         const signedUp = Object.values(state.signed_up || {});
         const cancelled = Object.values(state.cancelled || {});
 
-        // Sort by date
         signedUp.sort((a, b) => a.date.localeCompare(b.date));
         cancelled.sort((a, b) => b.date.localeCompare(a.date));
 
         const upcoming = signedUp.filter(e => isUpcoming(e.date, e.time));
         const past = signedUp.filter(e => !isUpcoming(e.date, e.time));
 
-        // Stats
         document.getElementById('statUpcoming').textContent = upcoming.length;
         document.getElementById('statTotal').textContent = signedUp.length;
         document.getElementById('statCancelled').textContent = cancelled.length;
         document.getElementById('stats').style.display = 'grid';
 
-        // Last updated
         document.getElementById('lastUpdated').textContent =
           new Date(gist.updated_at).toLocaleString('nl-NL');
 
-        // Load WOD from the same Gist
-        await loadWod(gistId);
-
         let html = '';
 
-        // Subjectieve hersteldata invoer
+        // Health input + recovery coach
         html += renderHealthInputBlock();
-
-        // Recovery advice
         if (recoveryAdvice) {
           html += `<div class="recovery-block">
             <div class="recovery-block-label">Coach Advies Vandaag</div>
@@ -1317,7 +1510,11 @@
           </div>`;
         }
 
-        // Upcoming
+        // Meals block (Keukenbaas)
+        const mealsHtml = renderMealsBlock();
+        if (mealsHtml) html += mealsHtml;
+
+        // Upcoming classes
         html += `<div class="section-title">Aankomend</div><div class="cards">`;
         if (upcoming.length === 0) {
           html += `<div class="empty"><span class="empty-icon">🏋️</span>Geen aankomende inschrijvingen</div>`;
@@ -1340,13 +1537,16 @@
           html += `</div>`;
         }
 
+        // Barbell progressie (table + chart)
+        if (Object.keys(barbellLifts).length > 0) {
+          html += renderBarbellSection();
+        }
+
         // Personal Records
         if (personalRecords.length > 0) {
-          const sorted = [...personalRecords].sort((a, b) => {
-            const da = a.date || '';
-            const db = b.date || '';
-            return db.localeCompare(da);
-          });
+          const sorted = [...personalRecords].sort((a, b) =>
+            (b.date || '').localeCompare(a.date || '')
+          );
           html += `<div class="section-title">Persoonlijke Records</div><div class="pr-list">`;
           sorted.forEach((pr, i) => {
             const dateLabel = pr.date ? formatPrDate(pr.date) : '—';
@@ -1365,6 +1565,11 @@
         }
 
         content.innerHTML = html;
+
+        // Initialize chart after DOM is ready
+        if (Object.keys(barbellLifts).length > 0) {
+          initBarbellChart();
+        }
 
       } catch (e) {
         content.innerHTML = `<div class="error-msg">❌ ${e.message}</div>`;
@@ -1618,12 +1823,25 @@
 
     // ── Health input helpers ──────────────────────────────────────────────
 
+    function healthTrendPips(field) {
+      const recent = [...(healthHistory || [])]
+        .sort((a, b) => a.date.localeCompare(b.date))
+        .slice(-14);
+      if (recent.length < 2) return '';
+      const colors = ['#ff4c2b','#ff9800','#ffdc40','#a5d648','#4caf50'];
+      const pips = recent.map(h => {
+        const v = h[field];
+        if (v == null) return '';
+        const c = colors[Math.max(0, Math.min(4, v - 1))];
+        return `<span class="health-pip" style="background:${c}" title="${h.date}: ${v}/5"></span>`;
+      }).join('');
+      return `<div class="health-trend"><div class="health-trend-row">${pips}</div></div>`;
+    }
+
     function renderHealthInputBlock() {
       const slaap   = healthInput.slaap    != null ? healthInput.slaap    : 3;
       const energie = healthInput.energie  != null ? healthInput.energie  : 3;
       const pijn    = healthInput.spierpijn != null ? healthInput.spierpijn : 3;
-      const gistId  = currentGistId;
-      const token   = document.getElementById('githubToken')?.value?.trim();
 
       return `<div class="health-input-block">
         <div class="health-input-label">Herstel vandaag</div>
@@ -1634,18 +1852,21 @@
               oninput="document.getElementById('valSlaap').textContent=this.value">
             <span class="health-slider-val" id="valSlaap">${slaap}</span>
           </div>
+          ${healthTrendPips('slaap')}
           <div class="health-slider-row">
             <span class="health-slider-name">Energie</span>
             <input type="range" id="sliderEnergie" min="1" max="5" step="1" value="${energie}"
               oninput="document.getElementById('valEnergie').textContent=this.value">
             <span class="health-slider-val" id="valEnergie">${energie}</span>
           </div>
+          ${healthTrendPips('energie')}
           <div class="health-slider-row">
             <span class="health-slider-name">Spierpijn</span>
             <input type="range" id="sliderSpierpijn" min="1" max="5" step="1" value="${pijn}"
               oninput="document.getElementById('valSpierpijn').textContent=this.value">
             <span class="health-slider-val" id="valSpierpijn">${pijn}</span>
           </div>
+          ${healthTrendPips('spierpijn')}
         </div>
         <div class="health-save-row">
           <button class="health-save-btn" onclick="saveHealthInput()">Opslaan</button>
@@ -1665,12 +1886,24 @@
       }
 
       const today = new Date().toISOString().slice(0, 10);
+      const slaap     = parseInt(document.getElementById('sliderSlaap').value);
+      const energie   = parseInt(document.getElementById('sliderEnergie').value);
+      const spierpijn = parseInt(document.getElementById('sliderSpierpijn').value);
+
+      // Build updated history: keep existing entries, replace/add today
+      const todayEntry = { date: today, slaap, energie, spierpijn };
+      const updatedHistory = [
+        ...(healthHistory || []).filter(h => h.date !== today),
+        todayEntry,
+      ].sort((a, b) => a.date.localeCompare(b.date)).slice(-90); // keep last 90 days
+
       const data = {
-        date:      today,
-        slaap:     parseInt(document.getElementById('sliderSlaap').value),
-        energie:   parseInt(document.getElementById('sliderEnergie').value),
-        spierpijn: parseInt(document.getElementById('sliderSpierpijn').value),
+        date: today,
+        slaap,
+        energie,
+        spierpijn,
         updated_at: new Date().toISOString(),
+        history: updatedHistory,
       };
 
       try {
@@ -1682,6 +1915,7 @@
         });
         if (!resp.ok) throw new Error(`${resp.status}`);
         healthInput = data;
+        healthHistory = updatedHistory;
         if (statusEl) { statusEl.textContent = '✓ Opgeslagen'; statusEl.className = 'health-save-status ok'; }
       } catch(e) {
         if (statusEl) { statusEl.textContent = `Fout: ${e.message}`; statusEl.className = 'health-save-status err'; }
@@ -1689,6 +1923,198 @@
     }
 
     // ── end health input helpers ──────────────────────────────────────────
+
+    // ── Keukenbaas meals ─────────────────────────────────────────────────
+
+    function renderMealsBlock() {
+      if (!keukenbaasData || !keukenbaasData.meals || keukenbaasData.meals.length === 0) return '';
+      const today = new Date().toISOString().slice(0, 10);
+      // Show meals for the next 7 days starting today
+      const meals = keukenbaasData.meals
+        .filter(m => m.date >= today)
+        .slice(0, 7);
+      if (meals.length === 0) return '';
+
+      const rows = meals.map(m => {
+        const d = new Date(m.date + 'T00:00:00');
+        const label = `${DAY_NL[d.getDay()]} ${d.getDate()}`;
+        const kcal = m.energy_kcal ? `${Math.round(m.energy_kcal)} kcal` : '';
+        return `<div class="meal-row">
+          <div class="meal-date">${label}</div>
+          <div class="meal-name">${escapeHtml(m.meal_name)}</div>
+          ${kcal ? `<div class="meal-kcal">${kcal}</div>` : ''}
+        </div>`;
+      }).join('');
+
+      return `<div class="meals-block">
+        <div class="meals-block-label">Maaltijden komende week</div>
+        ${rows}
+      </div>`;
+    }
+
+    // ── Barbell progressie (chart + table) ────────────────────────────────
+
+    // Top lifts to show buttons for (most common CrossFit barbell movements)
+    const TOP_LIFTS = [
+      'Back Squat', 'Deadlift', 'Clean & Jerk', 'Snatch', 'Front Squat',
+      'Bench Press', 'Shoulder Press', 'Clean', 'Push Jerk',
+    ];
+
+    function renderBarbellSection() {
+      // Build buttons only for lifts we have history OR current data for
+      const availableLifts = TOP_LIFTS.filter(l => barbellLifts[l] || barbellLiftsHistory.some(h => h.lifts && h.lifts[l]));
+      if (availableLifts.length === 0) {
+        // Fallback: just show table
+        return `<div class="section-title">Kracht Maxima</div>` + renderBarbellTable();
+      }
+
+      activeChartLift = activeChartLift && availableLifts.includes(activeChartLift)
+        ? activeChartLift
+        : availableLifts[0];
+
+      const buttons = availableLifts.map(l =>
+        `<button class="chart-lift-btn${l === activeChartLift ? ' active' : ''}" onclick="selectLift('${escapeHtml(l)}')">${escapeHtml(l)}</button>`
+      ).join('');
+
+      const historyCount = barbellLiftsHistory.length;
+      const historyNote = historyCount > 1
+        ? `<span style="font-size:0.68rem;color:var(--muted);margin-left:auto">${historyCount} meetpunten</span>`
+        : `<span style="font-size:0.68rem;color:var(--muted);margin-left:auto">Nog geen history — groeit elke dag</span>`;
+
+      return `<div class="section-title">Kracht Progressie</div>
+        <div class="chart-section">
+          <div class="chart-controls">
+            ${buttons}
+            ${historyNote}
+          </div>
+          <div class="chart-container">
+            <canvas id="liftChartCanvas"></canvas>
+          </div>
+        </div>
+        <div class="section-title">Barbell Maxima</div>
+        ${renderBarbellTable()}`;
+    }
+
+    function renderBarbellTable() {
+      const lifts = Object.entries(barbellLifts).sort((a, b) => a[0].localeCompare(b[0], 'nl'));
+      if (lifts.length === 0) return '<div class="empty" style="padding:1rem">Geen barbell data</div>';
+      const rows = lifts.map(([name, rms]) => {
+        const rmCells = Object.entries(rms).sort((a, b) => {
+          const n = s => parseInt(s.replace('RM',''));
+          return n(a[0]) - n(b[0]);
+        }).map(([rm, val]) =>
+          `<span style="font-size:0.78rem;color:var(--muted)">${rm}:</span> <strong style="color:var(--accent);font-family:'Bebas Neue',sans-serif;font-size:1rem">${val}kg</strong>`
+        ).join('&nbsp;&nbsp;');
+        return `<div class="pr-item" style="animation-delay:0s">
+          <div class="pr-workout" style="min-width:160px">${escapeHtml(name)}</div>
+          <div class="pr-notes" style="flex:2">${rmCells}</div>
+        </div>`;
+      }).join('');
+      return `<div class="pr-list" style="margin-bottom:2rem">${rows}</div>`;
+    }
+
+    function initBarbellChart() {
+      if (typeof Chart === 'undefined') return;
+      const canvas = document.getElementById('liftChartCanvas');
+      if (!canvas) return;
+      if (liftChart) { liftChart.destroy(); liftChart = null; }
+      renderLiftChart(activeChartLift || TOP_LIFTS[0]);
+    }
+
+    function renderLiftChart(liftName) {
+      const canvas = document.getElementById('liftChartCanvas');
+      if (!canvas) return;
+      if (liftChart) { liftChart.destroy(); liftChart = null; }
+
+      // Build data points from history + current value
+      const points = [];
+      for (const snapshot of barbellLiftsHistory) {
+        const liftData = snapshot.lifts && snapshot.lifts[liftName];
+        if (!liftData) continue;
+        const rm1 = liftData['1RM'];
+        if (rm1 != null) points.push({ x: snapshot.date, y: rm1 });
+      }
+      // Add current value if not already in history for today
+      const today = new Date().toISOString().slice(0, 10);
+      const currentLift = barbellLifts[liftName];
+      if (currentLift && currentLift['1RM'] != null && !points.find(p => p.x === today)) {
+        points.push({ x: today, y: currentLift['1RM'] });
+      }
+      points.sort((a, b) => a.x.localeCompare(b.x));
+
+      if (points.length === 0) {
+        // No chart data — show current RM values as text
+        canvas.style.display = 'none';
+        const container = canvas.parentElement;
+        const existing = container.querySelector('.chart-empty');
+        if (!existing) {
+          const div = document.createElement('div');
+          div.className = 'chart-empty';
+          const vals = currentLift ? Object.entries(currentLift).map(([k,v]) => `${k}: ${v}kg`).join(' · ') : 'Geen data';
+          div.textContent = `${liftName}: ${vals}`;
+          container.appendChild(div);
+        }
+        return;
+      }
+      canvas.style.display = '';
+      const container = canvas.parentElement;
+      const empty = container.querySelector('.chart-empty');
+      if (empty) empty.remove();
+
+      liftChart = new Chart(canvas, {
+        type: 'line',
+        data: {
+          labels: points.map(p => {
+            const d = new Date(p.x + 'T00:00:00');
+            return `${d.getDate()} ${MONTH_NL[d.getMonth()]}`;
+          }),
+          datasets: [{
+            label: `${liftName} 1RM (kg)`,
+            data: points.map(p => p.y),
+            borderColor: '#e8ff3c',
+            backgroundColor: 'rgba(232,255,60,0.08)',
+            pointBackgroundColor: '#e8ff3c',
+            pointRadius: points.length < 10 ? 5 : 3,
+            fill: true,
+            tension: 0.3,
+          }],
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          plugins: {
+            legend: { display: false },
+            tooltip: {
+              backgroundColor: '#1e1e1e',
+              titleColor: '#e8ff3c',
+              bodyColor: '#f0f0f0',
+              borderColor: '#2a2a2a',
+              borderWidth: 1,
+            },
+          },
+          scales: {
+            x: {
+              ticks: { color: '#666', font: { size: 10 } },
+              grid: { color: '#1e1e1e' },
+            },
+            y: {
+              ticks: { color: '#666', font: { size: 10 }, callback: v => `${v}kg` },
+              grid: { color: '#1e1e1e' },
+            },
+          },
+        },
+      });
+    }
+
+    function selectLift(name) {
+      activeChartLift = name;
+      document.querySelectorAll('.chart-lift-btn').forEach(btn => {
+        btn.classList.toggle('active', btn.textContent === name);
+      });
+      renderLiftChart(name);
+    }
+
+    // ── end barbell chart ─────────────────────────────────────────────────
 
     function escapeHtml(str) {
       return String(str)

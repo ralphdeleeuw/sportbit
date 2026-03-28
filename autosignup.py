@@ -187,6 +187,29 @@ class GistStateManager:
         self.state["signed_up"].pop(str(event_id), None)
         self._save()
 
+    def batch_update_capacity(self, capacity_updates: dict[str, dict]) -> None:
+        """Update class capacity data for multiple slots and save once.
+
+        capacity_updates: {"YYYY-MM-DD_HH:MM": {"current": int, "max": int}}
+        """
+        if not capacity_updates:
+            return
+        self.state.setdefault("class_capacity", {})
+        checked_at = datetime.now().isoformat(timespec="seconds")
+        for key, data in capacity_updates.items():
+            self.state["class_capacity"][key] = {
+                **data,
+                "checked_at": checked_at,
+            }
+        # Keep only the last 90 days of capacity data
+        cutoff = (datetime.now().date() - timedelta(days=90)).isoformat()
+        self.state["class_capacity"] = {
+            k: v for k, v in self.state["class_capacity"].items()
+            if k[:10] >= cutoff
+        }
+        self._save()
+        log.info("Capacity data updated for %d slots.", len(capacity_updates))
+
     def detect_manual_cancellations(self, events: list[dict]):
         newly_cancelled = []
         for event in events:
@@ -472,6 +495,7 @@ def run(username: str, password: str, dry_run: bool, days_ahead: int, sync_calen
     results = {"signed_up": [], "already": [], "full_waitlist": [], "not_found": [], "failed": [], "skipped": []}
 
     events_cache: dict[str, list[dict]] = {}
+    capacity_updates: dict[str, dict] = {}  # {"YYYY-MM-DD_HH:MM": {"current": int, "max": int}}
 
     # First pass: fetch all events and detect manual cancellations
     if state:
@@ -502,9 +526,13 @@ def run(username: str, password: str, dry_run: bool, days_ahead: int, sync_calen
 
         eid = event["id"]
         title = event.get("titel", "?")
-        spots = f"{event['aantalDeelnemers']}/{event['maxDeelnemers']}"
+        current_cap = event.get("aantalDeelnemers", 0)
+        max_cap = event.get("maxDeelnemers", 0)
+        spots = f"{current_cap}/{max_cap}"
         already = event.get("aangemeld", False)
         on_waitlist = event.get("opWachtlijst", False)
+        # Track capacity for the dashboard
+        capacity_updates[f"{date_str}_{target_time}"] = {"current": current_cap, "max": max_cap}
 
         if state and state.is_cancelled(eid):
             log.info("Skipping %s at %s — manually cancelled. [%s]", title, target_time, eid)
@@ -547,6 +575,10 @@ def run(username: str, password: str, dry_run: bool, days_ahead: int, sync_calen
                     log.warning("Calendar sync failed for %s, but signup was successful.", label)
             else:
                 results["failed"].append(label)
+
+    # Persist capacity data to gist (single save for all slots)
+    if state and capacity_updates:
+        state.batch_update_capacity(capacity_updates)
 
     # Scan non-scheduled days for manual enrollments
     today = datetime.now(AMS).date()
