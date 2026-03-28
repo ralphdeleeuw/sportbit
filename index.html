@@ -909,6 +909,58 @@
     .capacity-badge.full      { color: var(--accent2); border-color: #5a2020; }
     .capacity-badge.open      { color: #4caf50; border-color: #1a3a1a; }
 
+    /* ── Barbell lift table ──────────────────────────────────── */
+    .barbell-lift-list {
+      display: flex;
+      flex-direction: column;
+      gap: 0.5rem;
+      margin-bottom: 2rem;
+    }
+    .barbell-lift-item {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 0.75rem 1rem;
+      display: flex;
+      align-items: flex-start;
+      gap: 1rem;
+      animation: fadeUp 0.4s ease both;
+    }
+    .barbell-lift-name {
+      font-weight: 500;
+      font-size: 0.88rem;
+      flex: 1;
+      padding-top: 0.1rem;
+    }
+    .barbell-rm-list {
+      display: flex;
+      flex-direction: column;
+      gap: 0.15rem;
+      flex-shrink: 0;
+      min-width: 100px;
+    }
+    .barbell-rm-row {
+      display: flex;
+      justify-content: space-between;
+      align-items: baseline;
+      gap: 0.6rem;
+    }
+    .barbell-rm-label {
+      font-size: 0.68rem;
+      color: var(--muted);
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      width: 30px;
+      flex-shrink: 0;
+    }
+    .barbell-rm-val {
+      font-family: 'Bebas Neue', sans-serif;
+      font-size: 1.05rem;
+      color: var(--accent);
+      letter-spacing: 0.04em;
+      text-align: right;
+    }
+
     /* ── Barbell chart section ───────────────────────────────── */
     .chart-section {
       background: var(--surface);
@@ -1999,18 +2051,21 @@
       const lifts = Object.entries(barbellLifts).sort((a, b) => a[0].localeCompare(b[0], 'nl'));
       if (lifts.length === 0) return '<div class="empty" style="padding:1rem">Geen barbell data</div>';
       const rows = lifts.map(([name, rms]) => {
-        const rmCells = Object.entries(rms).sort((a, b) => {
+        const rmRows = Object.entries(rms).sort((a, b) => {
           const n = s => parseInt(s.replace('RM',''));
           return n(a[0]) - n(b[0]);
         }).map(([rm, val]) =>
-          `<span style="font-size:0.78rem;color:var(--muted)">${rm}:</span> <strong style="color:var(--accent);font-family:'Bebas Neue',sans-serif;font-size:1rem">${val}kg</strong>`
-        ).join('&nbsp;&nbsp;');
-        return `<div class="pr-item" style="animation-delay:0s">
-          <div class="pr-workout" style="min-width:160px">${escapeHtml(name)}</div>
-          <div class="pr-notes" style="flex:2">${rmCells}</div>
+          `<div class="barbell-rm-row">
+            <span class="barbell-rm-label">${rm}</span>
+            <span class="barbell-rm-val">${val} kg</span>
+          </div>`
+        ).join('');
+        return `<div class="barbell-lift-item">
+          <div class="barbell-lift-name">${escapeHtml(name)}</div>
+          <div class="barbell-rm-list">${rmRows}</div>
         </div>`;
       }).join('');
-      return `<div class="pr-list" style="margin-bottom:2rem">${rows}</div>`;
+      return `<div class="barbell-lift-list">${rows}</div>`;
     }
 
     function initBarbellChart() {
