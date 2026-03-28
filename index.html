@@ -907,12 +907,14 @@
     <footer>
       <div class="footer-row">
         <span>Bijgewerkt · <span id="lastUpdated">—</span></span>
+        <button id="signupBtn" class="sync-btn" onclick="triggerSignup()">⚡ Inschrijven</button>
         <button id="syncBtn" class="sync-btn" onclick="triggerSync()">↻ Sync</button>
       </div>
       <div class="sync-options">
         <label><input type="checkbox" id="skipStrava"> Strava overslaan</label>
         <label><input type="checkbox" id="skipAI"> AI coaching overslaan</label>
       </div>
+      <div id="signupStatus" class="sync-status"></div>
       <div id="syncStatus" class="sync-status"></div>
       <div id="barbellStatus" class="barbell-status"></div>
     </footer>
@@ -1418,7 +1420,7 @@
 
         statusEl.textContent = '⏳ In wachtrij…';
         statusEl.style.color = 'var(--muted)';
-        await pollWorkflowRun(token, triggerTime, statusEl, btn);
+        await pollWorkflowRun(token, triggerTime, statusEl, btn, 'fetch_sugarwod.yml', '↻ Sync');
 
       } catch (e) {
         statusEl.textContent = `Netwerkfout: ${e.message}`;
@@ -1428,12 +1430,68 @@
       }
     }
 
-    async function pollWorkflowRun(token, triggerTime, statusEl, btn) {
+    async function triggerSignup() {
+      const token = document.getElementById('githubToken').value.trim();
+      const statusEl = document.getElementById('signupStatus');
+      const btn = document.getElementById('signupBtn');
+
+      if (!token) {
+        statusEl.textContent = 'Vul eerst je GitHub Token in (nodig om workflow te starten)';
+        statusEl.style.color = 'var(--accent2)';
+        return;
+      }
+
+      btn.disabled = true;
+      btn.textContent = '⚡ Bezig…';
+      statusEl.textContent = 'Inschrijf-workflow starten…';
+      statusEl.style.color = 'var(--muted)';
+
+      const triggerTime = new Date();
+
+      try {
+        const resp = await fetch(
+          'https://api.github.com/repos/ralphdeleeuw/sportbit/actions/workflows/autosignup.yml/dispatches',
+          {
+            method: 'POST',
+            headers: {
+              Authorization: `token ${token}`,
+              Accept: 'application/vnd.github+json',
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({ ref: 'main' }),
+          }
+        );
+
+        if (resp.status !== 204) {
+          const body = await resp.json().catch(() => ({}));
+          statusEl.textContent = `Fout ${resp.status}: ${body.message || 'onbekend'}`;
+          statusEl.style.color = 'var(--accent2)';
+          btn.disabled = false;
+          btn.textContent = '⚡ Inschrijven';
+          return;
+        }
+
+        statusEl.textContent = '⏳ In wachtrij…';
+        statusEl.style.color = 'var(--muted)';
+        await pollWorkflowRun(
+          token, triggerTime, statusEl, btn,
+          'autosignup.yml', '⚡ Inschrijven'
+        );
+
+      } catch (e) {
+        statusEl.textContent = `Netwerkfout: ${e.message}`;
+        statusEl.style.color = 'var(--accent2)';
+        btn.disabled = false;
+        btn.textContent = '⚡ Inschrijven';
+      }
+    }
+
+    async function pollWorkflowRun(token, triggerTime, statusEl, btn, workflowFile = 'fetch_sugarwod.yml', btnLabel = '↻ Sync') {
       const headers = {
         Authorization: `token ${token}`,
         Accept: 'application/vnd.github+json',
       };
-      const runsUrl = 'https://api.github.com/repos/ralphdeleeuw/sportbit/actions/workflows/fetch_sugarwod.yml/runs?event=workflow_dispatch&per_page=5';
+      const runsUrl = `https://api.github.com/repos/ralphdeleeuw/sportbit/actions/workflows/${workflowFile}/runs?event=workflow_dispatch&per_page=5`;
       const maxWaitMs = 10 * 60 * 1000; // 10 min timeout
       const pollInterval = 15000; // 15 sec
       const started = Date.now();
@@ -1456,7 +1514,7 @@
                   statusEl.textContent = `✅ Klaar (${elapsed}s) — data opnieuw laden…`;
                   statusEl.style.color = '#4caf50';
                   btn.disabled = false;
-                  btn.textContent = '↻ Sync';
+                  btn.textContent = btnLabel;
                   await new Promise(r => setTimeout(r, 1500));
                   await loadData();
                   statusEl.textContent = `✅ Data bijgewerkt (${elapsed}s geleden)`;
@@ -1464,7 +1522,7 @@
                   statusEl.textContent = `❌ Workflow mislukt: ${run.conclusion}`;
                   statusEl.style.color = 'var(--accent2)';
                   btn.disabled = false;
-                  btn.textContent = '↻ Sync';
+                  btn.textContent = btnLabel;
                 }
                 return;
               } else if (run.status === 'in_progress') {
@@ -1485,7 +1543,7 @@
       statusEl.textContent = 'Timeout: workflow duurde te lang. Laad handmatig opnieuw.';
       statusEl.style.color = 'var(--accent2)';
       btn.disabled = false;
-      btn.textContent = '↻ Sync';
+      btn.textContent = btnLabel;
     }
 
     function renderBenchmarks(benchmarks) {
