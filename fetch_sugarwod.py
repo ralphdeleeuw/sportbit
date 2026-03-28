@@ -1676,6 +1676,7 @@ def generate_recovery_advice(
     strava_data: "dict | None" = None,
     health_input: "dict | None" = None,
     signed_up_times: dict[str, str] | None = None,
+    health_history: list[dict] | None = None,
 ) -> str:
     """
     Generate a daily recovery/intensity advice based on recent workouts and
@@ -1686,6 +1687,9 @@ def generate_recovery_advice(
 
     If health_input is provided (subjectieve scores: slaap, energie, spierpijn),
     these are included as primary physiological recovery indicators.
+
+    If health_history is provided (list of past health_input entries), the AI
+    can identify trends over time (e.g. recurring low energy on Thursdays).
     """
     api_key = os.environ.get("ANTHROPIC_API_KEY", "").strip()
     if not api_key:
@@ -1797,11 +1801,24 @@ def generate_recovery_advice(
         energie = health_input.get("energie")
         spierpijn = health_input.get("spierpijn")
         if slaap is not None:
-            lines.append(f"- Slaapkwaliteit: {slaap}/5")
+            lines.append(f"- Slaapkwaliteit vandaag: {slaap}/5")
         if energie is not None:
-            lines.append(f"- Energieniveau: {energie}/5")
+            lines.append(f"- Energieniveau vandaag: {energie}/5")
         if spierpijn is not None:
-            lines.append(f"- Spierpijn/vermoeidheid: {spierpijn}/5")
+            lines.append(f"- Spierpijn/vermoeidheid vandaag: {spierpijn}/5")
+        # Append recent history trend (last 14 days)
+        if health_history:
+            today_iso = today.isoformat() if today else ""
+            recent = [h for h in health_history if h.get("date", "") < today_iso]
+            recent = sorted(recent, key=lambda h: h.get("date", ""), reverse=True)[:14]
+            if recent:
+                lines.append("\nTrend afgelopen 14 dagen (datum: slaap/energie/spierpijn):")
+                for h in reversed(recent):
+                    d = h.get("date", "?")
+                    s = h.get("slaap", "?")
+                    e = h.get("energie", "?")
+                    p = h.get("spierpijn", "?")
+                    lines.append(f"  {d}: slaap={s} energie={e} spierpijn={p}")
         if lines:
             health_block = (
                 "\nSubjectieve hersteldata (ingevuld door atleet — gebruik dit als primaire "
@@ -2003,14 +2020,15 @@ Wees direct en bondig. Maximaal 240 woorden. Geen inleiding."""
 # Gist storage
 # ──────────────────────────────────────────────────────────────
 
-def load_health_input(gist_id: str, token: str) -> dict | None:
+def load_health_input(gist_id: str, token: str) -> tuple[dict | None, list[dict]]:
     """Lees health_input.json uit de gist.
 
-    Retourneert een dict als {"slaap": 3, "energie": 4, "spierpijn": 2, "date": "YYYY-MM-DD"}
-    of None als het bestand niet bestaat of leeg is.
+    Retourneert een tuple (today_entry, history):
+    - today_entry: {"slaap": 3, "energie": 4, "spierpijn": 2, "date": "YYYY-MM-DD"} of None
+    - history: lijst van dagentries uit "history" array (kan leeg zijn)
     """
     if not gist_id or not token:
-        return None
+        return None, []
     try:
         resp = requests.get(
             f"https://api.github.com/gists/{gist_id}",
@@ -2022,16 +2040,28 @@ def load_health_input(gist_id: str, token: str) -> dict | None:
         raw = files.get("health_input.json", {}).get("content", "")
         if not raw:
             log.info("[gist] health_input.json niet gevonden — geen subjectieve hersteldata")
-            return None
+            return None, []
         data = json.loads(raw)
-        log.info(
-            "[gist] health_input geladen: slaap=%s energie=%s spierpijn=%s (datum: %s)",
-            data.get("slaap"), data.get("energie"), data.get("spierpijn"), data.get("date"),
-        )
-        return data
+        # Extract today entry (top-level fields)
+        today_entry: dict | None = None
+        if data.get("date"):
+            today_entry = {
+                "date": data.get("date"),
+                "slaap": data.get("slaap"),
+                "energie": data.get("energie"),
+                "spierpijn": data.get("spierpijn"),
+            }
+            log.info(
+                "[gist] health_input geladen: slaap=%s energie=%s spierpijn=%s (datum: %s)",
+                today_entry.get("slaap"), today_entry.get("energie"),
+                today_entry.get("spierpijn"), today_entry.get("date"),
+            )
+        history: list[dict] = data.get("history", [])
+        log.info("[gist] health_input history: %d entries", len(history))
+        return today_entry, history
     except Exception as exc:
         log.warning("[gist] health_input.json laden mislukt: %s", exc)
-        return None
+        return None, []
 
 
 def load_sportbit_attended_dates(gist_id: str, token: str) -> tuple[set[str], dict[str, str]]:
@@ -2115,7 +2145,39 @@ def load_workout_log(gist_id: str, token: str) -> dict[str, dict]:
         return {}
 
 
+def _load_barbell_history(gist_id: str, token: str) -> list[dict]:
+    """Load existing barbell_lifts_history from the gist's sugarwod_wod.json."""
+    try:
+        resp = requests.get(
+            f"https://api.github.com/gists/{gist_id}",
+            headers={"Authorization": f"token {token}", "Accept": "application/json"},
+            timeout=15,
+        )
+        resp.raise_for_status()
+        raw = resp.json().get("files", {}).get(GIST_FILENAME, {}).get("content", "")
+        if not raw:
+            return []
+        existing = json.loads(raw)
+        return existing.get("barbell_lifts_history", [])
+    except Exception as exc:
+        log.warning("[gist] Could not load existing barbell history: %s", exc)
+        return []
+
+
 def save_to_gist(gist_id: str, token: str, wod_data: dict, meals: list[dict] | None = None) -> None:
+    # Accumulate barbell lifts history: load existing, append today's snapshot
+    today_str = datetime.now(AMS).date().isoformat()
+    barbell_lifts = wod_data.get("barbell_lifts", {})
+    history = _load_barbell_history(gist_id, token)
+    # Remove any existing entry for today (idempotent re-runs)
+    history = [h for h in history if h.get("date") != today_str]
+    if barbell_lifts:
+        history.append({"date": today_str, "lifts": barbell_lifts})
+    # Keep last 365 days
+    history = sorted(history, key=lambda h: h.get("date", ""))[-365:]
+    wod_data["barbell_lifts_history"] = history
+    log.info("[gist] Barbell history: %d snapshots (latest: %s)", len(history), today_str)
+
     files: dict = {
         GIST_FILENAME: {
             "content": json.dumps(wod_data, ensure_ascii=False, indent=2)
@@ -2259,7 +2321,7 @@ def main() -> int:
 
     # Lees subjectieve hersteldata (slaap/energie/spierpijn) uit de gist.
     # De atleet vult dit in via het dashboard vóór de dagelijkse workflow draait.
-    health_input = load_health_input(gist_id, token)
+    health_input, health_history = load_health_input(gist_id, token)
 
     # Generate daily recovery advice.
     # Priority for "which days did the athlete actually train":
@@ -2359,6 +2421,7 @@ def main() -> int:
             strava_data=strava_data,
             health_input=health_input,
             signed_up_times=signed_up_times,
+            health_history=health_history,
         )
 
     # 2. SugarWOD logbook (athlete scored a result)
@@ -2387,6 +2450,7 @@ def main() -> int:
             strava_data=strava_data,
             health_input=health_input,
             signed_up_times=signed_up_times,
+            health_history=health_history,
         )
 
     # 3. Fallback: all programmed past workouts
@@ -2403,6 +2467,7 @@ def main() -> int:
             strava_data=strava_data,
             health_input=health_input,
             signed_up_times=signed_up_times,
+            health_history=health_history,
         )
 
     wod_data = {
