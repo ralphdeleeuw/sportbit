@@ -224,6 +224,20 @@
 
     .log-save-btn:hover { background: #1a2200; }
 
+    .niet-gedaan-btn {
+      background: transparent;
+      color: var(--muted);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 0.3rem 0.85rem;
+      font-family: 'DM Sans', sans-serif;
+      font-size: 0.75rem;
+      cursor: pointer;
+      transition: color 0.15s, border-color 0.15s;
+    }
+    .niet-gedaan-btn:hover { color: var(--accent2); border-color: var(--accent2); }
+    .niet-gedaan-btn:disabled { opacity: 0.5; cursor: default; }
+
     .log-status {
       font-size: 0.78rem;
       color: var(--muted);
@@ -1415,6 +1429,7 @@
     function renderPastCard(item, delay) {
       const wods = wodByDate[item.date] || [];
       const hasWod = wods.length > 0;
+      const eventId = item.event_id || '';
       const metaHtml = `<div class="card-meta">
         <span>${item.time}</span>
         ${item.signed_up_at ? `<span>Ingeschreven op ${item.signed_up_at.slice(0, 10)}</span>` : ''}
@@ -1431,6 +1446,16 @@
       const logHtml = renderLogSection(item.date);
       const stravaHtml = renderStravaBlock(item.date);
 
+      // "Niet gedaan" button — marks this class as cancelled in the state so the
+      // AI coach stops counting it as an attended session
+      const nietGedaanBtn = eventId ? `
+        <div style="margin-top:0.75rem;padding-top:0.75rem;border-top:1px solid var(--border);display:flex;justify-content:flex-end">
+          <button class="niet-gedaan-btn" id="ng-${eventId}"
+            onclick="markNietGedaan('${eventId}','${item.date}','${item.time}','${escapeHtml(item.title)}',this)">
+            Niet gedaan
+          </button>
+        </div>` : '';
+
       return `
         <div class="card has-wod" style="animation-delay:${delay}s">
           <div class="card-dot dot-active" style="opacity:0.4"></div>
@@ -1445,9 +1470,54 @@
                 <div class="wod-chevron">▾</div>
               </div>
             </div>
-            <div class="card-wod">${wodSections}${stravaHtml}${logHtml}</div>
+            <div class="card-wod">${wodSections}${stravaHtml}${logHtml}${nietGedaanBtn}</div>
           </div>
         </div>`;
+    }
+
+    async function markNietGedaan(eventId, date, time, title, btn) {
+      const token = document.getElementById('githubToken').value.trim();
+      if (!token) {
+        btn.textContent = '⚠ Token nodig';
+        return;
+      }
+      btn.disabled = true;
+      btn.textContent = 'Opslaan…';
+      try {
+        // Fetch current state
+        const resp = await fetch(`https://api.github.com/gists/${currentGistId}`, {
+          headers: { Authorization: `token ${token}` },
+        });
+        if (!resp.ok) throw new Error(`GitHub API ${resp.status}`);
+        const gist = await resp.json();
+        const stateRaw = gist.files['sportbit_state.json']?.content;
+        if (!stateRaw) throw new Error('sportbit_state.json niet gevonden');
+        const state = JSON.parse(stateRaw);
+
+        // Move event from signed_up to cancelled
+        delete state.signed_up[eventId];
+        state.cancelled = state.cancelled || {};
+        state.cancelled[eventId] = {
+          date, time, title,
+          cancelled_at: new Date().toISOString(),
+        };
+
+        const patch = await fetch(`https://api.github.com/gists/${currentGistId}`, {
+          method: 'PATCH',
+          headers: { Authorization: `token ${token}`, 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            files: { 'sportbit_state.json': { content: JSON.stringify(state, null, 2) } }
+          }),
+        });
+        if (!patch.ok) throw new Error(`Opslaan mislukt ${patch.status}`);
+
+        // Hide the card visually
+        btn.closest('.card').style.opacity = '0.4';
+        btn.textContent = '✓ Verwijderd uit coach context';
+      } catch(e) {
+        btn.disabled = false;
+        btn.textContent = `❌ ${e.message}`;
+      }
     }
 
     function renderWodSections(wods, date) {
@@ -1534,7 +1604,8 @@
         if (!stateFile) throw new Error('sportbit_state.json niet gevonden in Gist');
 
         const state = JSON.parse(stateFile.content);
-        const signedUp = Object.values(state.signed_up || {});
+        // Include event_id in each item so the "Niet gedaan" button can patch the state
+        const signedUp = Object.entries(state.signed_up || {}).map(([id, info]) => ({...info, event_id: id}));
         const cancelled = Object.values(state.cancelled || {});
 
         signedUp.sort((a, b) => a.date.localeCompare(b.date));

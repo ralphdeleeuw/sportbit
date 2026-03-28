@@ -497,9 +497,26 @@ def run(username: str, password: str, dry_run: bool, days_ahead: int, sync_calen
     events_cache: dict[str, list[dict]] = {}
     capacity_updates: dict[str, dict] = {}  # {"YYYY-MM-DD_HH:MM": {"current": int, "max": int}}
 
-    # First pass: fetch all events and detect manual cancellations
+    # First pass: fetch events and detect manual cancellations.
+    # Scan BOTH upcoming slots AND recent past scheduled days (last 14 days)
+    # so that late cancellations for already-passed classes are picked up.
     if state:
         all_events = []
+        scheduled_weekdays = {weekday for weekday, _ in SCHEDULE}
+        # Past 14 days: check every scheduled weekday
+        for offset in range(1, 15):
+            d = today - timedelta(days=offset)
+            if d.weekday() not in scheduled_weekdays:
+                continue
+            date_str = d.strftime("%Y-%m-%d")
+            if date_str not in events_cache:
+                try:
+                    events_cache[date_str] = client.get_events(date_str)
+                except Exception as exc:
+                    log.warning("Could not fetch past events for %s: %s", date_str, exc)
+                    events_cache[date_str] = []
+            all_events.extend(events_cache[date_str])
+        # Upcoming slots
         for date, _ in slots:
             date_str = date.strftime("%Y-%m-%d")
             if date_str not in events_cache:
