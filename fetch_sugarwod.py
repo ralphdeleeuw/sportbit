@@ -756,6 +756,20 @@ def fetch_all_workouts_playwright(
                       timeout=30000)
 
             log.info("[browser] Filling login form")
+            # Log all input fields found on the page for diagnostics
+            try:
+                inputs = page.evaluate("""
+                    () => [...document.querySelectorAll('input')].map(i =>
+                        ({type: i.type, name: i.name, id: i.id, placeholder: i.placeholder}))
+                """)
+                log.info("[browser] Inputs on login page: %s", inputs)
+                buttons = page.evaluate("""
+                    () => [...document.querySelectorAll('button')].map(b =>
+                        ({id: b.id, type: b.type, text: b.textContent.trim().slice(0,50)}))
+                """)
+                log.info("[browser] Buttons on login page: %s", buttons)
+            except Exception as dbg_exc:
+                log.warning("[browser] Could not log form fields: %s", dbg_exc)
             # Use type() (character-by-character) instead of fill() to ensure
             # React's synthetic onChange events fire on every keystroke.
             email_input = page.locator('input[type="email"], input[name="email"]').first
@@ -788,6 +802,19 @@ def fetch_all_workouts_playwright(
                 # Check if we're still on login page (auth failed)
                 if "/login" in page.url:
                     log.warning("[browser] Aborting — still on login page")
+                    # Save page HTML to gist for diagnosis
+                    try:
+                        html_content = page.content()
+                        if gist_id and token:
+                            requests.patch(
+                                f"https://api.github.com/gists/{gist_id}",
+                                headers={"Authorization": f"token {token}"},
+                                json={"files": {"debug_login.html": {"content": html_content[:80000]}}},
+                                timeout=15,
+                            )
+                            log.info("[browser] Saved login debug HTML to gist")
+                    except Exception as dbg_exc:
+                        log.warning("[browser] Could not save debug HTML: %s", dbg_exc)
                     browser.close()
                     return None
 
