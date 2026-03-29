@@ -408,39 +408,39 @@ def send_weekly_summary(username: str, password: str):
         sys.exit(1)
 
     today = datetime.now(AMS).date()
-    lines = []
+    day_names_nl = ["Ma", "Di", "Wo", "Do", "Vr", "Za", "Zo"]
+
+    # Collect all registered events for the coming week by scanning every day.
+    # This captures both auto-scheduled registrations and manual sign-ups/cancellations.
+    registered_events = []
     for offset in range(1, 8):
         d = today + timedelta(days=offset)
-        for weekday, time in SCHEDULE:
-            if d.weekday() != weekday:
-                continue
-            date_str = d.strftime("%Y-%m-%d")
+        date_str = d.strftime("%Y-%m-%d")
+        try:
             events = client.get_events(date_str)
-            event = find_event_at_time(events, time)
-            if not event:
+        except Exception as exc:
+            log.warning("Could not fetch events for %s: %s", date_str, exc)
+            continue
+        for event in events:
+            if not event.get("aangemeld", False) and not event.get("opWachtlijst", False):
                 continue
+            start = event.get("start", "")
+            time_str = start[11:16] if len(start) > 15 else "?"
             title = event.get("titel", "CrossFit WOD")
             spots = f"{event['aantalDeelnemers']}/{event['maxDeelnemers']}"
-            already = event.get("aangemeld", False)
             on_waitlist = event.get("opWachtlijst", False)
-            full = event["aantalDeelnemers"] >= event["maxDeelnemers"]
+            status = "⏳ wachtlijst" if on_waitlist else "✅ ingeschreven"
+            day_name_nl = day_names_nl[d.weekday()]
+            registered_events.append((d, time_str, f"{day_name_nl} {d.strftime('%d/%m')} {time_str} — {title} ({spots}) {status}"))
 
-            if already:
-                status = "✅ ingeschreven"
-            elif on_waitlist:
-                status = "⏳ wachtlijst"
-            elif full:
-                status = "🔴 vol"
-            else:
-                status = "🟢 open"
-
-            day_name_nl = ["Ma", "Di", "Wo", "Do", "Vr", "Za", "Zo"][d.weekday()]
-            lines.append(f"{day_name_nl} {d.strftime('%d/%m')} {time} — {title} ({spots}) {status}")
-
-    if not lines:
-        log.info("Geen lessen gevonden voor de komende week.")
+    if not registered_events:
+        log.info("Geen inschrijvingen gevonden voor de komende week.")
+        message = "Komende week: geen inschrijvingen."
+        send_pushover_notification_summary(message)
         return
 
+    registered_events.sort(key=lambda x: (x[0], x[1]))
+    lines = [line for _, _, line in registered_events]
     message = "Komende week:\n" + "\n".join(lines)
     log.info("Weekly summary:\n%s", message)
     send_pushover_notification_summary(message)
