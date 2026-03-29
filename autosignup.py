@@ -500,6 +500,8 @@ def run(username: str, password: str, dry_run: bool, days_ahead: int, sync_calen
     # First pass: fetch events and detect manual cancellations.
     # Scan BOTH upcoming slots AND recent past scheduled days (last 14 days)
     # so that late cancellations for already-passed classes are picked up.
+    today = datetime.now(AMS).date()
+
     if state:
         all_events = []
         scheduled_weekdays = {weekday for weekday, _ in SCHEDULE}
@@ -598,7 +600,6 @@ def run(username: str, password: str, dry_run: bool, days_ahead: int, sync_calen
         state.batch_update_capacity(capacity_updates)
 
     # Scan non-scheduled days for manual enrollments
-    today = datetime.now(AMS).date()
     scheduled_weekdays = {weekday for weekday, _ in SCHEDULE}
     for offset in range(1, days_ahead + 1):
         d = today + timedelta(days=offset)
