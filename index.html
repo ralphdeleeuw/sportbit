@@ -626,9 +626,17 @@
       flex: 1;
     }
 
+    .pr-result {
+      font-family: 'Bebas Neue', sans-serif;
+      font-size: 1.05rem;
+      color: var(--accent);
+      letter-spacing: 0.04em;
+      flex-shrink: 0;
+    }
+
     .pr-notes {
-      font-size: 0.78rem;
-      color: #a0b880;
+      font-size: 0.75rem;
+      color: var(--muted);
       flex: 2;
     }
 
@@ -1728,7 +1736,8 @@
             const dateLabel = pr.date ? formatPrDate(pr.date) : '—';
             html += `<div class="pr-item" style="animation-delay:${i * 0.03}s">
               <div class="pr-workout">${escapeHtml(pr.workout)}</div>
-              <div class="pr-notes">${escapeHtml(pr.notes || '')}</div>
+              ${pr.result ? `<div class="pr-result">${escapeHtml(pr.result)}</div>` : ''}
+              ${pr.notes ? `<div class="pr-notes">${escapeHtml(pr.notes)}</div>` : ''}
               <div class="pr-date">${dateLabel}</div>
             </div>`;
           });

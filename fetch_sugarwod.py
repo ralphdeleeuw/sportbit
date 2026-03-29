@@ -937,9 +937,10 @@ def fetch_all_workouts_playwright(
                         )
                         for r in arr:
                             personal_records.append({
-                                "workout": r.get("workout") or r.get("workout_name") or r.get("name") or r.get("title") or "",
-                                "date": str(r.get("date") or r.get("achieved_at") or r.get("performed_at") or ""),
-                                "notes": str(r.get("notes") or r.get("result") or r.get("score") or ""),
+                                "workout": r.get("workoutTitle") or r.get("workout") or r.get("workout_name") or r.get("name") or r.get("title") or "",
+                                "date": str(r.get("dateInt") or r.get("date") or r.get("achieved_at") or r.get("performed_at") or ""),
+                                "result": str(r.get("bestResultDisplayString") or r.get("bestResult") or r.get("result") or r.get("score") or ""),
+                                "notes": str(r.get("notes") or ""),
                             })
                         if personal_records:
                             break
@@ -963,9 +964,10 @@ def fetch_all_workouts_playwright(
                             log.info("[browser] Shape-matched PR data from %s (%d items)", item["url"], len(arr))
                             for r in arr:
                                 personal_records.append({
-                                    "workout": r.get("workout") or r.get("workout_name") or r.get("name") or r.get("title") or r.get("exercise") or "",
-                                    "date": str(r.get("date") or r.get("achieved_at") or r.get("performed_at") or ""),
-                                    "notes": str(r.get("notes") or r.get("result") or r.get("score") or ""),
+                                    "workout": r.get("workoutTitle") or r.get("workout") or r.get("workout_name") or r.get("name") or r.get("title") or r.get("exercise") or "",
+                                    "date": str(r.get("dateInt") or r.get("date") or r.get("achieved_at") or r.get("performed_at") or ""),
+                                    "result": str(r.get("bestResultDisplayString") or r.get("bestResult") or r.get("result") or r.get("score") or ""),
+                                    "notes": str(r.get("notes") or ""),
                                 })
                             if personal_records:
                                 break
