@@ -368,6 +368,14 @@
 
     .card-date.cancelled-date { color: var(--accent2); }
 
+    .card-relative-day {
+      font-size: 0.65rem;
+      color: var(--muted);
+      text-align: right;
+      letter-spacing: 0.03em;
+      margin-top: 2px;
+    }
+
     /* Empty / loading states */
     .empty {
       text-align: center;
@@ -1146,6 +1154,17 @@
       return `${DAY_NL[d.getDay()]} ${d.getDate()} ${MONTH_NL[d.getMonth()]}`;
     }
 
+    function relativeDay(dateStr) {
+      const today = new Date(); today.setHours(0,0,0,0);
+      const d = new Date(dateStr + 'T00:00:00');
+      const diff = Math.round((d - today) / 86400000);
+      if (diff === 0) return 'vandaag';
+      if (diff === 1) return 'morgen';
+      if (diff === -1) return 'gisteren';
+      if (diff > 1) return `over ${diff} dagen`;
+      return `${Math.abs(diff)} dagen geleden`;
+    }
+
     function isUpcoming(dateStr, timeStr) {
       const classStart = new Date(dateStr + 'T' + (timeStr || '00:00') + ':00');
       return classStart > new Date();
@@ -1181,6 +1200,7 @@
                 </div>
                 <div class="card-right">
                   <div class="card-date">${formatDate(item.date)}</div>
+                  <div class="card-relative-day">${relativeDay(item.date)}</div>
                   <div class="wod-chevron">▾</div>
                 </div>
               </div>
@@ -1196,7 +1216,10 @@
             <div class="card-title">${item.title}</div>
             ${metaHtml}
           </div>
-          <div class="card-date ${cancelled ? 'cancelled-date' : ''}">${formatDate(item.date)}</div>
+          <div class="card-right">
+            <div class="card-date ${cancelled ? 'cancelled-date' : ''}">${formatDate(item.date)}</div>
+            <div class="card-relative-day">${relativeDay(item.date)}</div>
+          </div>
         </div>`;
     }
 
@@ -1469,6 +1492,7 @@
               </div>
               <div class="card-right">
                 <div class="card-date">${formatDate(item.date)}</div>
+                <div class="card-relative-day">${relativeDay(item.date)}</div>
                 <div class="wod-chevron">▾</div>
               </div>
             </div>
