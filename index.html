@@ -1157,10 +1157,8 @@
 
     function renderCard(item, type, delay, wods) {
       const cancelled = type === 'cancelled';
-      const capacityBadge = !cancelled ? renderCapacityBadge(item.date, item.time) : '';
       const metaHtml = `<div class="card-meta">
         <span>${item.time}</span>
-        ${capacityBadge}
         ${cancelled ? `<span>Uitgeschreven op ${item.cancelled_at?.slice(0, 10) ?? '—'}</span>` : ''}
         ${!cancelled && item.signed_up_at ? `<span>Ingeschreven op ${item.signed_up_at.slice(0, 10)}</span>` : ''}
       </div>`;
