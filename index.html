@@ -298,6 +298,25 @@
       background: var(--border);
     }
 
+    .section-title.collapsible {
+      cursor: pointer;
+      user-select: none;
+    }
+    .section-title.collapsible::before {
+      content: '▸';
+      font-size: 0.8rem;
+      color: var(--muted);
+      transition: transform 0.2s;
+      display: inline-block;
+      width: 1em;
+      flex-shrink: 0;
+    }
+    .section-title.collapsible.open::before {
+      transform: rotate(90deg);
+    }
+    .collapsible-body { display: none; }
+    .collapsible-body.open { display: block; }
+
     /* Cards */
     .cards {
       display: flex;
@@ -1582,6 +1601,11 @@
       }).join('');
     }
 
+    function toggleSection(titleEl) {
+      titleEl.classList.toggle('open');
+      titleEl.nextElementSibling.classList.toggle('open');
+    }
+
     function toggleWod(card) {
       const wod = card.querySelector('.card-wod');
       wod.style.display = wod.style.display === 'block' ? 'none' : 'block';
@@ -1672,10 +1696,13 @@
         }
         html += `</div>`;
 
-        // Cancelled
-        if (cancelled.length > 0) {
+        // Cancelled — only today + next 8 days
+        const todayStr = new Date().toISOString().slice(0, 10);
+        const maxDateStr = (() => { const d = new Date(); d.setDate(d.getDate() + 8); return d.toISOString().slice(0, 10); })();
+        const recentCancelled = cancelled.filter(e => e.date >= todayStr && e.date <= maxDateStr);
+        if (recentCancelled.length > 0) {
           html += `<div class="section-title">Uitgeschreven</div><div class="cards">`;
-          cancelled.forEach((e, i) => html += renderCard(e, 'cancelled', i * 0.05));
+          recentCancelled.forEach((e, i) => html += renderCard(e, 'cancelled', i * 0.05));
           html += `</div>`;
         }
 
@@ -1688,7 +1715,7 @@
 
         // Barbell progressie (table + chart)
         if (Object.keys(barbellLifts).length > 0) {
-          html += renderBarbellSection();
+          html += `<div class="section-title collapsible" onclick="toggleSection(this)">Kracht</div><div class="collapsible-body">${renderBarbellSection()}</div>`;
         }
 
         // Personal Records
@@ -1696,7 +1723,7 @@
           const sorted = [...personalRecords].sort((a, b) =>
             (b.date || '').localeCompare(a.date || '')
           );
-          html += `<div class="section-title">Persoonlijke Records</div><div class="pr-list">`;
+          html += `<div class="section-title collapsible" onclick="toggleSection(this)">Persoonlijke Records</div><div class="collapsible-body pr-list">`;
           sorted.forEach((pr, i) => {
             const dateLabel = pr.date ? formatPrDate(pr.date) : '—';
             html += `<div class="pr-item" style="animation-delay:${i * 0.03}s">
@@ -1710,7 +1737,7 @@
 
         // Benchmark Workouts
         if (benchmarkWorkouts.length > 0) {
-          html += `<div class="section-title">Benchmark Workouts</div>` + renderBenchmarks(benchmarkWorkouts);
+          html += `<div class="section-title collapsible" onclick="toggleSection(this)">Benchmark Workouts</div><div class="collapsible-body">` + renderBenchmarks(benchmarkWorkouts) + `</div>`;
         }
 
         content.innerHTML = html;
