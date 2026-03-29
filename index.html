@@ -1728,6 +1728,7 @@
 
         // Personal Records
         if (personalRecords.length > 0) {
+          console.log('[PR debug] first 3 records:', JSON.stringify(personalRecords.slice(0, 3), null, 2));
           const sorted = [...personalRecords].sort((a, b) =>
             (b.date || '').localeCompare(a.date || '')
           );
