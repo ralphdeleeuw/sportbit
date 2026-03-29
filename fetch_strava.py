@@ -66,13 +66,17 @@ def fetch_strava_data(days: int = 14) -> dict | None:
                     "name": str,
                     "type": str,
                     "duration_min": int,
+                    "elapsed_min": int | None,
                     "avg_hr": float | None,
                     "max_hr": float | None,
                     "calories": float | None,
                     "distance_m": float | None,
+                    "suffer_score": float | None,
+                    "perceived_exertion": float | None,
                 }
             ]
         }
+        hr_zones: lijst van {"min": int, "max": int} (Z1–Z5, -1 = onbeperkt)
         fetched_at: ISO8601 timestamp
 
     Retourneert None als de secrets niet geconfigureerd zijn of bij een fout.
@@ -133,20 +137,41 @@ def fetch_strava_data(days: int = 14) -> dict | None:
         if not date_str:
             continue
 
+        elapsed_raw = act.get("elapsed_time")
+        elapsed_min = round(elapsed_raw / 60) if elapsed_raw else None
+        duration_min = round((act.get("moving_time") or 0) / 60)
         entry = {
             "date": date_str,
             "activity_id": act.get("id"),
             "name": act.get("name", ""),
             "type": act.get("sport_type") or act.get("type", ""),
-            "duration_min": round((act.get("moving_time") or 0) / 60),
+            "duration_min": duration_min,
+            "elapsed_min": elapsed_min if elapsed_min and elapsed_min != duration_min else None,
             "avg_hr": act.get("average_heartrate"),
             "max_hr": act.get("max_heartrate"),
             "calories": act.get("calories"),
             "distance_m": act.get("distance") or None,
+            "suffer_score": act.get("suffer_score"),
+            "perceived_exertion": act.get("perceived_exertion"),
         }
         activities_by_date.setdefault(date_str, []).append(entry)
 
+    # ── 4. Haal hartslagzones op ──────────────────────────────────────────
+    hr_zones: list[dict] = []
+    try:
+        resp = requests.get(
+            "https://www.strava.com/api/v3/athlete/zones",
+            headers=headers,
+            timeout=30,
+        )
+        resp.raise_for_status()
+        hr_zones = resp.json().get("heart_rate", {}).get("zones", [])
+        log.info("Strava: %d hartslagzones opgehaald", len(hr_zones))
+    except Exception as exc:
+        log.warning("Strava: hartslagzones ophalen mislukt: %s", exc)
+
     return {
         "activities_by_date": activities_by_date,
+        "hr_zones": hr_zones,
         "fetched_at": datetime.now(timezone.utc).isoformat(),
     }

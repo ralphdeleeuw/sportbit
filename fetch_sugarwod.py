@@ -1759,12 +1759,18 @@ def generate_recovery_advice(
                 dur = act.get("duration_min")
                 cal = act.get("calories")
                 act_name = act.get("name", "")
+                suffer = act.get("suffer_score")
+                rpe = act.get("perceived_exertion")
+                elapsed = act.get("elapsed_min")
                 strava_line = (
                     f"  ↳ Strava: {dur}min"
+                    + (f" (totaal {elapsed}min)" if elapsed else "")
                     + (f" ({act_name})" if act_name else "")
                     + (f", gem.HR {avg_hr:.0f} bpm" if avg_hr else "")
                     + (f", max.HR {max_hr:.0f} bpm" if max_hr else "")
                     + (f", {cal:.0f} kcal" if cal else "")
+                    + (f", RE {suffer:.0f}" if suffer else "")
+                    + (f", RPE {rpe}" if rpe else "")
                 )
                 past_text += strava_line + "\n"
     log.info("Strava matching: %d van %d WODs gematcht aan Strava-activiteit", matched_strava, len(past_workouts))
@@ -1860,6 +1866,18 @@ def generate_recovery_advice(
                 + "\n"
             )
 
+    hr_zones_raw = (strava_data or {}).get("hr_zones", [])
+    _zone_names = ["Z1 Herstel", "Z2 Duurzaam", "Z3 Tempo", "Z4 Drempel", "Z5 Anaeroob"]
+    if hr_zones_raw:
+        _zone_lines = []
+        for _i, _z in enumerate(hr_zones_raw[:5]):
+            _label = _zone_names[_i] if _i < len(_zone_names) else f"Z{_i + 1}"
+            _max = _z.get("max", -1)
+            _zone_lines.append(f"  {_label}: {_z['min']}–{'∞' if _max == -1 else _max} bpm")
+        hr_zones_text = "\nHartslagzones atleet:\n" + "\n".join(_zone_lines) + "\n"
+    else:
+        hr_zones_text = ""
+
     prompt = f"""Je bent een ervaren CrossFit coach. Geef een kort, persoonlijk hersteladvies voor vandaag.
 
 Vandaag is: {today_str}
@@ -1876,8 +1894,9 @@ Gewichtnotatie: Als gewichten genoteerd zijn als "X/Y lbs" of "X/Y kg", gebruik 
 
 Afgelopen CrossFit-boxsessies die de atleet DAADWERKELIJK heeft gevolgd (meest recent eerst).
 Dit zijn allemaal echte CrossFit WODs — ook als de WOD-beschrijving ontbreekt of leeg is.
-Waar beschikbaar is Strava-data (↳) toegevoegd: hartslag, duur en calorieën.
+Waar beschikbaar is Strava-data (↳) toegevoegd: hartslag, duur, calorieën, Relative Effort (RE) en RPE.
 Gebruik dit om de werkelijke intensiteit te beoordelen, NIET alleen de WOD-beschrijving:
+{hr_zones_text}
 {past_text if past_text.strip() else "Geen recente trainingen bekend."}
 
 Volgende workout:

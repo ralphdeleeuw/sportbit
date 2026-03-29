@@ -1597,14 +1597,17 @@
       const acts = (stravaData.activities_by_date || {})[date];
       if (!acts || acts.length === 0) return '';
       return acts.map(act => {
-        const dur   = act.duration_min ? `<span class="strava-stat"><strong>${act.duration_min}</strong> min</span>` : '';
-        const hr    = act.avg_hr   ? `<span class="strava-stat">gem.HR <strong>${Math.round(act.avg_hr)}</strong> bpm</span>` : '';
-        const hrMax = act.max_hr   ? `<span class="strava-stat">max.HR <strong>${Math.round(act.max_hr)}</strong> bpm</span>` : '';
-        const cal   = act.calories ? `<span class="strava-stat"><strong>${Math.round(act.calories)}</strong> kcal</span>` : '';
-        const name  = act.name     ? ` — ${act.name}` : '';
+        const dur     = act.duration_min ? `<span class="strava-stat"><strong>${act.duration_min}</strong> min</span>` : '';
+        const elapsed = act.elapsed_min  ? `<span class="strava-stat">totaal <strong>${act.elapsed_min}</strong> min</span>` : '';
+        const hr      = act.avg_hr   ? `<span class="strava-stat">gem.HR <strong>${Math.round(act.avg_hr)}</strong> bpm</span>` : '';
+        const hrMax   = act.max_hr   ? `<span class="strava-stat">max.HR <strong>${Math.round(act.max_hr)}</strong> bpm</span>` : '';
+        const cal     = act.calories ? `<span class="strava-stat"><strong>${Math.round(act.calories)}</strong> kcal</span>` : '';
+        const suffer  = act.suffer_score       ? `<span class="strava-stat">RE <strong>${Math.round(act.suffer_score)}</strong></span>` : '';
+        const rpe     = act.perceived_exertion ? `<span class="strava-stat">RPE <strong>${act.perceived_exertion}</strong></span>` : '';
+        const name    = act.name ? ` — ${act.name}` : '';
         return `<div class="strava-block">
           <div class="strava-block-label">Strava${name}</div>
-          ${dur}${hr}${hrMax}${cal}
+          ${dur}${elapsed}${hr}${hrMax}${cal}${suffer}${rpe}
         </div>`;
       }).join('');
     }
