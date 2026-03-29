@@ -879,9 +879,11 @@ def fetch_all_workouts_playwright(
                             for r in results:
                                 name = r.get("name") or r.get("title") or ""
                                 if name:
+                                    # API returns rep1PR/rep2PR/rep3PR/rep4PR/rep5PR
                                     barbell_lifts[name] = {
-                                        k: r[k] for k in ("1RM", "2RM", "3RM", "5RM")
-                                        if r.get(k)
+                                        f"{n}RM": r[f"rep{n}PR"]
+                                        for n in (1, 2, 3, 4, 5)
+                                        if r.get(f"rep{n}PR")
                                     }
                         break
                 # Fall back to DOM parsing if XHR didn't yield usable data
@@ -927,7 +929,7 @@ def fetch_all_workouts_playwright(
                 # Strategy 1: URL-keyword match
                 for item in all_captured_for_prs:
                     url_lower = item["url"].lower()
-                    if any(k in url_lower for k in ("personal_record", "/prs", "/pr", "athlete_pr")):
+                    if any(k in url_lower for k in ("personal_record", "/prs", "prsonly", "athlete_pr")):
                         log.info("[browser] PR data found by URL: %s", item["url"])
                         data = item["data"]
                         arr = data if isinstance(data, list) else (
