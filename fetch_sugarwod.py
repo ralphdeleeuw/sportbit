@@ -978,8 +978,6 @@ def fetch_all_workouts_playwright(
                     personal_records = _extract_prs_from_page(page)
 
                 log.info("[browser] Extracted %d personal records", len(personal_records))
-                if personal_records:
-                    log.info("[browser] First PR item: %s", personal_records[0])
             except Exception as exc:
                 log.warning("[browser] Personal records fetch failed: %s", exc)
 
