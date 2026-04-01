@@ -1216,6 +1216,7 @@
 
       if (wods && wods.length > 0) {
         const sections = renderWodSections(wods, item.date);
+        const envBadge = !cancelled ? renderEnvBadge(item.date) : '';
         return `
           <div class="card has-wod" style="animation-delay:${delay}s" onclick="toggleWod(this)">
             <div class="card-dot dot-active"></div>
@@ -1224,6 +1225,7 @@
                 <div class="card-header-left">
                   <div class="card-title">${item.title}</div>
                   ${metaHtml}
+                  ${envBadge}
                 </div>
                 <div class="card-right">
                   <div class="card-date">${formatDate(item.date)}</div>
@@ -1266,10 +1268,13 @@
     let benchmarkWorkouts = [];
     let workoutLog = {};   // {date: entry} from workout_log.json
     let stravaData = null; // Strava activiteiten data
-    let healthInput = {}; // Subjectieve hersteldata {slaap, energie, spierpijn}
-    let healthHistory = []; // [{date, slaap, energie, spierpijn}]
+    let healthInput = {}; // Subjectieve hersteldata {slaap, energie, spierpijn, stress}
+    let healthHistory = []; // [{date, slaap, energie, spierpijn, stress}]
     let classCapacity = {}; // {"YYYY-MM-DD_HH:MM": {current, max, checked_at}}
     let keukenbaasData = null; // {meals: [...], fetched_at}
+    let ouraData = null;        // {by_date: {...}, fetched_at}
+    let withingsData = null;    // {measurements: [...], fetched_at}
+    let environmentalData = null; // {training_conditions: {...}, aqi: {...}, fetched_at}
     let activeChartLift = null;
     let liftChart = null;
     let currentGistId = '';
@@ -1318,6 +1323,9 @@
           personalRecords = data.personal_records || [];
           benchmarkWorkouts = data.benchmark_workouts || [];
           stravaData = data.strava_data || null;
+          ouraData = data.oura_data || null;
+          withingsData = data.withings_data || null;
+          environmentalData = data.environmental_data || null;
 
           const bsEl = document.getElementById('barbellStatus');
           if (bsEl) {
@@ -1687,6 +1695,8 @@
 
         // Health input + recovery coach
         html += renderHealthInputBlock();
+        html += renderOuraBlock();
+        html += renderWithingsBlock();
         if (recoveryAdvice) {
           html += `<div class="recovery-block">
             <div class="recovery-block-label">Coach Advies Vandaag</div>
@@ -2030,6 +2040,7 @@
       const slaap   = healthInput.slaap    != null ? healthInput.slaap    : 3;
       const energie = healthInput.energie  != null ? healthInput.energie  : 3;
       const pijn    = healthInput.spierpijn != null ? healthInput.spierpijn : 3;
+      const stress  = healthInput.stress   != null ? healthInput.stress   : 3;
 
       return `<div class="health-input-block">
         <div class="health-input-label">Herstel vandaag</div>
@@ -2055,6 +2066,13 @@
             <span class="health-slider-val" id="valSpierpijn">${pijn}</span>
           </div>
           ${healthTrendPips('spierpijn')}
+          <div class="health-slider-row">
+            <span class="health-slider-name">Stress</span>
+            <input type="range" id="sliderStress" min="1" max="5" step="1" value="${stress}"
+              oninput="document.getElementById('valStress').textContent=this.value">
+            <span class="health-slider-val" id="valStress">${stress}</span>
+          </div>
+          ${healthTrendPips('stress')}
         </div>
         <div class="health-save-row">
           <button class="health-save-btn" onclick="saveHealthInput()">Opslaan</button>
@@ -2077,9 +2095,10 @@
       const slaap     = parseInt(document.getElementById('sliderSlaap').value);
       const energie   = parseInt(document.getElementById('sliderEnergie').value);
       const spierpijn = parseInt(document.getElementById('sliderSpierpijn').value);
+      const stress    = parseInt(document.getElementById('sliderStress').value);
 
       // Build updated history: keep existing entries, replace/add today
-      const todayEntry = { date: today, slaap, energie, spierpijn };
+      const todayEntry = { date: today, slaap, energie, spierpijn, stress };
       const updatedHistory = [
         ...(healthHistory || []).filter(h => h.date !== today),
         todayEntry,
@@ -2090,6 +2109,7 @@
         slaap,
         energie,
         spierpijn,
+        stress,
         updated_at: new Date().toISOString(),
         history: updatedHistory,
       };
@@ -2102,7 +2122,7 @@
           body: JSON.stringify({ files: { 'health_input.json': { content: JSON.stringify(data, null, 2) } } }),
         });
         if (!resp.ok) throw new Error(`${resp.status}`);
-        healthInput = data;
+        healthInput = { ...data };
         healthHistory = updatedHistory;
         if (statusEl) { statusEl.textContent = '✓ Opgeslagen'; statusEl.className = 'health-save-status ok'; }
       } catch(e) {
@@ -2111,6 +2131,93 @@
     }
 
     // ── end health input helpers ──────────────────────────────────────────
+
+    // ── Oura Ring widget ─────────────────────────────────────────────────
+    function renderOuraBlock() {
+      if (!ouraData || !ouraData.by_date) return '';
+      const today = new Date().toISOString().slice(0, 10);
+      const yesterday = (() => { const d = new Date(); d.setDate(d.getDate() - 1); return d.toISOString().slice(0, 10); })();
+      const entry = ouraData.by_date[today] || ouraData.by_date[yesterday];
+      if (!entry) return '';
+
+      const score = entry.readiness_score;
+      const hrv   = entry.average_hrv;
+      const rhr   = entry.resting_hr;
+      const deep  = entry.deep_sleep_min;
+      const rem   = entry.rem_sleep_min;
+
+      if (score == null && hrv == null) return '';
+
+      const scoreColor = score >= 70 ? '#2ecc71' : score >= 50 ? '#f39c12' : '#e74c3c';
+      const scoreBadge = score != null
+        ? `<span class="oura-score-badge" style="background:${scoreColor}">${score}</span>`
+        : '';
+
+      const details = [];
+      if (hrv != null) details.push(`HRV ${Math.round(hrv)} ms`);
+      if (rhr != null) details.push(`rustpols ${rhr} bpm`);
+      if (deep != null && rem != null) details.push(`slaap: ${deep}min deep / ${rem}min REM`);
+
+      return `<div class="oura-block">
+        <div class="oura-block-label">Oura Readiness ${scoreBadge}</div>
+        ${details.length ? `<div class="oura-block-details">${details.join(' · ')}</div>` : ''}
+      </div>`;
+    }
+
+    // ── Withings widget ──────────────────────────────────────────────────
+    function renderWithingsBlock() {
+      if (!withingsData || !withingsData.measurements || withingsData.measurements.length === 0) return '';
+      const latest = withingsData.measurements[0];
+      const prev   = withingsData.measurements[1];
+
+      const weight = latest.weight_kg;
+      if (weight == null) return '';
+
+      let trendHtml = '';
+      if (prev && prev.weight_kg != null) {
+        const delta = Math.round((weight - prev.weight_kg) * 10) / 10;
+        if (delta !== 0) {
+          const arrow = delta > 0 ? '↑' : '↓';
+          const color = delta > 0 ? '#e74c3c' : '#2ecc71';
+          trendHtml = `<span style="color:${color};margin-left:4px">${arrow} ${Math.abs(delta)}kg</span>`;
+        }
+      }
+
+      const details = [];
+      if (latest.fat_pct != null)    details.push(`vet ${latest.fat_pct}%`);
+      if (latest.muscle_kg != null)  details.push(`spier ${latest.muscle_kg}kg`);
+      if (latest.hydration_pct != null) details.push(`hydratatie ${latest.hydration_pct}%`);
+
+      return `<div class="withings-block">
+        <div class="withings-block-label">Withings — ${weight}kg${trendHtml} <span class="withings-date">${latest.date}</span></div>
+        ${details.length ? `<div class="withings-block-details">${details.join(' · ')}</div>` : ''}
+      </div>`;
+    }
+
+    // ── Environmental widget (gebruikt in renderCard via renderEnvBadge) ─
+    function renderEnvBadge(dateStr) {
+      if (!environmentalData) return '';
+      const cond = (environmentalData.training_conditions || {})[dateStr];
+      const aqi  = environmentalData.aqi;
+      if (!cond && !aqi) return '';
+
+      const parts = [];
+      if (cond) {
+        parts.push(`${Math.round(cond.temp_c)}°C`);
+        if (cond.feels_like_c != null && Math.abs(cond.feels_like_c - cond.temp_c) >= 2) {
+          parts.push(`(voelt ${Math.round(cond.feels_like_c)}°C)`);
+        }
+        parts.push(cond.weather_desc);
+        if (cond.humidity_pct != null) parts.push(`${cond.humidity_pct}% vochtig`);
+      }
+      if (aqi) {
+        const aqiColor = aqi.value <= 50 ? '#2ecc71' : aqi.value <= 100 ? '#f39c12' : '#e74c3c';
+        parts.push(`<span class="aqi-badge" style="background:${aqiColor}">AQI ${aqi.value}</span>`);
+      }
+      return parts.length ? `<div class="env-badge">${parts.join(' · ')}</div>` : '';
+    }
+
+    // ── end Oura/Withings/Environmental helpers ──────────────────────────
 
     // ── Keukenbaas meals ─────────────────────────────────────────────────
 
