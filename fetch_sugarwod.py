@@ -22,7 +22,7 @@ import json
 import logging
 import os
 import time
-from datetime import datetime, timedelta, timezone
+from datetime import date as date_cls, datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
 
 import requests
@@ -1573,7 +1573,6 @@ def _training_time_context(date_str: str, signed_up_times: dict[str, str] | None
     Uses actual sign-up time from the Gist state when available, falls back to
     TRAINING_SCHEDULE (static weekday defaults) otherwise.
     """
-    from datetime import date as date_cls
     try:
         d = date_cls.fromisoformat(date_str)
     except ValueError:
@@ -1620,6 +1619,72 @@ def _training_time_context(date_str: str, signed_up_times: dict[str, str] | None
             "De atleet heeft al gegeten voor de training; de maaltijdkeuze is minder kritisch voor direct herstel."
         )
     return f"\nTrainingstijdstip: {time_str}. {meal_relation}"
+
+
+def _compute_acwr(strava_data: dict | None) -> dict | None:
+    """Compute a 7:14 Acute:Chronic Workload Ratio from Strava suffer scores.
+
+    Uses the 14-day Strava window: acute = last 7 days, chronic = last 14 days.
+    Returns None if insufficient data.
+    """
+    if not strava_data:
+        return None
+    activities_by_date = strava_data.get("activities_by_date") or {}
+    if len(activities_by_date) < 4:
+        return None
+    today = date_cls.today()
+    acute_total = 0.0
+    chronic_total = 0.0
+    for i in range(14):
+        d = (today - timedelta(days=i)).isoformat()
+        day_score = sum((a.get("suffer_score") or 0) for a in activities_by_date.get(d, []))
+        chronic_total += day_score
+        if i < 7:
+            acute_total += day_score
+    acute_avg = acute_total / 7
+    chronic_avg = chronic_total / 14
+    if chronic_avg == 0:
+        return None
+    ratio = round(acute_avg / chronic_avg, 2)
+    if ratio < 0.8:
+        status = "onderbelast"
+    elif ratio <= 1.3:
+        status = "optimale zone"
+    elif ratio <= 1.5:
+        status = "hoge belasting — extra herstel gewenst"
+    else:
+        status = "overbelasting — blessurerisico verhoogd"
+    return {
+        "acute_7d": round(acute_avg, 1),
+        "chronic_14d": round(chronic_avg, 1),
+        "ratio": ratio,
+        "status": status,
+    }
+
+
+def _compute_barbell_trends(history: list[dict], current: dict) -> dict[str, float]:
+    """Compare current 1RMs to the closest snapshot from ~4 weeks ago.
+
+    Returns a dict of {lift_name: delta_kg} for lifts that changed.
+    """
+    if not history or not current:
+        return {}
+    today = date_cls.today()
+    target_date = (today - timedelta(weeks=4)).isoformat()
+    past_snapshots = [h for h in history if h.get("date", "") <= target_date]
+    if not past_snapshots:
+        past_snapshots = sorted(history, key=lambda h: h.get("date", ""))[:1]
+    if not past_snapshots:
+        return {}
+    past = max(past_snapshots, key=lambda h: h.get("date", ""))
+    past_lifts = past.get("lifts", {})
+    trends: dict[str, float] = {}
+    for lift, maxes in current.items():
+        c1rm = maxes.get("1RM")
+        p1rm = (past_lifts.get(lift) or {}).get("1RM")
+        if c1rm and p1rm and c1rm != p1rm:
+            trends[lift] = round(c1rm - p1rm, 1)
+    return trends
 
 
 # ──────────────────────────────────────────────────────────────
@@ -1702,12 +1767,16 @@ def generate_recovery_advice(
     upcoming_workout: dict | None,
     barbell_lifts: dict,
     athlete_profile: dict,
-    today: "date | None" = None,
+    today: "date_cls | None" = None,
     meals: list[dict] | None = None,
     strava_data: "dict | None" = None,
     health_input: "dict | None" = None,
     signed_up_times: dict[str, str] | None = None,
     health_history: list[dict] | None = None,
+    previous_advice: list[dict] | None = None,
+    barbell_history: list[dict] | None = None,
+    personal_records: list[dict] | None = None,
+    benchmark_workouts: list[dict] | None = None,
 ) -> str:
     """
     Generate a daily recovery/intensity advice based on recent workouts and
@@ -1760,6 +1829,13 @@ def generate_recovery_advice(
                 suffer = act.get("suffer_score")
                 rpe = act.get("perceived_exertion")
                 elapsed = act.get("elapsed_min")
+                dist_m = act.get("distance_m")
+                pace_str = ""
+                if dist_m and dur and dur > 0:
+                    pace_sec_per_km = (dur * 60) / (dist_m / 1000)
+                    pace_min = int(pace_sec_per_km // 60)
+                    pace_sec = int(pace_sec_per_km % 60)
+                    pace_str = f", {dist_m / 1000:.2f}km @ {pace_min}:{pace_sec:02d}/km"
                 strava_line = (
                     f"  ↳ Strava: {dur}min"
                     + (f" (totaal {elapsed}min)" if elapsed else "")
@@ -1769,6 +1845,7 @@ def generate_recovery_advice(
                     + (f", {cal:.0f} kcal" if cal else "")
                     + (f", RE {suffer:.0f}" if suffer else "")
                     + (f", RPE {rpe}" if rpe else "")
+                    + pace_str
                 )
                 past_text += strava_line + "\n"
     log.info("Strava matching: %d van %d WODs gematcht aan Strava-activiteit", matched_strava, len(past_workouts))
@@ -1876,6 +1953,62 @@ def generate_recovery_advice(
     else:
         hr_zones_text = ""
 
+    # ACWR trainingsbelasting
+    acwr = _compute_acwr(strava_data)
+    if acwr:
+        acwr_text = (
+            f"\nTrainingsbelasting (ACWR 7:14 dagen): ratio={acwr['ratio']} — {acwr['status']}"
+            f" (acuut gem. RE/dag: {acwr['acute_7d']}, chronisch: {acwr['chronic_14d']})\n"
+        )
+    else:
+        acwr_text = ""
+
+    # Krachtontwikkeling vs. 4 weken geleden
+    barbell_trend_text = ""
+    if barbell_history and barbell_lifts:
+        trends = _compute_barbell_trends(barbell_history, barbell_lifts)
+        if trends:
+            pos = {l: d for l, d in trends.items() if d > 0}
+            neg = {l: d for l, d in trends.items() if d < 0}
+            parts = []
+            if pos:
+                parts.append("Gestegen: " + ", ".join(f"{l} +{d}kg" for l, d in sorted(pos.items())))
+            if neg:
+                parts.append("Gedaald: " + ", ".join(f"{l} {d}kg" for l, d in sorted(neg.items())))
+            barbell_trend_text = "\nKrachtontwikkeling t.o.v. ~4 weken geleden:\n" + "\n".join(f"  {p}" for p in parts) + "\n"
+
+    # Vorig advies (continuïteit)
+    prev_advice_text = ""
+    if previous_advice:
+        recent_advice = sorted(previous_advice, key=lambda h: h.get("date", ""), reverse=True)[:2]
+        if recent_advice:
+            prev_advice_text = "\nVorig coach-advies (ter referentie — check of patronen herhalen):\n"
+            for entry in reversed(recent_advice):
+                prev_advice_text += f"[{entry['date']}] {entry['advice']}\n"
+            prev_advice_text += "\n"
+
+    # Relevante PRs en benchmarks
+    pr_text = ""
+    if personal_records or benchmark_workouts:
+        pr_lines = []
+        if benchmark_workouts:
+            for bm in (benchmark_workouts or [])[:8]:
+                name = bm.get("name", "")
+                result = bm.get("result", "")
+                scaling = bm.get("scaling", "")
+                bdate = bm.get("date", "")
+                if name and result:
+                    pr_lines.append(f"  {name}: {result}" + (f" ({scaling})" if scaling else "") + (f" — {bdate}" if bdate else ""))
+        if personal_records:
+            for pr in (personal_records or [])[:5]:
+                wod = pr.get("workout", "")
+                result = pr.get("result", "")
+                pdate = pr.get("date", "")
+                if wod and result:
+                    pr_lines.append(f"  {wod}: {result}" + (f" — {pdate}" if pdate else ""))
+        if pr_lines:
+            pr_text = "\nPersoonlijke records & benchmarks (context voor intensiteitsadvies):\n" + "\n".join(pr_lines) + "\n"
+
     prompt = f"""Je bent een ervaren CrossFit coach. Geef een kort, persoonlijk hersteladvies voor vandaag.
 
 Vandaag is: {today_str}
@@ -1884,9 +2017,9 @@ Atleet: {athlete_profile['name']}, {athlete_profile['weight_kg']} kg, leeftijd 4
 Ervaring: {athlete_profile['experience']}
 Focusgebieden:
 {skill_focus_text}
-{health_block}
+{health_block}{acwr_text}
 Barbell maxima (kg):
-{barbell_text}
+{barbell_text}{barbell_trend_text}
 
 Gewichtnotatie: Als gewichten genoteerd zijn als "X/Y lbs" of "X/Y kg", gebruik dan altijd het eerste getal (X) — dat is het gewicht voor mannen.
 
@@ -1899,21 +2032,21 @@ Gebruik dit om de werkelijke intensiteit te beoordelen, NIET alleen de WOD-besch
 
 Volgende workout:
 {upcoming_text}{upcoming_timing_context}{meals_text}
-
+{pr_text}{prev_advice_text}
 Geef advies over:
-1. **Herstelniveau** — zijn er spiergroepen die extra rust nodig hebben op basis van de recente workouts?{"  Gebruik de subjectieve hersteldata (slaap, energie, spierpijn) als primaire fysiologische herstelIndicator. Gebruik de Strava workout-data (hartslag, duur) om de werkelijke trainingsbelasting per sessie te beoordelen." if health_input else ""}
+1. **Herstelniveau** — zijn er spiergroepen die extra rust nodig hebben op basis van de recente workouts?{"  Gebruik de subjectieve hersteldata (slaap, energie, spierpijn) als primaire fysiologische herstelIndicator. Gebruik de Strava workout-data (hartslag, duur) om de werkelijke trainingsbelasting per sessie te beoordelen." if health_input else ""}{"  De ACWR-ratio geeft de trainingsbelasting aan: check of er een patroon is met het vorige advies." if acwr else ""}
 2. **Intensiteitsadvies** — volledig gas geven, gecontroleerd trainen of bewust schalen vandaag?
 3. **Één concrete tip** voor de volgende workout rekening houdend met herstel (bijv. pacing, scaling keuze, specifieke beweging)
 4. **Voeding** — geef alleen dit onderdeel als maaltijdinformatie beschikbaar is: houd rekening met het trainingstijdstip (zie hierboven) — is de maaltijd een goede herstelmaaltijd (avondtraining) of pre-workout voorbereiding (ochtendtraining)? Één zin, alleen als relevant.
 
 Gebruik bij datumverwijzingen altijd de exacte datum (bijv. "donderdag 19 maart"), NOOIT vage termen als "gisteren" of "eergisteren".
-Wees direct, praktisch en bondig. Maximaal 180 woorden. Schrijf in het Nederlands. Geen inleiding."""
+Wees direct, praktisch en bondig. Maximaal 200 woorden. Schrijf in het Nederlands. Geen inleiding."""
 
     try:
         log.info("Generating recovery advice")
         message = client.messages.create(
             model="claude-sonnet-4-6",
-            max_tokens=400,
+            max_tokens=500,
             messages=[{"role": "user", "content": prompt}],
         )
         advice = message.content[0].text.strip()
@@ -1930,6 +2063,13 @@ def generate_workout_plans(
     athlete_profile: dict,
     meals: list[dict] | None = None,
     signed_up_times: dict[str, str] | None = None,
+    health_input: dict | None = None,
+    health_history: list[dict] | None = None,
+    strava_data: dict | None = None,
+    past_workouts: list[dict] | None = None,
+    workout_log: dict | None = None,
+    barbell_history: list[dict] | None = None,
+    personal_records: list[dict] | None = None,
 ) -> dict[str, str]:
     """
     Call the Claude API to generate a personalised execution plan for each
@@ -1956,6 +2096,72 @@ def generate_workout_plans(
         if barbell_lifts
         else "Niet beschikbaar"
     )
+
+    # Krachtontwikkeling t.o.v. ~4 weken geleden
+    barbell_trend_text = ""
+    if barbell_history and barbell_lifts:
+        trends = _compute_barbell_trends(barbell_history, barbell_lifts)
+        if trends:
+            pos = {l: d for l, d in trends.items() if d > 0}
+            neg = {l: d for l, d in trends.items() if d < 0}
+            parts = []
+            if pos:
+                parts.append("Gestegen: " + ", ".join(f"{l} +{d}kg" for l, d in sorted(pos.items())))
+            if neg:
+                parts.append("Gedaald: " + ", ".join(f"{l} {d}kg" for l, d in sorted(neg.items())))
+            barbell_trend_text = "\nKrachtontwikkeling t.o.v. ~4 weken geleden:\n" + "\n".join(f"  {p}" for p in parts) + "\n"
+
+    # Herstelstatus van de atleet (health scores + ACWR)
+    recovery_status_text = ""
+    if health_input:
+        slaap = health_input.get("slaap")
+        energie = health_input.get("energie")
+        spierpijn = health_input.get("spierpijn")
+        parts = []
+        if slaap is not None:
+            parts.append(f"slaap {slaap}/5")
+        if energie is not None:
+            parts.append(f"energie {energie}/5")
+        if spierpijn is not None:
+            parts.append(f"spierpijn {spierpijn}/5")
+        if parts:
+            recovery_status_text = "\nHuidige herstelstatus atleet: " + ", ".join(parts) + "\n"
+    acwr = _compute_acwr(strava_data)
+    if acwr:
+        recovery_status_text += (
+            f"Trainingsbelasting (ACWR 7:14d): ratio={acwr['ratio']} — {acwr['status']}"
+            f" (acuut: {acwr['acute_7d']} RE/dag, chronisch: {acwr['chronic_14d']} RE/dag)\n"
+        )
+
+    # Recente workout-lognotities (wat de atleet daadwerkelijk deed + gewichten)
+    recent_log_text = ""
+    if workout_log:
+        log_entries = sorted(
+            [(d, e) for d, e in workout_log.items()],
+            key=lambda x: x[0],
+            reverse=True,
+        )[:5]
+        if log_entries:
+            log_lines = []
+            for d, entry in reversed(log_entries):
+                notes = entry.get("notes", "")
+                wods_done = entry.get("workouts_done") or []
+                if notes or wods_done:
+                    wod_str = ", ".join(wods_done) if wods_done else ""
+                    log_lines.append(f"  {d}: {wod_str}" + (f" — {notes}" if notes else ""))
+            if log_lines:
+                recent_log_text = "\nRecente workout-log (daadwerkelijk gedaan + gewichten/notities):\n" + "\n".join(log_lines) + "\n"
+
+    # Relevante PRs
+    pr_text = ""
+    if personal_records:
+        pr_lines = [
+            f"  {pr.get('workout', '')}: {pr.get('result', '')}" + (f" — {pr.get('date', '')}" if pr.get("date") else "")
+            for pr in (personal_records or [])[:8]
+            if pr.get("workout") and pr.get("result")
+        ]
+        if pr_lines:
+            pr_text = "\nPersoonlijke records (context voor gewichten/pacing):\n" + "\n".join(pr_lines) + "\n"
 
     # Group workouts by date so we can pick the main one per date
     by_date: dict[str, list[dict]] = {}
@@ -2026,13 +2232,13 @@ Ervaring: {athlete_profile['experience']}
 Doel: {athlete_profile.get('doel', '')}
 RX/Scaled voorkeur: {athlete_profile['rx_preference']}
 Blessures: {athlete_profile['injuries']}
-
+{recovery_status_text}
 Persoonlijke focusgebieden (bewegen waarbij groei gewenst is):
 {skill_focus_text}
 
 Barbell maxima (kg):
-{barbell_text}
-
+{barbell_text}{barbell_trend_text}
+{pr_text}{recent_log_text}
 Gewichtnotatie: Als gewichten genoteerd zijn als "X/Y lbs" of "X/Y kg", gebruik dan altijd het eerste getal (X) — dat is het gewicht voor mannen.
 
 Hoofdworkout ({date} — {title}):
@@ -2043,18 +2249,18 @@ Het uitvoeringsplan moet UITSLUITEND gaan over de hoofdworkout hierboven. Ga nie
 
 Geef een plan met:
 1. Aanbevolen gewichten voor barbell movements (met % van 1RM als referentie)
-2. Pacing strategie en sets/reps verdeling
+2. Pacing strategie en sets/reps verdeling — pas aan op herstelstatus indien relevant
 3. 1–2 concrete tips voor deze specifieke workout
 4. **Skill-tip**: Als een of meer van de focusgebieden in deze workout voorkomen, geef dan één gerichte verbeteringstip specifiek gericht op het sneller bereiken van RX-niveau voor die beweging (techniek, drills, mindset). Sla deze sectie over als geen van de focusgebieden aanwezig is.
 5. **Voeding**: geef alleen dit onderdeel als er een avondmaaltijd bekend is — houd rekening met het trainingstijdstip: is de maaltijd een goede herstelmaaltijd (avondtraining) of juiste voorbereiding (ochtendtraining)? Één zin.
 
-Wees direct en bondig. Maximaal 240 woorden. Geen inleiding."""
+Wees direct en bondig. Maximaal 260 woorden. Geen inleiding."""
 
         try:
             log.info("Generating AI plan for %s (%s)", date, title)
             message = client.messages.create(
                 model="claude-sonnet-4-6",
-                max_tokens=600,
+                max_tokens=700,
                 messages=[{"role": "user", "content": prompt}],
             )
             plan_text = message.content[0].text.strip()
@@ -2195,8 +2401,13 @@ def load_workout_log(gist_id: str, token: str) -> dict[str, dict]:
         return {}
 
 
-def _load_barbell_history(gist_id: str, token: str) -> list[dict]:
-    """Load existing barbell_lifts_history from the gist's sugarwod_wod.json."""
+def _load_previous_coach_context(gist_id: str, token: str) -> dict:
+    """Load historical coaching data from the gist for continuity and trend analysis.
+
+    Returns a dict with:
+      - barbell_lifts_history: list of daily barbell snapshots
+      - recovery_advice_history: list of {date, advice} entries (last 3 days)
+    """
     try:
         resp = requests.get(
             f"https://api.github.com/gists/{gist_id}",
@@ -2206,27 +2417,39 @@ def _load_barbell_history(gist_id: str, token: str) -> list[dict]:
         resp.raise_for_status()
         raw = resp.json().get("files", {}).get(GIST_FILENAME, {}).get("content", "")
         if not raw:
-            return []
+            return {"barbell_lifts_history": [], "recovery_advice_history": []}
         existing = json.loads(raw)
-        return existing.get("barbell_lifts_history", [])
+        return {
+            "barbell_lifts_history": existing.get("barbell_lifts_history", []),
+            "recovery_advice_history": existing.get("recovery_advice_history", []),
+        }
     except Exception as exc:
-        log.warning("[gist] Could not load existing barbell history: %s", exc)
-        return []
+        log.warning("[gist] Could not load previous coach context: %s", exc)
+        return {"barbell_lifts_history": [], "recovery_advice_history": []}
 
 
 def save_to_gist(gist_id: str, token: str, wod_data: dict, meals: list[dict] | None = None) -> None:
-    # Accumulate barbell lifts history: load existing, append today's snapshot
     today_str = datetime.now(AMS).date().isoformat()
+
+    # Accumulate barbell lifts history (passed via wod_data to avoid extra gist read)
     barbell_lifts = wod_data.get("barbell_lifts", {})
-    history = _load_barbell_history(gist_id, token)
-    # Remove any existing entry for today (idempotent re-runs)
+    history = wod_data.pop("_barbell_lifts_history_prev", [])
     history = [h for h in history if h.get("date") != today_str]
     if barbell_lifts:
         history.append({"date": today_str, "lifts": barbell_lifts})
-    # Keep last 365 days
     history = sorted(history, key=lambda h: h.get("date", ""))[-365:]
     wod_data["barbell_lifts_history"] = history
     log.info("[gist] Barbell history: %d snapshots (latest: %s)", len(history), today_str)
+
+    # Accumulate recovery advice history (keep last 3 days for continuity)
+    recovery_advice = wod_data.get("recovery_advice", "")
+    advice_history = wod_data.pop("_recovery_advice_history_prev", [])
+    advice_history = [h for h in advice_history if h.get("date") != today_str]
+    if recovery_advice:
+        advice_history.append({"date": today_str, "advice": recovery_advice})
+    advice_history = sorted(advice_history, key=lambda h: h.get("date", ""))[-3:]
+    wod_data["recovery_advice_history"] = advice_history
+    log.info("[gist] Recovery advice history: %d entries", len(advice_history))
 
     files: dict = {
         GIST_FILENAME: {
@@ -2344,6 +2567,17 @@ def main() -> int:
                 {"title": w["title"], "description": w["description"]}
             )
 
+    # Load previous coaching context from gist (barbell history + recovery advice history)
+    # Done once here to avoid multiple gist reads later.
+    prev_coach_ctx: dict = {"barbell_lifts_history": [], "recovery_advice_history": []}
+    if gist_id and token:
+        prev_coach_ctx = _load_previous_coach_context(gist_id, token)
+        log.info(
+            "Previous coach context: %d barbell snapshots, %d advice entries",
+            len(prev_coach_ctx["barbell_lifts_history"]),
+            len(prev_coach_ctx["recovery_advice_history"]),
+        )
+
     # Fetch Keukenbaas meal data (past 14 days + next 7 days)
     keukenbaas_meals = fetch_keukenbaas_meals()
 
@@ -2397,12 +2631,25 @@ def main() -> int:
     # 1. Sportbit attended dates (signed up, not cancelled) + actual training times
     sportbit_attended, signed_up_times = load_sportbit_attended_dates(gist_id, token)
 
+    # Load workout log early — needed by both generate_workout_plans and recovery advice
+    workout_log = load_workout_log(gist_id, token)
+
     # Generate AI coaching plans for upcoming workouts (requires signed_up_times)
     if skip_ai:
         log.info("AI coaching overgeslagen (SKIP_AI=true)")
         workout_plans = {}
     else:
-        workout_plans = generate_workout_plans(upcoming_workouts, barbell_lifts, ATHLETE_PROFILE, meals=keukenbaas_meals, signed_up_times=signed_up_times)
+        workout_plans = generate_workout_plans(
+            upcoming_workouts, barbell_lifts, ATHLETE_PROFILE,
+            meals=keukenbaas_meals,
+            signed_up_times=signed_up_times,
+            health_input=health_input,
+            health_history=health_history,
+            strava_data=strava_data,
+            workout_log=workout_log,
+            barbell_history=prev_coach_ctx["barbell_lifts_history"],
+            personal_records=personal_records,
+        )
     past_sportbit_dates = sorted(
         [d for d in sportbit_attended if d < today.isoformat()],
         reverse=True,
@@ -2429,8 +2676,6 @@ def main() -> int:
     for w in workouts:
         if w.get("description") or any(kw in w.get("title", "").lower() for kw in _MAIN_KEYWORDS):
             date_to_all_main_workouts.setdefault(w["date"], []).append(w)
-
-    workout_log = load_workout_log(gist_id, token)
 
     if skip_ai:
         recovery_advice = None
@@ -2472,6 +2717,10 @@ def main() -> int:
             health_input=health_input,
             signed_up_times=signed_up_times,
             health_history=health_history,
+            previous_advice=prev_coach_ctx["recovery_advice_history"],
+            barbell_history=prev_coach_ctx["barbell_lifts_history"],
+            personal_records=personal_records,
+            benchmark_workouts=benchmark_workouts,
         )
 
     # 2. SugarWOD logbook (athlete scored a result)
@@ -2501,6 +2750,10 @@ def main() -> int:
             health_input=health_input,
             signed_up_times=signed_up_times,
             health_history=health_history,
+            previous_advice=prev_coach_ctx["recovery_advice_history"],
+            barbell_history=prev_coach_ctx["barbell_lifts_history"],
+            personal_records=personal_records,
+            benchmark_workouts=benchmark_workouts,
         )
 
     # 3. Fallback: all programmed past workouts
@@ -2518,6 +2771,10 @@ def main() -> int:
             health_input=health_input,
             signed_up_times=signed_up_times,
             health_history=health_history,
+            previous_advice=prev_coach_ctx["recovery_advice_history"],
+            barbell_history=prev_coach_ctx["barbell_lifts_history"],
+            personal_records=personal_records,
+            benchmark_workouts=benchmark_workouts,
         )
 
     wod_data = {
@@ -2531,6 +2788,9 @@ def main() -> int:
         "recovery_advice": recovery_advice,
         "strava_data": strava_data,
         "fetched_at": datetime.now(timezone.utc).isoformat(),
+        # Internal keys consumed by save_to_gist() — removed before saving
+        "_barbell_lifts_history_prev": prev_coach_ctx["barbell_lifts_history"],
+        "_recovery_advice_history_prev": prev_coach_ctx["recovery_advice_history"],
     }
 
     if gist_id and token:
