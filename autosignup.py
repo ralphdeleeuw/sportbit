@@ -524,6 +524,23 @@ def run(username: str, password: str, dry_run: bool, days_ahead: int, sync_calen
             if date_str not in events_cache:
                 events_cache[date_str] = client.get_events(date_str)
             all_events.extend(events_cache[date_str])
+        # Also scan upcoming non-scheduled days that have signed_up events,
+        # so manual cancellations on those days (e.g. a manually enrolled Friday
+        # lesson that the user later cancels) are detected.
+        today_str = today.strftime("%Y-%m-%d")
+        signed_up_dates = {
+            info["date"]
+            for info in state.state["signed_up"].values()
+            if info["date"] >= today_str
+        }
+        for date_str in signed_up_dates:
+            if date_str not in events_cache:
+                try:
+                    events_cache[date_str] = client.get_events(date_str)
+                except Exception as exc:
+                    log.warning("Could not fetch events for %s: %s", date_str, exc)
+                    events_cache[date_str] = []
+            all_events.extend(events_cache[date_str])
         state.detect_manual_cancellations(all_events)
 
     for date, target_time in slots:
