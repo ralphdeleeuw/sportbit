@@ -1128,20 +1128,6 @@
       <p class="subtitle">Automatisch bijgehouden via CrossFit Hilversum</p>
     </header>
 
-    <div id="stats" class="stats" style="display:none">
-      <div class="stat">
-        <div class="stat-number" id="statUpcoming">—</div>
-        <div class="stat-label">Aankomend</div>
-      </div>
-      <div class="stat">
-        <div class="stat-number" id="statTotal">—</div>
-        <div class="stat-label">Totaal</div>
-      </div>
-      <div class="stat">
-        <div class="stat-number" id="statCancelled">—</div>
-        <div class="stat-label">Geannuleerd</div>
-      </div>
-    </div>
 
     <div id="content"></div>
 
@@ -1660,7 +1646,7 @@
 
       const content = document.getElementById('content');
       content.innerHTML = buildSkeleton();
-      document.getElementById('stats').style.display = 'none';
+
 
       const token = document.getElementById('githubToken').value.trim();
       const authHeaders = token ? { Authorization: `token ${token}` } : {};
@@ -1688,10 +1674,6 @@
         const upcoming = signedUp.filter(e => isUpcoming(e.date, e.time));
         const past = signedUp.filter(e => !isUpcoming(e.date, e.time));
 
-        document.getElementById('statUpcoming').textContent = upcoming.length;
-        document.getElementById('statTotal').textContent = signedUp.length;
-        document.getElementById('statCancelled').textContent = cancelled.length;
-        document.getElementById('stats').style.display = 'grid';
 
         document.getElementById('lastUpdated').textContent =
           new Date(gist.updated_at).toLocaleString('nl-NL');
@@ -2026,7 +2008,7 @@
 
     // ── Health input helpers ──────────────────────────────────────────────
 
-    function healthTrendPips(field) {
+    function healthTrendPips(field, invert = false) {
       const recent = [...(healthHistory || [])]
         .sort((a, b) => a.date.localeCompare(b.date))
         .slice(-14);
@@ -2035,7 +2017,8 @@
       const pips = recent.map(h => {
         const v = h[field];
         if (v == null) return '';
-        const c = colors[Math.max(0, Math.min(4, v - 1))];
+        const idx = invert ? 4 - Math.max(0, Math.min(4, v - 1)) : Math.max(0, Math.min(4, v - 1));
+        const c = colors[idx];
         return `<span class="health-pip" style="background:${c}" title="${h.date}: ${v}/5"></span>`;
       }).join('');
       return `<div class="health-trend"><div class="health-trend-row">${pips}</div></div>`;
@@ -2070,14 +2053,14 @@
               oninput="document.getElementById('valSpierpijn').textContent=this.value">
             <span class="health-slider-val" id="valSpierpijn">${pijn}</span>
           </div>
-          ${healthTrendPips('spierpijn')}
+          ${healthTrendPips('spierpijn', true)}
           <div class="health-slider-row">
             <span class="health-slider-name">Stress</span>
             <input type="range" id="sliderStress" min="1" max="5" step="1" value="${stress}"
               oninput="document.getElementById('valStress').textContent=this.value">
             <span class="health-slider-val" id="valStress">${stress}</span>
           </div>
-          ${healthTrendPips('stress')}
+          ${healthTrendPips('stress', true)}
         </div>
         <div class="health-save-row">
           <button class="health-save-btn" onclick="saveHealthInput()">Opslaan</button>
