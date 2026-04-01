@@ -16,6 +16,16 @@ on:
         required: false
         default: 'false'
         type: boolean
+      skip_oura:
+        description: 'Oura data overslaan'
+        required: false
+        default: 'false'
+        type: boolean
+      skip_withings:
+        description: 'Withings data overslaan'
+        required: false
+        default: 'false'
+        type: boolean
 
 jobs:
   fetch-wod:
@@ -46,6 +56,13 @@ jobs:
           STRAVA_REFRESH_TOKEN: ${{ secrets.STRAVA_REFRESH_TOKEN }}
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
+          OURA_ACCESS_TOKEN: ${{ secrets.OURA_ACCESS_TOKEN }}
+          WITHINGS_CLIENT_ID: ${{ secrets.WITHINGS_CLIENT_ID }}
+          WITHINGS_CLIENT_SECRET: ${{ secrets.WITHINGS_CLIENT_SECRET }}
+          WITHINGS_REFRESH_TOKEN: ${{ secrets.WITHINGS_REFRESH_TOKEN }}
+          WAQI_API_TOKEN: ${{ secrets.WAQI_API_TOKEN }}
           SKIP_STRAVA: ${{ inputs.skip_strava || 'false' }}
           SKIP_AI: ${{ inputs.skip_ai || 'false' }}
+          SKIP_OURA: ${{ inputs.skip_oura || 'false' }}
+          SKIP_WITHINGS: ${{ inputs.skip_withings || 'false' }}
         run: python3 fetch_sugarwod.py

@@ -1777,6 +1777,9 @@ def generate_recovery_advice(
     barbell_history: list[dict] | None = None,
     personal_records: list[dict] | None = None,
     benchmark_workouts: list[dict] | None = None,
+    oura_data: "dict | None" = None,
+    withings_data: "dict | None" = None,
+    environmental_data: "dict | None" = None,
 ) -> str:
     """
     Generate a daily recovery/intensity advice based on recent workouts and
@@ -1920,25 +1923,97 @@ def generate_recovery_advice(
             lines.append(f"- Energieniveau vandaag: {energie}/5")
         if spierpijn is not None:
             lines.append(f"- Spierpijn/vermoeidheid vandaag: {spierpijn}/5")
+        stress = health_input.get("stress")
+        if stress is not None:
+            lines.append(f"- Stress vandaag: {stress}/5 (1=geen stress, 5=veel stress/drukke dag)")
         # Append recent history trend (last 14 days)
         if health_history:
             today_iso = today.isoformat() if today else ""
             recent = [h for h in health_history if h.get("date", "") < today_iso]
             recent = sorted(recent, key=lambda h: h.get("date", ""), reverse=True)[:14]
             if recent:
-                lines.append("\nTrend afgelopen 14 dagen (datum: slaap/energie/spierpijn):")
+                lines.append("\nTrend afgelopen 14 dagen (datum: slaap/energie/spierpijn/stress):")
                 for h in reversed(recent):
                     d = h.get("date", "?")
                     s = h.get("slaap", "?")
                     e = h.get("energie", "?")
                     p = h.get("spierpijn", "?")
-                    lines.append(f"  {d}: slaap={s} energie={e} spierpijn={p}")
+                    st = h.get("stress")
+                    stress_str = f" stress={st}" if st is not None else ""
+                    lines.append(f"  {d}: slaap={s} energie={e} spierpijn={p}{stress_str}")
         if lines:
             health_block = (
                 "\nSubjectieve hersteldata (ingevuld door atleet — gebruik dit als primaire "
                 "fysiologische herstelIndicator):\n"
                 + "\n".join(lines)
                 + "\n"
+            )
+
+    # Oura Ring objectieve hersteldata
+    oura_block = ""
+    if oura_data and oura_data.get("by_date"):
+        today_iso = today.isoformat() if today else ""
+        yesterday_iso = (today - timedelta(days=1)).isoformat() if today else ""
+        oura_entry = oura_data["by_date"].get(today_iso) or oura_data["by_date"].get(yesterday_iso)
+        if oura_entry:
+            oura_lines = []
+            if oura_entry.get("readiness_score") is not None:
+                oura_lines.append(f"- Readiness score: {oura_entry['readiness_score']}/100")
+            if oura_entry.get("average_hrv") is not None:
+                oura_lines.append(f"- Gem. HRV afgelopen nacht: {oura_entry['average_hrv']:.0f} ms")
+            if oura_entry.get("resting_hr") is not None:
+                oura_lines.append(f"- Rustpols: {oura_entry['resting_hr']} bpm")
+            deep = oura_entry.get("deep_sleep_min")
+            rem = oura_entry.get("rem_sleep_min")
+            light = oura_entry.get("light_sleep_min")
+            if deep is not None:
+                oura_lines.append(f"- Slaap: {deep}min deep / {rem}min REM / {light}min light")
+            eff = oura_entry.get("sleep_efficiency")
+            if eff is not None:
+                oura_lines.append(f"- Slaapefficiëntie: {eff:.0f}%")
+            stress_min = oura_entry.get("stress_high_min")
+            rec_min = oura_entry.get("recovery_high_min")
+            if stress_min is not None:
+                oura_lines.append(f"- Stress gisteren: {stress_min}min hoge stress / {rec_min}min herstel")
+            if oura_lines:
+                oura_block = "\nOura objectieve hersteldata (vandaag):\n" + "\n".join(oura_lines) + "\n"
+
+    # Withings lichaamssamenstelling
+    withings_block = ""
+    if withings_data and withings_data.get("measurements"):
+        m = withings_data["measurements"][0]
+        w_lines = []
+        if m.get("weight_kg") is not None:
+            w_lines.append(f"- Gewicht: {m['weight_kg']} kg")
+        if m.get("fat_pct") is not None:
+            w_lines.append(f"- Vetpercentage: {m['fat_pct']}%")
+        if m.get("muscle_kg") is not None:
+            w_lines.append(f"- Spiermassa: {m['muscle_kg']} kg")
+        if m.get("hydration_pct") is not None:
+            w_lines.append(f"- Hydratatie: {m['hydration_pct']}%")
+        if w_lines:
+            withings_block = f"\nLichaamssamenstelling (Withings, {m['date']}):\n" + "\n".join(w_lines) + "\n"
+
+    # Omgevingsdata: weer + AQI bij volgende training
+    env_block = ""
+    if environmental_data:
+        aqi = environmental_data.get("aqi") or {}
+        conds = environmental_data.get("training_conditions") or {}
+        upcoming_date = (upcoming_workout or {}).get("date", "")
+        cond = conds.get(upcoming_date)
+        env_lines = []
+        if cond:
+            env_lines.append(
+                f"- {cond.get('temp_c')}°C (voelt als {cond.get('feels_like_c')}°C), "
+                f"luchtvochtigheid {cond.get('humidity_pct')}%, wind {cond.get('wind_kmh')} km/h — "
+                f"{cond.get('weather_desc', '')}"
+            )
+        if aqi.get("value") is not None:
+            env_lines.append(f"- Luchtkwaliteit: AQI {aqi['value']} ({aqi.get('category', '')})")
+        if env_lines:
+            env_block = (
+                f"\nOmstandigheden volgende training ({upcoming_date} {(cond or {}).get('training_time', '')}):\n"
+                + "\n".join(env_lines) + "\n"
             )
 
     hr_zones_raw = (strava_data or {}).get("hr_zones", [])
@@ -2017,7 +2092,7 @@ Atleet: {athlete_profile['name']}, {athlete_profile['weight_kg']} kg, leeftijd 4
 Ervaring: {athlete_profile['experience']}
 Focusgebieden:
 {skill_focus_text}
-{health_block}{acwr_text}
+{health_block}{oura_block}{withings_block}{acwr_text}
 Barbell maxima (kg):
 {barbell_text}{barbell_trend_text}
 
@@ -2031,7 +2106,7 @@ Gebruik dit om de werkelijke intensiteit te beoordelen, NIET alleen de WOD-besch
 {past_text if past_text.strip() else "Geen recente trainingen bekend."}
 
 Volgende workout:
-{upcoming_text}{upcoming_timing_context}{meals_text}
+{upcoming_text}{upcoming_timing_context}{meals_text}{env_block}
 {pr_text}{prev_advice_text}
 Geef advies over:
 1. **Herstelniveau** — zijn er spiergroepen die extra rust nodig hebben op basis van de recente workouts?{"  Gebruik de subjectieve hersteldata (slaap, energie, spierpijn) als primaire fysiologische herstelIndicator. Gebruik de Strava workout-data (hartslag, duur) om de werkelijke trainingsbelasting per sessie te beoordelen." if health_input else ""}{"  De ACWR-ratio geeft de trainingsbelasting aan: check of er een patroon is met het vorige advies." if acwr else ""}
@@ -2070,6 +2145,8 @@ def generate_workout_plans(
     workout_log: dict | None = None,
     barbell_history: list[dict] | None = None,
     personal_records: list[dict] | None = None,
+    oura_data: dict | None = None,
+    environmental_data: dict | None = None,
 ) -> dict[str, str]:
     """
     Call the Claude API to generate a personalised execution plan for each
@@ -2111,12 +2188,13 @@ def generate_workout_plans(
                 parts.append("Gedaald: " + ", ".join(f"{l} {d}kg" for l, d in sorted(neg.items())))
             barbell_trend_text = "\nKrachtontwikkeling t.o.v. ~4 weken geleden:\n" + "\n".join(f"  {p}" for p in parts) + "\n"
 
-    # Herstelstatus van de atleet (health scores + ACWR)
+    # Herstelstatus van de atleet (health scores + ACWR + Oura)
     recovery_status_text = ""
     if health_input:
         slaap = health_input.get("slaap")
         energie = health_input.get("energie")
         spierpijn = health_input.get("spierpijn")
+        stress = health_input.get("stress")
         parts = []
         if slaap is not None:
             parts.append(f"slaap {slaap}/5")
@@ -2124,8 +2202,27 @@ def generate_workout_plans(
             parts.append(f"energie {energie}/5")
         if spierpijn is not None:
             parts.append(f"spierpijn {spierpijn}/5")
+        if stress is not None:
+            parts.append(f"stress {stress}/5")
         if parts:
             recovery_status_text = "\nHuidige herstelstatus atleet: " + ", ".join(parts) + "\n"
+    if oura_data and oura_data.get("by_date"):
+        from datetime import date as _date_cls_wod  # noqa: PLC0415
+        _today_iso = _date_cls_wod.today().isoformat()
+        _yesterday_iso = (
+            (_date_cls_wod.today() - timedelta(days=1)).isoformat()
+        )
+        oura_entry = oura_data["by_date"].get(_today_iso) or oura_data["by_date"].get(_yesterday_iso)
+        if oura_entry:
+            oura_parts = []
+            if oura_entry.get("readiness_score") is not None:
+                oura_parts.append(f"readiness {oura_entry['readiness_score']}/100")
+            if oura_entry.get("average_hrv") is not None:
+                oura_parts.append(f"HRV {oura_entry['average_hrv']:.0f}ms")
+            if oura_entry.get("resting_hr") is not None:
+                oura_parts.append(f"rustpols {oura_entry['resting_hr']}bpm")
+            if oura_parts:
+                recovery_status_text += "Oura: " + ", ".join(oura_parts) + "\n"
     acwr = _compute_acwr(strava_data)
     if acwr:
         recovery_status_text += (
@@ -2224,6 +2321,23 @@ def generate_workout_plans(
 
         timing_context = _training_time_context(date, signed_up_times)
 
+        # Environmental conditions for this specific training day
+        env_context = ""
+        if environmental_data:
+            aqi = environmental_data.get("aqi") or {}
+            cond = (environmental_data.get("training_conditions") or {}).get(date)
+            env_parts = []
+            if cond:
+                env_parts.append(
+                    f"{cond.get('temp_c')}°C (voelt als {cond.get('feels_like_c')}°C), "
+                    f"luchtvochtigheid {cond.get('humidity_pct')}%, wind {cond.get('wind_kmh')} km/h — "
+                    f"{cond.get('weather_desc', '')}"
+                )
+            if aqi.get("value") is not None:
+                env_parts.append(f"AQI {aqi['value']} ({aqi.get('category', '')})")
+            if env_parts:
+                env_context = "\nOmstandigheden op trainingsdag: " + " | ".join(env_parts) + "\n"
+
         prompt = f"""Je bent een ervaren CrossFit coach. Genereer een beknopt, praktisch uitvoeringsplan.
 
 Atleet: {athlete_profile['name']}
@@ -2243,8 +2357,7 @@ Gewichtnotatie: Als gewichten genoteerd zijn als "X/Y lbs" of "X/Y kg", gebruik 
 
 Hoofdworkout ({date} — {title}):
 {description}{accessory_context}{meal_context}
-{team_context}{timing_context}
-
+{team_context}{timing_context}{env_context}
 Het uitvoeringsplan moet UITSLUITEND gaan over de hoofdworkout hierboven. Ga niet in op de accessory work.
 
 Geef een plan met:
@@ -2603,7 +2716,35 @@ def main() -> int:
             log.warning("Strava fetch mislukt: %s", exc)
             strava_data = None
 
-    # Lees subjectieve hersteldata (slaap/energie/spierpijn) uit de gist.
+    # Oura Ring data (objectieve hersteldata: readiness, slaap, HRV)
+    skip_oura = os.environ.get("SKIP_OURA", "false").lower() in ("true", "1", "yes")
+    oura_data = None
+    if not skip_oura:
+        try:
+            from fetch_oura import fetch_oura_data  # noqa: PLC0415
+            oura_data = fetch_oura_data()
+            if oura_data:
+                log.info("Oura data opgehaald: %d datums", len(oura_data.get("by_date", {})))
+            else:
+                log.info("Geen Oura data beschikbaar (token ontbreekt of geen data)")
+        except Exception as exc:
+            log.warning("Oura fetch mislukt: %s", exc)
+
+    # Withings data (lichaamssamenstelling: gewicht, vet, spier)
+    skip_withings = os.environ.get("SKIP_WITHINGS", "false").lower() in ("true", "1", "yes")
+    withings_data = None
+    if not skip_withings:
+        try:
+            from fetch_withings import fetch_withings_data  # noqa: PLC0415
+            withings_data = fetch_withings_data()
+            if withings_data:
+                log.info("Withings data opgehaald: %d metingen", len(withings_data.get("measurements", [])))
+            else:
+                log.info("Geen Withings data beschikbaar (secrets ontbreken of geen data)")
+        except Exception as exc:
+            log.warning("Withings fetch mislukt: %s", exc)
+
+    # Lees subjectieve hersteldata (slaap/energie/spierpijn/stress) uit de gist.
     # De atleet vult dit in via het dashboard vóór de dagelijkse workflow draait.
     health_input, health_history = load_health_input(gist_id, token)
 
@@ -2631,6 +2772,16 @@ def main() -> int:
     # 1. Sportbit attended dates (signed up, not cancelled) + actual training times
     sportbit_attended, signed_up_times = load_sportbit_attended_dates(gist_id, token)
 
+    # Environmental data (weer + AQI) — opgehaald na signed_up_times zodat trainingsdagen bekend zijn
+    env_data = None
+    try:
+        from fetch_environmental import fetch_environmental_data  # noqa: PLC0415
+        env_data = fetch_environmental_data(signed_up_times)
+        if env_data:
+            log.info("Environmental data opgehaald (AQI: %s)", (env_data.get("aqi") or {}).get("value", "n/a"))
+    except Exception as exc:
+        log.warning("Environmental fetch mislukt: %s", exc)
+
     # Load workout log early — needed by both generate_workout_plans and recovery advice
     workout_log = load_workout_log(gist_id, token)
 
@@ -2649,6 +2800,8 @@ def main() -> int:
             workout_log=workout_log,
             barbell_history=prev_coach_ctx["barbell_lifts_history"],
             personal_records=personal_records,
+            oura_data=oura_data,
+            environmental_data=env_data,
         )
     past_sportbit_dates = sorted(
         [d for d in sportbit_attended if d < today.isoformat()],
@@ -2721,6 +2874,9 @@ def main() -> int:
             barbell_history=prev_coach_ctx["barbell_lifts_history"],
             personal_records=personal_records,
             benchmark_workouts=benchmark_workouts,
+            oura_data=oura_data,
+            withings_data=withings_data,
+            environmental_data=env_data,
         )
 
     # 2. SugarWOD logbook (athlete scored a result)
@@ -2754,6 +2910,9 @@ def main() -> int:
             barbell_history=prev_coach_ctx["barbell_lifts_history"],
             personal_records=personal_records,
             benchmark_workouts=benchmark_workouts,
+            oura_data=oura_data,
+            withings_data=withings_data,
+            environmental_data=env_data,
         )
 
     # 3. Fallback: all programmed past workouts
@@ -2775,6 +2934,9 @@ def main() -> int:
             barbell_history=prev_coach_ctx["barbell_lifts_history"],
             personal_records=personal_records,
             benchmark_workouts=benchmark_workouts,
+            oura_data=oura_data,
+            withings_data=withings_data,
+            environmental_data=env_data,
         )
 
     wod_data = {
@@ -2787,6 +2949,9 @@ def main() -> int:
         "workout_plans": workout_plans,
         "recovery_advice": recovery_advice,
         "strava_data": strava_data,
+        "oura_data": oura_data,
+        "withings_data": withings_data,
+        "environmental_data": env_data,
         "fetched_at": datetime.now(timezone.utc).isoformat(),
         # Internal keys consumed by save_to_gist() — removed before saving
         "_barbell_lifts_history_prev": prev_coach_ctx["barbell_lifts_history"],
