@@ -477,6 +477,12 @@
       border-top: 1px solid var(--border);
     }
 
+    .env-badge {
+      font-size: 0.78rem;
+      color: var(--muted);
+      margin-bottom: 0.7rem;
+    }
+
     .wod-section + .wod-section { margin-top: 0.9rem; }
 
     .wod-section-title {
@@ -1225,7 +1231,6 @@
                 <div class="card-header-left">
                   <div class="card-title">${item.title}</div>
                   ${metaHtml}
-                  ${envBadge}
                 </div>
                 <div class="card-right">
                   <div class="card-date">${formatDate(item.date)}</div>
@@ -1233,7 +1238,7 @@
                   <div class="wod-chevron">▾</div>
                 </div>
               </div>
-              <div class="card-wod">${sections}</div>
+              <div class="card-wod">${envBadge}${sections}</div>
             </div>
           </div>`;
       }
