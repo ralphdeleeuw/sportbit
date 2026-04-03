@@ -1777,9 +1777,9 @@ def generate_recovery_advice(
     barbell_history: list[dict] | None = None,
     personal_records: list[dict] | None = None,
     benchmark_workouts: list[dict] | None = None,
-    oura_data: "dict | None" = None,
     withings_data: "dict | None" = None,
     environmental_data: "dict | None" = None,
+    intervals_data: "dict | None" = None,
 ) -> str:
     """
     Generate a daily recovery/intensity advice based on recent workouts and
@@ -1949,34 +1949,31 @@ def generate_recovery_advice(
                 + "\n"
             )
 
-    # Oura Ring objectieve hersteldata
-    oura_block = ""
-    if oura_data and oura_data.get("by_date"):
+    # Garmin/intervals.icu objectieve hersteldata
+    garmin_block = ""
+    if intervals_data and intervals_data.get("wellness", {}).get("by_date"):
         today_iso = today.isoformat() if today else ""
         yesterday_iso = (today - timedelta(days=1)).isoformat() if today else ""
-        oura_entry = oura_data["by_date"].get(today_iso) or oura_data["by_date"].get(yesterday_iso)
-        if oura_entry:
-            oura_lines = []
-            if oura_entry.get("readiness_score") is not None:
-                oura_lines.append(f"- Readiness score: {oura_entry['readiness_score']}/100")
-            if oura_entry.get("average_hrv") is not None:
-                oura_lines.append(f"- Gem. HRV afgelopen nacht: {oura_entry['average_hrv']:.0f} ms")
-            if oura_entry.get("resting_hr") is not None:
-                oura_lines.append(f"- Rustpols: {oura_entry['resting_hr']} bpm")
-            deep = oura_entry.get("deep_sleep_min")
-            rem = oura_entry.get("rem_sleep_min")
-            light = oura_entry.get("light_sleep_min")
-            if deep is not None:
-                oura_lines.append(f"- Slaap: {deep}min deep / {rem}min REM / {light}min light")
-            eff = oura_entry.get("sleep_efficiency")
-            if eff is not None:
-                oura_lines.append(f"- Slaapefficiëntie: {eff:.0f}%")
-            stress_min = oura_entry.get("stress_high_min")
-            rec_min = oura_entry.get("recovery_high_min")
-            if stress_min is not None:
-                oura_lines.append(f"- Stress gisteren: {stress_min}min hoge stress / {rec_min}min herstel")
-            if oura_lines:
-                oura_block = "\nOura objectieve hersteldata (vandaag):\n" + "\n".join(oura_lines) + "\n"
+        w_by_date = intervals_data["wellness"]["by_date"]
+        garmin_entry = w_by_date.get(today_iso) or w_by_date.get(yesterday_iso)
+        if garmin_entry:
+            g_lines = []
+            if garmin_entry.get("resting_hr") is not None:
+                g_lines.append(f"- Rustpols: {garmin_entry['resting_hr']} bpm")
+            if garmin_entry.get("hrv") is not None:
+                g_lines.append(f"- HRV (RMSSD): {garmin_entry['hrv']:.0f} ms")
+            if garmin_entry.get("sleep_hrs") is not None:
+                g_lines.append(f"- Slaap: {garmin_entry['sleep_hrs']:.1f} uur")
+            if garmin_entry.get("sleep_score") is not None:
+                g_lines.append(f"- Slaapscore: {garmin_entry['sleep_score']}/100")
+            ctl = garmin_entry.get("ctl")
+            atl = garmin_entry.get("atl")
+            tsb = garmin_entry.get("tsb")
+            if ctl is not None and atl is not None:
+                tsb_label = "fris" if tsb is not None and tsb > 5 else "vermoeid" if tsb is not None and tsb < -10 else "neutraal"
+                g_lines.append(f"- Trainingsvorm (TSB): {tsb:+.0f} ({tsb_label}) — fitness {ctl:.0f}, vermoeidheid {atl:.0f}")
+            if g_lines:
+                garmin_block = "\nGarmin hersteldata (via intervals.icu):\n" + "\n".join(g_lines) + "\n"
 
     # Withings lichaamssamenstelling
     withings_block = ""
@@ -2092,7 +2089,7 @@ Atleet: {athlete_profile['name']}, {athlete_profile['weight_kg']} kg, leeftijd 4
 Ervaring: {athlete_profile['experience']}
 Focusgebieden:
 {skill_focus_text}
-{health_block}{oura_block}{withings_block}{acwr_text}
+{health_block}{garmin_block}{withings_block}{acwr_text}
 Barbell maxima (kg):
 {barbell_text}{barbell_trend_text}
 
@@ -2145,7 +2142,7 @@ def generate_workout_plans(
     workout_log: dict | None = None,
     barbell_history: list[dict] | None = None,
     personal_records: list[dict] | None = None,
-    oura_data: dict | None = None,
+    intervals_data: dict | None = None,
     environmental_data: dict | None = None,
 ) -> dict[str, str]:
     """
@@ -2206,23 +2203,22 @@ def generate_workout_plans(
             parts.append(f"stress {stress}/5")
         if parts:
             recovery_status_text = "\nHuidige herstelstatus atleet: " + ", ".join(parts) + "\n"
-    if oura_data and oura_data.get("by_date"):
+    if intervals_data and intervals_data.get("wellness", {}).get("by_date"):
         from datetime import date as _date_cls_wod  # noqa: PLC0415
         _today_iso = _date_cls_wod.today().isoformat()
-        _yesterday_iso = (
-            (_date_cls_wod.today() - timedelta(days=1)).isoformat()
-        )
-        oura_entry = oura_data["by_date"].get(_today_iso) or oura_data["by_date"].get(_yesterday_iso)
-        if oura_entry:
-            oura_parts = []
-            if oura_entry.get("readiness_score") is not None:
-                oura_parts.append(f"readiness {oura_entry['readiness_score']}/100")
-            if oura_entry.get("average_hrv") is not None:
-                oura_parts.append(f"HRV {oura_entry['average_hrv']:.0f}ms")
-            if oura_entry.get("resting_hr") is not None:
-                oura_parts.append(f"rustpols {oura_entry['resting_hr']}bpm")
-            if oura_parts:
-                recovery_status_text += "Oura: " + ", ".join(oura_parts) + "\n"
+        _yesterday_iso = (_date_cls_wod.today() - timedelta(days=1)).isoformat()
+        _w = intervals_data["wellness"]["by_date"]
+        _ge = _w.get(_today_iso) or _w.get(_yesterday_iso)
+        if _ge:
+            _gp = []
+            if _ge.get("resting_hr") is not None:
+                _gp.append(f"rustpols {_ge['resting_hr']}bpm")
+            if _ge.get("hrv") is not None:
+                _gp.append(f"HRV {_ge['hrv']:.0f}ms")
+            if _ge.get("tsb") is not None:
+                _gp.append(f"TSB {_ge['tsb']:+.0f}")
+            if _gp:
+                recovery_status_text += "Garmin: " + ", ".join(_gp) + "\n"
     acwr = _compute_acwr(strava_data)
     if acwr:
         recovery_status_text += (
@@ -2716,19 +2712,21 @@ def main() -> int:
             log.warning("Strava fetch mislukt: %s", exc)
             strava_data = None
 
-    # Oura Ring data (objectieve hersteldata: readiness, slaap, HRV)
-    skip_oura = os.environ.get("SKIP_OURA", "false").lower() in ("true", "1", "yes")
-    oura_data = None
-    if not skip_oura:
-        try:
-            from fetch_oura import fetch_oura_data  # noqa: PLC0415
-            oura_data = fetch_oura_data()
-            if oura_data:
-                log.info("Oura data opgehaald: %d datums", len(oura_data.get("by_date", {})))
-            else:
-                log.info("Geen Oura data beschikbaar (token ontbreekt of geen data)")
-        except Exception as exc:
-            log.warning("Oura fetch mislukt: %s", exc)
+    # Intervals.icu data (Garmin wellness + activiteiten via intervals.icu API)
+    intervals_data = None
+    try:
+        from fetch_intervals import fetch_intervals_data  # noqa: PLC0415
+        intervals_data = fetch_intervals_data()
+        if intervals_data:
+            n_days = len((intervals_data.get("wellness") or {}).get("by_date") or {})
+            n_acts = sum(
+                len(v) for v in ((intervals_data.get("activities") or {}).get("by_date") or {}).values()
+            )
+            log.info("Intervals.icu data opgehaald: %d wellness-dagen, %d activiteiten", n_days, n_acts)
+        else:
+            log.info("Geen intervals.icu data beschikbaar (API key ontbreekt of geen data)")
+    except Exception as exc:
+        log.warning("Intervals.icu fetch mislukt: %s", exc)
 
     # Withings data (lichaamssamenstelling: gewicht, vet, spier)
     skip_withings = os.environ.get("SKIP_WITHINGS", "false").lower() in ("true", "1", "yes")
@@ -2800,7 +2798,7 @@ def main() -> int:
             workout_log=workout_log,
             barbell_history=prev_coach_ctx["barbell_lifts_history"],
             personal_records=personal_records,
-            oura_data=oura_data,
+            intervals_data=intervals_data,
             environmental_data=env_data,
         )
     past_sportbit_dates = sorted(
@@ -2874,7 +2872,7 @@ def main() -> int:
             barbell_history=prev_coach_ctx["barbell_lifts_history"],
             personal_records=personal_records,
             benchmark_workouts=benchmark_workouts,
-            oura_data=oura_data,
+            intervals_data=intervals_data,
             withings_data=withings_data,
             environmental_data=env_data,
         )
@@ -2910,7 +2908,7 @@ def main() -> int:
             barbell_history=prev_coach_ctx["barbell_lifts_history"],
             personal_records=personal_records,
             benchmark_workouts=benchmark_workouts,
-            oura_data=oura_data,
+            intervals_data=intervals_data,
             withings_data=withings_data,
             environmental_data=env_data,
         )
@@ -2934,7 +2932,7 @@ def main() -> int:
             barbell_history=prev_coach_ctx["barbell_lifts_history"],
             personal_records=personal_records,
             benchmark_workouts=benchmark_workouts,
-            oura_data=oura_data,
+            intervals_data=intervals_data,
             withings_data=withings_data,
             environmental_data=env_data,
         )
@@ -2949,7 +2947,7 @@ def main() -> int:
         "workout_plans": workout_plans,
         "recovery_advice": recovery_advice,
         "strava_data": strava_data,
-        "oura_data": oura_data,
+        "intervals_data": intervals_data,
         "withings_data": withings_data,
         "environmental_data": env_data,
         "fetched_at": datetime.now(timezone.utc).isoformat(),
