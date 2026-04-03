@@ -1570,19 +1570,15 @@ def _detect_team_size(text: str) -> int | None:
 def _training_time_context(date_str: str, signed_up_times: dict[str, str] | None = None) -> str:
     """Return a prompt snippet about training time and meal timing for the given date.
 
-    Uses actual sign-up time from the Gist state when available, falls back to
-    TRAINING_SCHEDULE (static weekday defaults) otherwise.
+    Only uses actual sign-up time from the Gist state; returns empty string if the
+    athlete is not signed up for a class on this date.
     """
     try:
-        d = date_cls.fromisoformat(date_str)
+        date_cls.fromisoformat(date_str)
     except ValueError:
         return ""
-    # Prefer actual sign-up time; fall back to static schedule
-    if signed_up_times and date_str in signed_up_times:
-        time_str = signed_up_times[date_str]
-    else:
-        weekday = d.weekday()  # 0=Mon
-        time_str = TRAINING_SCHEDULE.get(weekday)
+    # Only use actual sign-up time — no fallback to static schedule
+    time_str = (signed_up_times or {}).get(date_str)
     if not time_str:
         return ""
     # Compare training time to breakfast and dinner

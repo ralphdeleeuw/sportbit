@@ -2,8 +2,8 @@ name: Fetch SugarWOD
 
 on:
   schedule:
-    # Dagelijks om 06:00 UTC (08:00 Amsterdam zomertijd / 07:00 wintertijd)
-    - cron: '0 6 * * *'
+    # Dagelijks om 05:00 UTC (07:00 Amsterdam zomertijd / 06:00 wintertijd)
+    - cron: '0 5 * * *'
   workflow_dispatch:
     inputs:
       skip_strava:
