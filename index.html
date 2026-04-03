@@ -848,6 +848,34 @@
     .health-save-status.ok { color: #4caf50; }
     .health-save-status.err { color: var(--accent2); }
 
+    .health-input-compact { padding: 0.5rem 1rem; }
+    .health-compact-row {
+      display: flex;
+      align-items: center;
+      gap: 0.75rem;
+    }
+    .health-compact-row .health-input-label { margin-bottom: 0; flex-shrink: 0; }
+    .health-compact-values {
+      display: flex;
+      gap: 0.6rem;
+      font-size: 0.78rem;
+      color: #cce0ff;
+      flex: 1;
+    }
+    .health-compact-values span { opacity: 0.85; }
+    .health-edit-btn {
+      background: none;
+      border: none;
+      color: var(--muted);
+      font-size: 0.65rem;
+      text-transform: uppercase;
+      letter-spacing: 0.1em;
+      cursor: pointer;
+      padding: 0;
+      flex-shrink: 0;
+    }
+    .health-edit-btn:hover { color: #cce0ff; }
+
     .chip-green  { color: #4caf50; }
     .chip-lime   { color: #a5d648; }
     .chip-orange { color: #ff9800; }
@@ -1257,6 +1285,7 @@
     let recoveryAdvice = null;
     let recoveryAdviceHistory = []; // [{date, advice}] laatste 3 dagen
     let recoveryAdviceFromHistory = false; // true als advies uit history komt i.p.v. vandaag
+    let healthInputExpanded = false; // true als compact-weergave handmatig uitgevouwen is
     let personalRecords = [];
     let benchmarkWorkouts = [];
     let workoutLog = {};   // {date: entry} from workout_log.json
@@ -1690,7 +1719,7 @@
         let html = '';
 
         // Health input + recovery coach
-        html += renderHealthInputBlock();
+        html += `<div id="healthInputWrapper">${renderHealthInputBlock()}</div>`;
         html += renderOuraBlock();
         html += renderWithingsBlock();
         if (recoveryAdvice) {
@@ -2037,6 +2066,29 @@
     }
 
     function renderHealthInputBlock() {
+      const today   = new Date().toISOString().slice(0, 10);
+      const filledToday = healthInput.date === today;
+
+      if (filledToday && !healthInputExpanded) {
+        // Compact weergave: alleen de ingevulde waarden + wijzig-knop
+        const slaap   = healthInput.slaap;
+        const energie = healthInput.energie;
+        const pijn    = healthInput.spierpijn;
+        const stress  = healthInput.stress;
+        return `<div class="health-input-block health-input-compact">
+          <div class="health-compact-row">
+            <span class="health-input-label">Herstel vandaag</span>
+            <span class="health-compact-values">
+              <span title="Slaap">💤 ${slaap}</span>
+              <span title="Energie">⚡ ${energie}</span>
+              <span title="Spierpijn">💪 ${pijn}</span>
+              <span title="Stress">😓 ${stress}</span>
+            </span>
+            <button class="health-edit-btn" onclick="expandHealthInput()">Wijzig</button>
+          </div>
+        </div>`;
+      }
+
       const slaap   = healthInput.slaap    != null ? healthInput.slaap    : 3;
       const energie = healthInput.energie  != null ? healthInput.energie  : 3;
       const pijn    = healthInput.spierpijn != null ? healthInput.spierpijn : 3;
@@ -2079,6 +2131,12 @@
           <span class="health-save-status" id="healthSaveStatus"></span>
         </div>
       </div>`;
+    }
+
+    function expandHealthInput() {
+      healthInputExpanded = true;
+      const wrapper = document.getElementById('healthInputWrapper');
+      if (wrapper) wrapper.innerHTML = renderHealthInputBlock();
     }
 
     async function saveHealthInput() {
@@ -2124,7 +2182,9 @@
         if (!resp.ok) throw new Error(`${resp.status}`);
         healthInput = { ...data };
         healthHistory = updatedHistory;
-        if (statusEl) { statusEl.textContent = '✓ Opgeslagen'; statusEl.className = 'health-save-status ok'; }
+        healthInputExpanded = false;
+        const wrapper = document.getElementById('healthInputWrapper');
+        if (wrapper) wrapper.innerHTML = renderHealthInputBlock();
       } catch(e) {
         if (statusEl) { statusEl.textContent = `Fout: ${e.message}`; statusEl.className = 'health-save-status err'; }
       }
