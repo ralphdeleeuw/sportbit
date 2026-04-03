@@ -1255,6 +1255,8 @@
     let barbellLifts = {};
     let barbellLiftsHistory = []; // [{date, lifts: {...}}]
     let recoveryAdvice = null;
+    let recoveryAdviceHistory = []; // [{date, advice}] laatste 3 dagen
+    let recoveryAdviceFromHistory = false; // true als advies uit history komt i.p.v. vandaag
     let personalRecords = [];
     let benchmarkWorkouts = [];
     let workoutLog = {};   // {date: entry} from workout_log.json
@@ -1310,7 +1312,14 @@
           workoutPlans = data.workout_plans || {};
           barbellLifts = data.barbell_lifts || {};
           barbellLiftsHistory = data.barbell_lifts_history || [];
+          recoveryAdviceHistory = data.recovery_advice_history || [];
           recoveryAdvice = data.recovery_advice || null;
+          // Val terug op meest recente history-entry als vandaag geen advies beschikbaar is
+          if (!recoveryAdvice && recoveryAdviceHistory.length > 0) {
+            const latest = recoveryAdviceHistory[recoveryAdviceHistory.length - 1];
+            recoveryAdvice = latest.advice || null;
+            recoveryAdviceFromHistory = !!recoveryAdvice;
+          }
           personalRecords = data.personal_records || [];
           benchmarkWorkouts = data.benchmark_workouts || [];
           stravaData = data.strava_data || null;
@@ -1685,8 +1694,11 @@
         html += renderOuraBlock();
         html += renderWithingsBlock();
         if (recoveryAdvice) {
+          const adviceLabel = recoveryAdviceFromHistory
+            ? `Coach Advies (${recoveryAdviceHistory[recoveryAdviceHistory.length - 1].date})`
+            : 'Coach Advies Vandaag';
           html += `<div class="recovery-block">
-            <div class="recovery-block-label">Coach Advies Vandaag</div>
+            <div class="recovery-block-label">${adviceLabel}</div>
             <div class="recovery-block-body">${marked.parse(recoveryAdvice)}</div>
           </div>`;
         }
