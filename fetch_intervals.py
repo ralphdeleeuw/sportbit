@@ -1,1 +1,237 @@
-IyEvdXNyL2Jpbi9lbnYgcHl0aG9uMwoiIiIKSW50ZXJ2YWxzLmljdSBkYXRhIGZldGNoZXIgdm9vciBoZXQgU3BvcnRCaXQgQ3Jvc3NGaXQgZGFzaGJvYXJkLgoKSGFhbHQgR2FybWluLWRhdGEgb3AgdmlhIGludGVydmFscy5pY3UgKHdlbGxuZXNzICsgYWN0aXZpdGVpdGVuKS4KSW50ZXJ2YWxzLmljdSBzeW5jaHJvbmlzZWVydCBhdXRvbWF0aXNjaCBtZXQgR2FybWluIENvbm5lY3QuCgrilZDilZDilZDilZDilZDilZDilZDilZDilZDilZDilZDilZDilZDilZDilZDilZDilZDilZDilZDilZDilZDilZDilZDilZDilZDilZDilZDilZDilZDilZDilZDilZDilZDilZDilZDilZDilZDilZDilZDilZDilZDilZDilZDilZDilZDilZDilZDilZDilZDilZDilZDilZDilZDilZDilZDilZDilZDilZDilZDilZDilZDilZAKU0VUVVAK4pWQ4pWQ4pWQ4pWQ4pWQ4pWQ4pWQ4pWQ4pWQ4pWQ4pWQ4pWQ4pWQ4pWQ4pWQ4pWQ4pWQ4pWQ4pWQ4pWQ4pWQ4pWQ4pWQ4pWQ4pWQ4pWQ4pWQ4pWQ4pWQ4pWQ4pWQ4pWQ4pWQ4pWQ4pWQ4pWQ4pWQ4pWQ4pWQ4pWQ4pWQ4pWQ4pWQ4pWQ4pWQ4pWQ4pWQ4pWQ4pWQ4pWQ4pWQ4pWQ4pWQ4pWQ4pWQ4pWQ4pWQ4pWQ4pWQ4pWQ4pWQ4pWQCjEuIE1hYWsgZWVuIGludGVydmFscy5pY3UgYWNjb3VudCBhYW4gb3AgaHR0cHM6Ly9pbnRlcnZhbHMuaWN1CjIuIEtvcHBlbCBHYXJtaW4gdmlhIFNldHRpbmdzIOKGkiBDb25uZWN0ZWQgQWNjb3VudHMg4oaSIEdhcm1pbgozLiBWaW5kIGplIEF0aGxldGUgSUQ6IFNldHRpbmdzIOKGkiBQcm9maWxlIChib3ZlbmFhbiwgZm9ybWFhdCAiaVhYWFhYIikKNC4gTWFhayBlZW4gQVBJIGtleTogU2V0dGluZ3Mg4oaSIEFQSSBrZXkg4oaSIE5ldyBrZXkKNS4gVm9lZyB0b2UgYWxzIEdpdEh1YiBTZWNyZXRzOgogICAgICAgSU5URVJWQUxTX0FUSExFVEVfSUQgIOKAlCBiaWp2LiAiaTEyMzQ1IgogICAgICAgSU5URVJWQUxTX0FQSV9LRVkgICAgIOKAlCBkZSBnZWdlbmVyZWVyZGUgQVBJIGtleQoKVmVyZWlzdGUgc2VjcmV0czoKICBJTlRFUlZBTFNfQVRITEVURV9JRCAgLSBpbnRlcnZhbHMuaWN1IGF0aGxldGUgSUQgKGJpanYuICJpMTIzNDUiKQogIElOVEVSVkFMU19BUElfS0VZICAgICAtIGludGVydmFscy5pY3UgQVBJIGtleQoKUmV0dXJuIGZvcm1hYXQ6CnsKICAid2VsbG5lc3MiOiB7CiAgICAiYnlfZGF0ZSI6IHsKICAgICAgIllZWVktTU0tREQiOiB7CiAgICAgICAgInJlc3RpbmdfaHIiOiBpbnQsICAgICAgICMgcnVzdHBvbHMgKGJwbSkKICAgICAgICAiaHJ2IjogZmxvYXQsICAgICAgICAgICAgIyBSTVNTRCAobXMpCiAgICAgICAgInNsZWVwX2hycyI6IGZsb2F0LCAgICAgICMgc2xhYXAgKHV1cikKICAgICAgICAic2xlZXBfc2NvcmUiOiBpbnQsICAgICAgIyBzbGFhcHNjb3JlICgwLTEwMCkKICAgICAgICAiY3RsIjogZmxvYXQsICAgICAgICAgICAgIyBjaHJvbmljIHRyYWluaW5nIGxvYWQgKGZpdG5lc3MpCiAgICAgICAgImF0bCI6IGZsb2F0LCAgICAgICAgICAgICMgYWN1dGUgdHJhaW5pbmcgbG9hZCAodmVybW9laWRoZWlkKQogICAgICAgICJ0c2IiOiBmbG9hdCwgICAgICAgICAgICAjIHRyYWluaW5nIHN0cmVzcyBiYWxhbmNlICh2b3JtID0gQ1RMIC0gQVRMKQogICAgICAgICJ3ZWlnaHRfa2ciOiBmbG9hdCwgICAgICAjIGdld2ljaHQgaW4ga2cgKGFscyBHYXJtaW4gZGl0IGJpamhvdWR0KQogICAgICAgICJzcG8yIjogZmxvYXQsICAgICAgICAgICAjIGJsb2VkenV1cnN0b2YgJQogICAgICB9CiAgICB9CiAgfSwKICAiYWN0aXZpdGllcyI6IHsKICAgICJieV9kYXRlIjogewogICAgICAiWVlZWS1NTS1ERCI6IFsKICAgICAgICB7CiAgICAgICAgICAibmFtZSI6IHN0ciwKICAgICAgICAgICJ0eXBlIjogc3RyLAogICAgICAgICAgImR1cmF0aW9uX21pbiI6IGludCwKICAgICAgICAgICJhdmdfaHIiOiBpbnQsCiAgICAgICAgICAibWF4X2hyIjogaW50LAogICAgICAgICAgImNhbG9yaWVzIjogaW50LAogICAgICAgICAgInRyYWluaW5nX2xvYWQiOiBmbG9hdCwKICAgICAgICB9CiAgICAgIF0KICAgIH0KICB9LAogICJmZXRjaGVkX2F0IjogIklTTzg2MDEiCn0KIiIiCgppbXBvcnQgbG9nZ2luZwppbXBvcnQgb3MKZnJvbSBkYXRldGltZSBpbXBvcnQgZGF0ZSwgdGltZWRlbHRhLCB0aW1lem9uZSwgZGF0ZXRpbWUKCmltcG9ydCByZXF1ZXN0cwoKbG9nID0gbG9nZ2luZy5nZXRMb2dnZXIoX19uYW1lX18pCgpCQVNFX1VSTCA9ICJodHRwczovL2ludGVydmFscy5pY3UvYXBpL3YxL2F0aGxldGUiCkRBWVNfQkFDSyA9IDE0ICAjIG9waGFsZW4gbGFhdHN0ZSAxNCBkYWdlbiB3ZWxsbmVzcwpBQ1RJVklUWV9EQVlTX0JBQ0sgPSAyMSAgIyBvcGhhbGVuIGxhYXRzdGUgMjEgZGFnZW4gYWN0aXZpdGVpdGVuCgoKZGVmIF9hdXRoKGFwaV9rZXk6IHN0cikgLT4gdHVwbGVbc3RyLCBzdHJdOgogICAgIiIiSFRUUCBCYXNpYyBBdXRoIHR1cGxlIHZvb3IgaW50ZXJ2YWxzLmljdTogdXNlcm5hbWU9J0FQSV9LRVknLCBwYXNzd29yZD1hcGlfa2V5LiIiIgogICAgcmV0dXJuICgiQVBJX0tFWSIsIGFwaV9rZXkpCgoKZGVmIGZldGNoX2ludGVydmFsc19kYXRhKCkgLT4gZGljdCB8IE5vbmU6CiAgICAiIiIKICAgIEhhYWwgd2VsbG5lc3MgZW4gYWN0aXZpdGVpdGVuIG9wIHZhbiBpbnRlcnZhbHMuaWN1LgogICAgUmV0b3VybmVlcnQgTm9uZSBhbHMgc2VjcmV0cyBvbnRicmVrZW4gb2YgQVBJIG5pZXQgYmVyZWlrYmFhciBpcy4KICAgICIiIgogICAgYXRobGV0ZV9pZCA9IG9zLmVudmlyb24uZ2V0KCJJTlRFUlZBTFNfQVRITEVURV9JRCIsICIiKS5zdHJpcCgpCiAgICBhcGlfa2V5ID0gb3MuZW52aXJvbi5nZXQoIklOVEVSVkFMU19BUElfS0VZIiwgIiIpLnN0cmlwKCkKCiAgICBpZiBub3QgYXRobGV0ZV9pZCBvciBub3QgYXBpX2tleToKICAgICAgICBsb2cuaW5mbygiSU5URVJWQUxTX0FUSExFVEVfSUQgb2YgSU5URVJWQUxTX0FQSV9LRVkgbmlldCBpbmdlc3RlbGQg4oCUIGludGVydmFscy5pY3Ugb3Zlcmdlc2xhZ2VuIikKICAgICAgICByZXR1cm4gTm9uZQoKICAgIHRvZGF5ID0gZGF0ZS50b2RheSgpCiAgICBvbGRlc3Rfd2VsbG5lc3MgPSAodG9kYXkgLSB0aW1lZGVsdGEoZGF5cz1EQVlTX0JBQ0spKS5pc29mb3JtYXQoKQogICAgb2xkZXN0X2FjdGl2aXRpZXMgPSAodG9kYXkgLSB0aW1lZGVsdGEoZGF5cz1BQ1RJVklUWV9EQVlTX0JBQ0spKS5pc29mb3JtYXQoKQogICAgbmV3ZXN0ID0gdG9kYXkuaXNvZm9ybWF0KCkKCiAgICBhdXRoID0gX2F1dGgoYXBpX2tleSkKICAgIHNlc3Npb24gPSByZXF1ZXN0cy5TZXNzaW9uKCkKICAgIHNlc3Npb24uYXV0aCA9IGF1dGgKICAgIHNlc3Npb24uaGVhZGVycy51cGRhdGUoeyJBY2NlcHQiOiAiYXBwbGljYXRpb24vanNvbiJ9KQoKICAgIHJlc3VsdDogZGljdCA9IHsKICAgICAgICAid2VsbG5lc3MiOiB7ImJ5X2RhdGUiOiB7fX0sCiAgICAgICAgImFjdGl2aXRpZXMiOiB7ImJ5X2RhdGUiOiB7fX0sCiAgICAgICAgImZldGNoZWRfYXQiOiBkYXRldGltZS5ub3codGltZXpvbmUudXRjKS5pc29mb3JtYXQoKSwKICAgIH0KCiAgICAjIOKUgOKUgCAxLiBXZWxsbmVzcyAocnVzdHBvbHMsIEhSViwgc2xhYXAsIENUTC9BVEwvVFNCKSDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIAKICAgIHRyeToKICAgICAgICB1cmwgPSBmIntCQVNFX1VSTH0ve2F0aGxldGVfaWR9L3dlbGxuZXNzIgogICAgICAgIHJlc3AgPSBzZXNzaW9uLmdldCh1cmwsIHBhcmFtcz17Im9sZGVzdCI6IG9sZGVzdF93ZWxsbmVzcywgIm5ld2VzdCI6IG5ld2VzdH0sIHRpbWVvdXQ9MjApCiAgICAgICAgcmVzcC5yYWlzZV9mb3Jfc3RhdHVzKCkKICAgICAgICB3ZWxsbmVzc19saXN0ID0gcmVzcC5qc29uKCkKICAgICAgICBsb2cuaW5mbygiSW50ZXJ2YWxzLmljdSB3ZWxsbmVzczogJWQgcmVjb3JkcyBvbnR2YW5nZW4iLCBsZW4od2VsbG5lc3NfbGlzdCkpCgogICAgICAgIGZvciB3IGluIHdlbGxuZXNzX2xpc3Q6CiAgICAgICAgICAgIGRheSA9IHcuZ2V0KCJpZCIpICAjIGRhdHVtIGFscyAiWVlZWS1NTS1ERCIKICAgICAgICAgICAgaWYgbm90IGRheToKICAgICAgICAgICAgICAgIGNvbnRpbnVlCgogICAgICAgICAgICBlbnRyeTogZGljdCA9IHt9CgogICAgICAgICAgICByaHIgPSB3LmdldCgicmVzdGluZ0hSIikKICAgICAgICAgICAgaWYgcmhyIGlzIG5vdCBOb25lIGFuZCByaHIgPiAwOgogICAgICAgICAgICAgICAgZW50cnlbInJlc3RpbmdfaHIiXSA9IGludChyaHIpCgogICAgICAgICAgICAjIEhSVjogaW50ZXJ2YWxzLmljdSBzbGFhdCBSTVNTRCBvcCBhbHMgJ3Jtc3NkJyBvZiAnaHJ2JwogICAgICAgICAgICBocnYgPSB3LmdldCgicm1zc2QiKSBvciB3LmdldCgiaHJ2IikKICAgICAgICAgICAgaWYgaHJ2IGlzIG5vdCBOb25lIGFuZCBocnYgPiAwOgogICAgICAgICAgICAgICAgZW50cnlbImhydiJdID0gcm91bmQoZmxvYXQoaHJ2KSwgMSkKCiAgICAgICAgICAgIHNsZWVwX3NlY3MgPSB3LmdldCgic2xlZXBTZWNzIikKICAgICAgICAgICAgaWYgc2xlZXBfc2VjcyBpcyBub3QgTm9uZSBhbmQgc2xlZXBfc2VjcyA+IDA6CiAgICAgICAgICAgICAgICBlbnRyeVsic2xlZXBfaHJzIl0gPSByb3VuZChzbGVlcF9zZWNzIC8gMzYwMCwgMikKCiAgICAgICAgICAgIHNsZWVwX3Njb3JlID0gdy5nZXQoInNsZWVwU2NvcmUiKQogICAgICAgICAgICBpZiBzbGVlcF9zY29yZSBpcyBub3QgTm9uZToKICAgICAgICAgICAgICAgIGVudHJ5WyJzbGVlcF9zY29yZSJdID0gaW50KHNsZWVwX3Njb3JlKQoKICAgICAgICAgICAgY3RsID0gdy5nZXQoImN0bCIpCiAgICAgICAgICAgIGlmIGN0bCBpcyBub3QgTm9uZToKICAgICAgICAgICAgICAgIGVudHJ5WyJjdGwiXSA9IHJvdW5kKGZsb2F0KGN0bCksIDEpCgogICAgICAgICAgICBhdGwgPSB3LmdldCgiYXRsIikKICAgICAgICAgICAgaWYgYXRsIGlzIG5vdCBOb25lOgogICAgICAgICAgICAgICAgZW50cnlbImF0bCJdID0gcm91bmQoZmxvYXQoYXRsKSwgMSkKCiAgICAgICAgICAgIHRzYiA9IHcuZ2V0KCJ0c2IiKQogICAgICAgICAgICBpZiB0c2IgaXMgbm90IE5vbmU6CiAgICAgICAgICAgICAgICBlbnRyeVsidHNiIl0gPSByb3VuZChmbG9hdCh0c2IpLCAxKQoKICAgICAgICAgICAgd2VpZ2h0ID0gdy5nZXQoIndlaWdodCIpCiAgICAgICAgICAgIGlmIHdlaWdodCBpcyBub3QgTm9uZSBhbmQgd2VpZ2h0ID4gMDoKICAgICAgICAgICAgICAgIGVudHJ5WyJ3ZWlnaHRfa2ciXSA9IHJvdW5kKGZsb2F0KHdlaWdodCksIDEpCgogICAgICAgICAgICBzcG8yID0gdy5nZXQoInNwTzIiKQogICAgICAgICAgICBpZiBzcG8yIGlzIG5vdCBOb25lIGFuZCBzcG8yID4gMDoKICAgICAgICAgICAgICAgIGVudHJ5WyJzcG8yIl0gPSByb3VuZChmbG9hdChzcG8yKSwgMSkKCiAgICAgICAgICAgIGlmIGVudHJ5OgogICAgICAgICAgICAgICAgcmVzdWx0WyJ3ZWxsbmVzcyJdWyJieV9kYXRlIl1bZGF5XSA9IGVudHJ5CgogICAgZXhjZXB0IEV4Y2VwdGlvbiBhcyBleGM6CiAgICAgICAgbG9nLndhcm5pbmcoIkludGVydmFscy5pY3Ugd2VsbG5lc3MgZmV0Y2ggbWlzbHVrdDogJXMiLCBleGMpCgogICAgIyDilIDilIAgMi4gQWN0aXZpdGVpdGVuIChDcm9zc0ZpdCArIGFuZGVyZSBHYXJtaW4tdHJhaW5pbmdlbikg4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSACiAgICB0cnk6CiAgICAgICAgdXJsID0gZiJ7QkFTRV9VUkx9L3thdGhsZXRlX2lkfS9hY3Rpdml0aWVzIgogICAgICAgIHJlc3AgPSBzZXNzaW9uLmdldCgKICAgICAgICAgICAgdXJsLAogICAgICAgICAgICBwYXJhbXM9eyJvbGRlc3QiOiBvbGRlc3RfYWN0aXZpdGllcywgIm5ld2VzdCI6IG5ld2VzdH0sCiAgICAgICAgICAgIHRpbWVvdXQ9MjAsCiAgICAgICAgKQogICAgICAgIHJlc3AucmFpc2VfZm9yX3N0YXR1cygpCiAgICAgICAgYWN0aXZpdGllc19saXN0ID0gcmVzcC5qc29uKCkKICAgICAgICBsb2cuaW5mbygiSW50ZXJ2YWxzLmljdSBhY3Rpdml0ZWl0ZW46ICVkIHJlY29yZHMgb250dmFuZ2VuIiwgbGVuKGFjdGl2aXRpZXNfbGlzdCkpCgogICAgICAgIGZvciBhY3QgaW4gYWN0aXZpdGllc19saXN0OgogICAgICAgICAgICAjIERhdHVtIHVpdCBzdGFydF9kYXRlX2xvY2FsIChmb3JtYWF0OiAiWVlZWS1NTS1ERFRISDpNTTpTUyIpCiAgICAgICAgICAgIHN0YXJ0ID0gYWN0LmdldCgic3RhcnRfZGF0ZV9sb2NhbCIpIG9yIGFjdC5nZXQoInN0YXJ0X2RhdGUiKSBvciAiIgogICAgICAgICAgICBkYXkgPSBzdGFydFs6MTBdIGlmIHN0YXJ0IGVsc2UgIiIKICAgICAgICAgICAgaWYgbm90IGRheToKICAgICAgICAgICAgICAgIGNvbnRpbnVlCgogICAgICAgICAgICBlbnRyeTogZGljdCA9IHt9CgogICAgICAgICAgICBuYW1lID0gYWN0LmdldCgibmFtZSIsICIiKQogICAgICAgICAgICBpZiBuYW1lOgogICAgICAgICAgICAgICAgZW50cnlbIm5hbWUiXSA9IG5hbWUKCiAgICAgICAgICAgIGFjdF90eXBlID0gYWN0LmdldCgidHlwZSIpIG9yIGFjdC5nZXQoInNwb3J0X3R5cGUiLCAiIikKICAgICAgICAgICAgaWYgYWN0X3R5cGU6CiAgICAgICAgICAgICAgICBlbnRyeVsidHlwZSJdID0gYWN0X3R5cGUKCiAgICAgICAgICAgICMgRHV1ciBpbiBtaW51dGVuCiAgICAgICAgICAgIG1vdmluZyA9IGFjdC5nZXQoIm1vdmluZ190aW1lIikgb3IgYWN0LmdldCgiZWxhcHNlZF90aW1lIikgb3IgMAogICAgICAgICAgICBpZiBtb3ZpbmcgPiAwOgogICAgICAgICAgICAgICAgZW50cnlbImR1cmF0aW9uX21pbiJdID0gcm91bmQobW92aW5nIC8gNjApCgogICAgICAgICAgICBhdmdfaHIgPSBhY3QuZ2V0KCJhdmVyYWdlX2hlYXJ0cmF0ZSIpCiAgICAgICAgICAgIGlmIGF2Z19ociBpcyBub3QgTm9uZSBhbmQgYXZnX2hyID4gMDoKICAgICAgICAgICAgICAgIGVudHJ5WyJhdmdfaHIiXSA9IGludChhdmdfaHIpCgogICAgICAgICAgICBtYXhfaHIgPSBhY3QuZ2V0KCJtYXhfaGVhcnRyYXRlIikKICAgICAgICAgICAgaWYgbWF4X2hyIGlzIG5vdCBOb25lIGFuZCBtYXhfaHIgPiAwOgogICAgICAgICAgICAgICAgZW50cnlbIm1heF9ociJdID0gaW50KG1heF9ocikKCiAgICAgICAgICAgIGNhbHMgPSBhY3QuZ2V0KCJjYWxvcmllcyIpCiAgICAgICAgICAgIGlmIGNhbHMgaXMgbm90IE5vbmUgYW5kIGNhbHMgPiAwOgogICAgICAgICAgICAgICAgZW50cnlbImNhbG9yaWVzIl0gPSBpbnQoY2FscykKCiAgICAgICAgICAgICMgVHJhaW5pbmcgbG9hZDogaW50ZXJ2YWxzLmljdSBlaWdlbiBiZXJla2VuaW5nIGhlZWZ0IGhvZ2VyZSBwcmlvcml0ZWl0CiAgICAgICAgICAgIHRsID0gYWN0LmdldCgiaWN1X3RyYWluaW5nX2xvYWQiKSBvciBhY3QuZ2V0KCJ0cmFpbmluZ19sb2FkIikKICAgICAgICAgICAgaWYgdGwgaXMgbm90IE5vbmU6CiAgICAgICAgICAgICAgICBlbnRyeVsidHJhaW5pbmdfbG9hZCJdID0gcm91bmQoZmxvYXQodGwpLCAxKQoKICAgICAgICAgICAgcmVzdWx0WyJhY3Rpdml0aWVzIl1bImJ5X2RhdGUiXS5zZXRkZWZhdWx0KGRheSwgW10pLmFwcGVuZChlbnRyeSkKCiAgICBleGNlcHQgRXhjZXB0aW9uIGFzIGV4YzoKICAgICAgICBsb2cud2FybmluZygiSW50ZXJ2YWxzLmljdSBhY3Rpdml0ZWl0ZW4gZmV0Y2ggbWlzbHVrdDogJXMiLCBleGMpCgogICAgIyBSZXRvdXJuZWVyIE5vbmUgYWxzIGVyIGhlbGVtYWFsIG5pZXRzIG9wZ2VoYWFsZCBpcwogICAgaWYgbm90IHJlc3VsdFsid2VsbG5lc3MiXVsiYnlfZGF0ZSJdIGFuZCBub3QgcmVzdWx0WyJhY3Rpdml0aWVzIl1bImJ5X2RhdGUiXToKICAgICAgICBsb2cuaW5mbygiR2VlbiBpbnRlcnZhbHMuaWN1IGRhdGEgb250dmFuZ2VuIikKICAgICAgICByZXR1cm4gTm9uZQoKICAgIHJldHVybiByZXN1bHQKCgppZiBfX25hbWVfXyA9PSAiX19tYWluX18iOgogICAgaW1wb3J0IGpzb24KICAgIGxvZ2dpbmcuYmFzaWNDb25maWcobGV2ZWw9bG9nZ2luZy5JTkZPLCBmb3JtYXQ9IiUobGV2ZWxuYW1lKXMgJShtZXNzYWdlKXMiKQogICAgZGF0YSA9IGZldGNoX2ludGVydmFsc19kYXRhKCkKICAgIGlmIGRhdGE6CiAgICAgICAgbl93ID0gbGVuKGRhdGFbIndlbGxuZXNzIl1bImJ5X2RhdGUiXSkKICAgICAgICBuX2EgPSBzdW0obGVuKHYpIGZvciB2IGluIGRhdGFbImFjdGl2aXRpZXMiXVsiYnlfZGF0ZSJdLnZhbHVlcygpKQogICAgICAgIHByaW50KGYiV2VsbG5lc3M6IHtuX3d9IGRhZ2VuLCBBY3Rpdml0ZWl0ZW46IHtuX2F9IikKICAgICAgICBwcmludChqc29uLmR1bXBzKGRhdGEsIGluZGVudD0yLCBlbnN1cmVfYXNjaWk9RmFsc2UpKQogICAgZWxzZToKICAgICAgICBwcmludCgiR2VlbiBkYXRhIGJlc2NoaWtiYWFyIChJTlRFUlZBTFNfQVRITEVURV9JRCAvIElOVEVSVkFMU19BUElfS0VZIG5pZXQgaW5nZXN0ZWxkIG9mIGZldGNoIG1pc2x1a3QpIikK
+#!/usr/bin/env python3
+"""
+Intervals.icu data fetcher voor het SportBit CrossFit dashboard.
+
+Haalt Garmin-data op via intervals.icu (wellness + activiteiten).
+Intervals.icu synchroniseert automatisch met Garmin Connect.
+
+══════════════════════════════════════════════════════════════
+SETUP
+══════════════════════════════════════════════════════════════
+1. Maak een intervals.icu account aan op https://intervals.icu
+2. Koppel Garmin via Settings → Connected Accounts → Garmin
+3. Vind je Athlete ID: Settings → Profile (bovenaan, formaat "iXXXXX")
+4. Maak een API key: Settings → API key → New key
+5. Voeg toe als GitHub Secrets:
+       INTERVALS_ATHLETE_ID  — bijv. "i12345"
+       INTERVALS_API_KEY     — de gegenereerde API key
+
+Vereiste secrets:
+  INTERVALS_ATHLETE_ID  - intervals.icu athlete ID (bijv. "i12345")
+  INTERVALS_API_KEY     - intervals.icu API key
+
+Return formaat:
+{
+  "wellness": {
+    "by_date": {
+      "YYYY-MM-DD": {
+        "resting_hr": int,       # rustpols (bpm)
+        "hrv": float,            # RMSSD (ms)
+        "sleep_hrs": float,      # slaap (uur)
+        "sleep_score": int,      # slaapscore (0-100)
+        "ctl": float,            # chronic training load (fitness)
+        "atl": float,            # acute training load (vermoeidheid)
+        "tsb": float,            # training stress balance (vorm = CTL - ATL)
+        "weight_kg": float,      # gewicht in kg (als Garmin dit bijhoudt)
+        "spo2": float,           # bloedzuurstof %
+      }
+    }
+  },
+  "activities": {
+    "by_date": {
+      "YYYY-MM-DD": [
+        {
+          "name": str,
+          "type": str,
+          "duration_min": int,
+          "avg_hr": int,
+          "max_hr": int,
+          "calories": int,
+          "training_load": float,
+        }
+      ]
+    }
+  },
+  "fetched_at": "ISO8601"
+}
+"""
+
+import logging
+import os
+from datetime import date, timedelta, timezone, datetime
+
+import requests
+
+log = logging.getLogger(__name__)
+
+BASE_URL = "https://intervals.icu/api/v1/athlete"
+DAYS_BACK = 14  # ophalen laatste 14 dagen wellness
+ACTIVITY_DAYS_BACK = 21  # ophalen laatste 21 dagen activiteiten
+
+
+def _auth(api_key: str) -> tuple[str, str]:
+    """HTTP Basic Auth tuple voor intervals.icu: username='API_KEY', password=api_key."""
+    return ("API_KEY", api_key)
+
+
+def fetch_intervals_data() -> dict | None:
+    """
+    Haal wellness en activiteiten op van intervals.icu.
+    Retourneert None als secrets ontbreken of API niet bereikbaar is.
+    """
+    athlete_id = os.environ.get("INTERVALS_ATHLETE_ID", "").strip()
+    api_key = os.environ.get("INTERVALS_API_KEY", "").strip()
+
+    if not athlete_id or not api_key:
+        log.info("INTERVALS_ATHLETE_ID of INTERVALS_API_KEY niet ingesteld — intervals.icu overgeslagen")
+        return None
+
+    today = date.today()
+    oldest_wellness = (today - timedelta(days=DAYS_BACK)).isoformat()
+    oldest_activities = (today - timedelta(days=ACTIVITY_DAYS_BACK)).isoformat()
+    newest = today.isoformat()
+
+    auth = _auth(api_key)
+    session = requests.Session()
+    session.auth = auth
+    session.headers.update({"Accept": "application/json"})
+
+    result: dict = {
+        "wellness": {"by_date": {}},
+        "activities": {"by_date": {}},
+        "fetched_at": datetime.now(timezone.utc).isoformat(),
+    }
+
+    # ── 1. Wellness (rustpols, HRV, slaap, CTL/ATL/TSB) ─────────────────
+    try:
+        url = f"{BASE_URL}/{athlete_id}/wellness"
+        resp = session.get(url, params={"oldest": oldest_wellness, "newest": newest}, timeout=20)
+        resp.raise_for_status()
+        wellness_list = resp.json()
+        log.info("Intervals.icu wellness: %d records ontvangen", len(wellness_list))
+
+        for w in wellness_list:
+            day = w.get("id")  # datum als "YYYY-MM-DD"
+            if not day:
+                continue
+
+            entry: dict = {}
+
+            rhr = w.get("restingHR")
+            if rhr is not None and rhr > 0:
+                entry["resting_hr"] = int(rhr)
+
+            # HRV: intervals.icu slaat RMSSD op als 'rmssd' of 'hrv'
+            hrv = w.get("rmssd") or w.get("hrv")
+            if hrv is not None and hrv > 0:
+                entry["hrv"] = round(float(hrv), 1)
+
+            sleep_secs = w.get("sleepSecs")
+            if sleep_secs is not None and sleep_secs > 0:
+                entry["sleep_hrs"] = round(sleep_secs / 3600, 2)
+
+            sleep_score = w.get("sleepScore")
+            if sleep_score is not None:
+                entry["sleep_score"] = int(sleep_score)
+
+            ctl = w.get("ctl")
+            if ctl is not None:
+                entry["ctl"] = round(float(ctl), 1)
+
+            atl = w.get("atl")
+            if atl is not None:
+                entry["atl"] = round(float(atl), 1)
+
+            tsb = w.get("tsb")
+            if tsb is not None:
+                entry["tsb"] = round(float(tsb), 1)
+
+            weight = w.get("weight")
+            if weight is not None and weight > 0:
+                entry["weight_kg"] = round(float(weight), 1)
+
+            spo2 = w.get("spO2")
+            if spo2 is not None and spo2 > 0:
+                entry["spo2"] = round(float(spo2), 1)
+
+            if entry:
+                result["wellness"]["by_date"][day] = entry
+
+    except Exception as exc:
+        log.warning("Intervals.icu wellness fetch mislukt: %s", exc)
+
+    # ── 2. Activiteiten (CrossFit + andere Garmin-trainingen) ────────────
+    try:
+        url = f"{BASE_URL}/{athlete_id}/activities"
+        resp = session.get(
+            url,
+            params={"oldest": oldest_activities, "newest": newest},
+            timeout=20,
+        )
+        resp.raise_for_status()
+        activities_list = resp.json()
+        log.info("Intervals.icu activiteiten: %d records ontvangen", len(activities_list))
+
+        for act in activities_list:
+            # Datum uit start_date_local (formaat: "YYYY-MM-DDTHH:MM:SS")
+            start = act.get("start_date_local") or act.get("start_date") or ""
+            day = start[:10] if start else ""
+            if not day:
+                continue
+
+            entry: dict = {}
+
+            name = act.get("name", "")
+            if name:
+                entry["name"] = name
+
+            act_type = act.get("type") or act.get("sport_type", "")
+            if act_type:
+                entry["type"] = act_type
+
+            # Duur in minuten
+            moving = act.get("moving_time") or act.get("elapsed_time") or 0
+            if moving > 0:
+                entry["duration_min"] = round(moving / 60)
+
+            avg_hr = act.get("average_heartrate")
+            if avg_hr is not None and avg_hr > 0:
+                entry["avg_hr"] = int(avg_hr)
+
+            max_hr = act.get("max_heartrate")
+            if max_hr is not None and max_hr > 0:
+                entry["max_hr"] = int(max_hr)
+
+            cals = act.get("calories")
+            if cals is not None and cals > 0:
+                entry["calories"] = int(cals)
+
+            # Training load: intervals.icu eigen berekening heeft hogere prioriteit
+            tl = act.get("icu_training_load") or act.get("training_load")
+            if tl is not None:
+                entry["training_load"] = round(float(tl), 1)
+
+            result["activities"]["by_date"].setdefault(day, []).append(entry)
+
+    except Exception as exc:
+        log.warning("Intervals.icu activiteiten fetch mislukt: %s", exc)
+
+    # Retourneer None als er helemaal niets opgehaald is
+    if not result["wellness"]["by_date"] and not result["activities"]["by_date"]:
+        log.info("Geen intervals.icu data ontvangen")
+        return None
+
+    return result
+
+
+if __name__ == "__main__":
+    import json
+    logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
+    data = fetch_intervals_data()
+    if data:
+        n_w = len(data["wellness"]["by_date"])
+        n_a = sum(len(v) for v in data["activities"]["by_date"].values())
+        print(f"Wellness: {n_w} dagen, Activiteiten: {n_a}")
+        print(json.dumps(data, indent=2, ensure_ascii=False))
+    else:
+        print("Geen data beschikbaar (INTERVALS_ATHLETE_ID / INTERVALS_API_KEY niet ingesteld of fetch mislukt)")
