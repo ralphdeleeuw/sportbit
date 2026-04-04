@@ -1968,8 +1968,30 @@ def generate_recovery_advice(
             if ctl is not None and atl is not None:
                 tsb_label = "fris" if tsb is not None and tsb > 5 else "vermoeid" if tsb is not None and tsb < -10 else "neutraal"
                 g_lines.append(f"- Trainingsvorm (TSB): {tsb:+.0f} ({tsb_label}) — fitness {ctl:.0f}, vermoeidheid {atl:.0f}")
+            if garmin_entry.get("weight_kg") is not None:
+                g_lines.append(f"- Gewicht: {garmin_entry['weight_kg']:.1f} kg (Garmin)")
+            if garmin_entry.get("spo2") is not None:
+                g_lines.append(f"- SpO2: {garmin_entry['spo2']:.0f}%")
             if g_lines:
                 garmin_block = "\nGarmin hersteldata (via intervals.icu):\n" + "\n".join(g_lines) + "\n"
+    # Activiteitenhistorie uit intervals.icu (laatste 14 dagen)
+    if intervals_data:
+        acts_by_date = (intervals_data.get("activities") or {}).get("by_date") or {}
+        recent_acts = []
+        for day in sorted(acts_by_date.keys(), reverse=True)[:14]:
+            for act in acts_by_date[day]:
+                parts = [f"{day}: {act.get('type') or act.get('name') or '?'}"]
+                if act.get("duration_min"):
+                    parts.append(f"{act['duration_min']}min")
+                if act.get("avg_hr"):
+                    parts.append(f"gem.HR {act['avg_hr']}bpm")
+                if act.get("training_load"):
+                    parts.append(f"TL {act['training_load']:.0f}")
+                if act.get("calories"):
+                    parts.append(f"{act['calories']}kcal")
+                recent_acts.append("- " + " · ".join(parts))
+        if recent_acts:
+            garmin_block += "\nRecente trainingen (intervals.icu, laatste 14 dagen):\n" + "\n".join(recent_acts) + "\n"
 
     # Withings lichaamssamenstelling
     withings_block = ""
@@ -2213,8 +2235,32 @@ def generate_workout_plans(
                 _gp.append(f"HRV {_ge['hrv']:.0f}ms")
             if _ge.get("tsb") is not None:
                 _gp.append(f"TSB {_ge['tsb']:+.0f}")
+            if _ge.get("ctl") is not None and _ge.get("atl") is not None:
+                _gp.append(f"fitness {_ge['ctl']:.0f} / vermoeidheid {_ge['atl']:.0f}")
+            if _ge.get("sleep_hrs") is not None:
+                _gp.append(f"slaap {_ge['sleep_hrs']:.1f}u")
+            if _ge.get("sleep_score") is not None:
+                _gp.append(f"slaapscore {_ge['sleep_score']}/100")
+            if _ge.get("spo2") is not None:
+                _gp.append(f"SpO2 {_ge['spo2']:.0f}%")
             if _gp:
                 recovery_status_text += "Garmin: " + ", ".join(_gp) + "\n"
+    # Activiteitenhistorie uit intervals.icu (laatste 7 dagen)
+    if intervals_data:
+        _acts_by_date = (intervals_data.get("activities") or {}).get("by_date") or {}
+        _recent = []
+        for _day in sorted(_acts_by_date.keys(), reverse=True)[:7]:
+            for _act in _acts_by_date[_day]:
+                _p = [f"{_day}: {_act.get('type') or _act.get('name') or '?'}"]
+                if _act.get("duration_min"):
+                    _p.append(f"{_act['duration_min']}min")
+                if _act.get("avg_hr"):
+                    _p.append(f"gem.HR {_act['avg_hr']}bpm")
+                if _act.get("training_load"):
+                    _p.append(f"TL {_act['training_load']:.0f}")
+                _recent.append("- " + " · ".join(_p))
+        if _recent:
+            recovery_status_text += "Recente trainingen (intervals.icu):\n" + "\n".join(_recent) + "\n"
     acwr = _compute_acwr(strava_data)
     if acwr:
         recovery_status_text += (
