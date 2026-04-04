@@ -745,6 +745,28 @@
       color: var(--muted);
     }
 
+    .garmin-activities {
+      margin-top: 0.5rem;
+      border-top: 1px solid var(--border);
+      padding-top: 0.4rem;
+      display: flex;
+      flex-direction: column;
+      gap: 0.25rem;
+    }
+
+    .garmin-activity-row {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 0.3rem 0.8rem;
+      font-size: 0.76rem;
+    }
+
+    .garmin-activity-label {
+      color: var(--muted);
+      min-width: 12rem;
+    }
+
     .recovery-block {
       background: #0a0f1a;
       border: 1px solid #1a2a4a;
@@ -2234,13 +2256,15 @@
       const entry = intervalsData.wellness.by_date[today] || intervalsData.wellness.by_date[yesterday];
       if (!entry) return '';
 
-      const rhr  = entry.resting_hr;
-      const hrv  = entry.hrv;
-      const tsb  = entry.tsb;
-      const ctl  = entry.ctl;
-      const atl  = entry.atl;
-      const slp  = entry.sleep_hrs;
+      const rhr      = entry.resting_hr;
+      const hrv      = entry.hrv;
+      const tsb      = entry.tsb;
+      const ctl      = entry.ctl;
+      const atl      = entry.atl;
+      const slp      = entry.sleep_hrs;
       const slpScore = entry.sleep_score;
+      const weight   = entry.weight_kg;
+      const spo2     = entry.spo2;
 
       if (rhr == null && hrv == null && tsb == null) return '';
 
@@ -2260,10 +2284,40 @@
       if (slp != null) details.push(`slaap ${slp.toFixed(1)}u`);
       if (slpScore != null) details.push(`slaapscore ${slpScore}`);
       if (ctl != null && atl != null) details.push(`fitness ${Math.round(ctl)} · vermoeidheid ${Math.round(atl)}`);
+      if (weight != null) details.push(`gewicht ${weight.toFixed(1)}kg`);
+      if (spo2 != null) details.push(`SpO2 ${Math.round(spo2)}%`);
+
+      // Recente activiteiten (laatste 7 dagen)
+      const actsHtml = (() => {
+        const actsByDate = (intervalsData.activities || {}).by_date || {};
+        const today7 = new Date();
+        const rows = [];
+        for (let i = 0; i < 7; i++) {
+          const d = new Date(today7); d.setDate(d.getDate() - i);
+          const dk = d.toISOString().slice(0, 10);
+          const acts = actsByDate[dk];
+          if (!acts || acts.length === 0) continue;
+          acts.forEach(act => {
+            const parts = [];
+            if (act.duration_min) parts.push(`<span class="strava-stat"><strong>${act.duration_min}</strong> min</span>`);
+            if (act.avg_hr)       parts.push(`<span class="strava-stat">gem.HR <strong>${act.avg_hr}</strong> bpm</span>`);
+            if (act.max_hr)       parts.push(`<span class="strava-stat">max.HR <strong>${act.max_hr}</strong> bpm</span>`);
+            if (act.calories)     parts.push(`<span class="strava-stat"><strong>${act.calories}</strong> kcal</span>`);
+            if (act.training_load != null) parts.push(`<span class="strava-stat">TL <strong>${Math.round(act.training_load)}</strong></span>`);
+            const label = act.name || act.type || 'Activiteit';
+            rows.push(`<div class="garmin-activity-row">
+              <span class="garmin-activity-label">${dk} — ${label}</span>
+              ${parts.join('')}
+            </div>`);
+          });
+        }
+        return rows.length ? `<div class="garmin-activities">${rows.join('')}</div>` : '';
+      })();
 
       return `<div class="garmin-block">
         <div class="garmin-block-label">Garmin ${tsbBadge}</div>
         ${details.length ? `<div class="garmin-block-details">${details.join(' · ')}</div>` : ''}
+        ${actsHtml}
       </div>`;
     }
 
