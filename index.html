@@ -1589,6 +1589,7 @@
       }).join('') : '';
 
       const logHtml = renderLogSection(item.date);
+      const intervalsHtml = renderIntervalsBlock(item.date);
       const stravaHtml = renderStravaBlock(item.date);
 
       // "Niet gedaan" button — marks this class as cancelled in the state so the
@@ -1616,7 +1617,7 @@
                 <div class="wod-chevron">▾</div>
               </div>
             </div>
-            <div class="card-wod">${wodSections}${stravaHtml}${logHtml}${nietGedaanBtn}</div>
+            <div class="card-wod">${wodSections}${intervalsHtml}${stravaHtml}${logHtml}${nietGedaanBtn}</div>
           </div>
         </div>`;
     }
@@ -1690,17 +1691,33 @@
       const acts = (stravaData.activities_by_date || {})[date];
       if (!acts || acts.length === 0) return '';
       return acts.map(act => {
-        const dur     = act.duration_min ? `<span class="strava-stat"><strong>${act.duration_min}</strong> min</span>` : '';
+        // Duur, HR, calorieën worden getoond via intervals.icu blok — hier alleen Strava-specifieke velden
         const elapsed = act.elapsed_min  ? `<span class="strava-stat">totaal <strong>${act.elapsed_min}</strong> min</span>` : '';
-        const hr      = act.avg_hr   ? `<span class="strava-stat">gem.HR <strong>${Math.round(act.avg_hr)}</strong> bpm</span>` : '';
-        const hrMax   = act.max_hr   ? `<span class="strava-stat">max.HR <strong>${Math.round(act.max_hr)}</strong> bpm</span>` : '';
-        const cal     = act.calories ? `<span class="strava-stat"><strong>${Math.round(act.calories)}</strong> kcal</span>` : '';
         const suffer  = act.suffer_score       ? `<span class="strava-stat">RE <strong>${Math.round(act.suffer_score)}</strong></span>` : '';
         const rpe     = act.perceived_exertion ? `<span class="strava-stat">RPE <strong>${act.perceived_exertion}</strong></span>` : '';
+        if (!elapsed && !suffer && !rpe) return '';
         const name    = act.name ? ` — ${act.name}` : '';
         return `<div class="strava-block">
           <div class="strava-block-label">Strava${name}</div>
-          ${dur}${elapsed}${hr}${hrMax}${cal}${suffer}${rpe}
+          ${elapsed}${suffer}${rpe}
+        </div>`;
+      }).join('');
+    }
+
+    function renderIntervalsBlock(date) {
+      if (!intervalsData) return '';
+      const acts = ((intervalsData.activities || {}).by_date || {})[date];
+      if (!acts || acts.length === 0) return '';
+      return acts.map(act => {
+        const dur  = act.duration_min  ? `<span class="strava-stat"><strong>${act.duration_min}</strong> min</span>` : '';
+        const hr   = act.avg_hr        ? `<span class="strava-stat">gem.HR <strong>${act.avg_hr}</strong> bpm</span>` : '';
+        const hrMax= act.max_hr        ? `<span class="strava-stat">max.HR <strong>${act.max_hr}</strong> bpm</span>` : '';
+        const cal  = act.calories      ? `<span class="strava-stat"><strong>${act.calories}</strong> kcal</span>` : '';
+        const tl   = act.training_load != null ? `<span class="strava-stat">TL <strong>${Math.round(act.training_load)}</strong></span>` : '';
+        const name = act.name || act.type || 'Activiteit';
+        return `<div class="strava-block">
+          <div class="strava-block-label">Intervals — ${name}</div>
+          ${dur}${hr}${hrMax}${cal}${tl}
         </div>`;
       }).join('');
     }
@@ -2287,37 +2304,9 @@
       if (weight != null) details.push(`gewicht ${weight.toFixed(1)}kg`);
       if (spo2 != null) details.push(`SpO2 ${Math.round(spo2)}%`);
 
-      // Recente activiteiten (laatste 7 dagen)
-      const actsHtml = (() => {
-        const actsByDate = (intervalsData.activities || {}).by_date || {};
-        const today7 = new Date();
-        const rows = [];
-        for (let i = 0; i < 7; i++) {
-          const d = new Date(today7); d.setDate(d.getDate() - i);
-          const dk = d.toISOString().slice(0, 10);
-          const acts = actsByDate[dk];
-          if (!acts || acts.length === 0) continue;
-          acts.forEach(act => {
-            const parts = [];
-            if (act.duration_min) parts.push(`<span class="strava-stat"><strong>${act.duration_min}</strong> min</span>`);
-            if (act.avg_hr)       parts.push(`<span class="strava-stat">gem.HR <strong>${act.avg_hr}</strong> bpm</span>`);
-            if (act.max_hr)       parts.push(`<span class="strava-stat">max.HR <strong>${act.max_hr}</strong> bpm</span>`);
-            if (act.calories)     parts.push(`<span class="strava-stat"><strong>${act.calories}</strong> kcal</span>`);
-            if (act.training_load != null) parts.push(`<span class="strava-stat">TL <strong>${Math.round(act.training_load)}</strong></span>`);
-            const label = act.name || act.type || 'Activiteit';
-            rows.push(`<div class="garmin-activity-row">
-              <span class="garmin-activity-label">${dk} — ${label}</span>
-              ${parts.join('')}
-            </div>`);
-          });
-        }
-        return rows.length ? `<div class="garmin-activities">${rows.join('')}</div>` : '';
-      })();
-
       return `<div class="garmin-block">
         <div class="garmin-block-label">Garmin ${tsbBadge}</div>
         ${details.length ? `<div class="garmin-block-details">${details.join(' · ')}</div>` : ''}
-        ${actsHtml}
       </div>`;
     }
 
