@@ -1983,15 +1983,32 @@ def generate_recovery_advice(
         recent_acts = []
         for day in sorted(acts_by_date.keys(), reverse=True)[:14]:
             for act in acts_by_date[day]:
-                parts = [f"{day}: {act.get('type') or act.get('name') or '?'}"]
+                parts = [f"{day}: {act.get('name') or act.get('type') or '?'}"]
                 if act.get("duration_min"):
                     parts.append(f"{act['duration_min']}min")
+                if act.get("distance_m"):
+                    parts.append(f"{act['distance_m'] / 1000:.2f}km")
+                if act.get("avg_speed_ms"):
+                    act_type = (act.get("type") or "").lower()
+                    if any(k in act_type for k in ("run", "walk")):
+                        sec_km = 1000 / act["avg_speed_ms"]
+                        parts.append(f"tempo {int(sec_km // 60)}:{int(sec_km % 60):02d}/km")
+                    elif not any(k in act_type for k in ("crossfit", "workout", "weight")):
+                        parts.append(f"{act['avg_speed_ms'] * 3.6:.1f}km/u")
+                if act.get("elevation_m"):
+                    parts.append(f"↑{act['elevation_m']}m")
                 if act.get("avg_hr"):
                     parts.append(f"gem.HR {act['avg_hr']}bpm")
+                if act.get("avg_watts"):
+                    parts.append(f"{act['avg_watts']}W")
                 if act.get("training_load"):
                     parts.append(f"TL {act['training_load']:.0f}")
+                if act.get("intensity_pct"):
+                    parts.append(f"IF {act['intensity_pct']}%")
                 if act.get("calories"):
                     parts.append(f"{act['calories']}kcal")
+                if act.get("rpe"):
+                    parts.append(f"RPE {act['rpe']:.0f}")
                 recent_acts.append("- " + " · ".join(parts))
         if recent_acts:
             garmin_block += "\nRecente trainingen (intervals.icu, laatste 14 dagen):\n" + "\n".join(recent_acts) + "\n"
@@ -2254,13 +2271,30 @@ def generate_workout_plans(
         _recent = []
         for _day in sorted(_acts_by_date.keys(), reverse=True)[:7]:
             for _act in _acts_by_date[_day]:
-                _p = [f"{_day}: {_act.get('type') or _act.get('name') or '?'}"]
+                _p = [f"{_day}: {_act.get('name') or _act.get('type') or '?'}"]
                 if _act.get("duration_min"):
                     _p.append(f"{_act['duration_min']}min")
+                if _act.get("distance_m"):
+                    _p.append(f"{_act['distance_m'] / 1000:.2f}km")
+                if _act.get("avg_speed_ms"):
+                    _type = (_act.get("type") or "").lower()
+                    if any(k in _type for k in ("run", "walk")):
+                        _s = 1000 / _act["avg_speed_ms"]
+                        _p.append(f"tempo {int(_s // 60)}:{int(_s % 60):02d}/km")
+                    elif not any(k in _type for k in ("crossfit", "workout", "weight")):
+                        _p.append(f"{_act['avg_speed_ms'] * 3.6:.1f}km/u")
+                if _act.get("elevation_m"):
+                    _p.append(f"↑{_act['elevation_m']}m")
                 if _act.get("avg_hr"):
                     _p.append(f"gem.HR {_act['avg_hr']}bpm")
+                if _act.get("avg_watts"):
+                    _p.append(f"{_act['avg_watts']}W")
                 if _act.get("training_load"):
                     _p.append(f"TL {_act['training_load']:.0f}")
+                if _act.get("intensity_pct"):
+                    _p.append(f"IF {_act['intensity_pct']}%")
+                if _act.get("rpe"):
+                    _p.append(f"RPE {_act['rpe']:.0f}")
                 _recent.append("- " + " · ".join(_p))
         if _recent:
             recovery_status_text += "Recente trainingen (intervals.icu):\n" + "\n".join(_recent) + "\n"
