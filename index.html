@@ -1229,6 +1229,7 @@
       <div class="footer-row">
         <span>Bijgewerkt · <span id="lastUpdated">—</span></span>
         <button id="signupBtn" class="sync-btn" onclick="triggerSignup()">⚡ Inschrijven</button>
+        <button id="healthBtn" class="sync-btn" onclick="triggerHealthRefresh()">♥ Health</button>
         <button id="syncBtn" class="sync-btn" onclick="triggerSync()">↻ Sync</button>
       </div>
       <div class="sync-options">
@@ -1991,6 +1992,60 @@
         statusEl.style.color = 'var(--accent2)';
         btn.disabled = false;
         btn.textContent = '↻ Sync';
+      }
+    }
+
+    async function triggerHealthRefresh() {
+      const token = document.getElementById('githubToken').value.trim();
+      const statusEl = document.getElementById('syncStatus');
+      const btn = document.getElementById('healthBtn');
+
+      if (!token) {
+        statusEl.textContent = 'Vul eerst je GitHub Token in';
+        statusEl.style.color = 'var(--accent2)';
+        return;
+      }
+
+      btn.disabled = true;
+      btn.textContent = '♥ Bezig…';
+      statusEl.textContent = 'Health data ophalen…';
+      statusEl.style.color = 'var(--muted)';
+
+      const triggerTime = new Date();
+
+      try {
+        const resp = await fetch(
+          'https://api.github.com/repos/ralphdeleeuw/sportbit/actions/workflows/fetch_health_data.yml/dispatches',
+          {
+            method: 'POST',
+            headers: {
+              Authorization: `token ${token}`,
+              Accept: 'application/vnd.github+json',
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({ ref: 'main', inputs: {} }),
+          }
+        );
+
+        if (resp.status !== 204) {
+          const body = await resp.json().catch(() => ({}));
+          statusEl.textContent = `Fout ${resp.status}: ${body.message || 'onbekend'}`;
+          statusEl.style.color = 'var(--accent2)';
+          btn.disabled = false;
+          btn.textContent = '♥ Health';
+          return;
+        }
+
+        statusEl.textContent = '⏳ In wachtrij…';
+        await pollWorkflowRun(token, triggerTime, statusEl, btn, 'fetch_health_data.yml', '♥ Health');
+        // Na voltooiing: data herladen
+        await loadData();
+
+      } catch (e) {
+        statusEl.textContent = `Netwerkfout: ${e.message}`;
+        statusEl.style.color = 'var(--accent2)';
+        btn.disabled = false;
+        btn.textContent = '♥ Health';
       }
     }
 
