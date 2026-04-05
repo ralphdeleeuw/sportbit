@@ -1722,7 +1722,39 @@
       }).join('');
     }
 
-    function toggleSection(titleEl) {
+    function renderActivityCard(date, delay) {
+      const acts = ((intervalsData?.activities || {}).by_date || {})[date] || [];
+      const stravaActs = (stravaData?.activities_by_date || {})[date] || [];
+      if (acts.length === 0 && stravaActs.length === 0) return '';
+
+      const intervalsHtml = renderIntervalsBlock(date);
+      const stravaHtml = renderStravaBlock(date);
+      if (!intervalsHtml && !stravaHtml) return '';
+
+      // Naam voor de kaart: eerste activiteitsnaam of type
+      const first = acts[0] || {};
+      const title = first.name || first.type || (stravaActs[0]?.name) || 'Activiteit';
+
+      return `
+        <div class="card has-wod" style="animation-delay:${delay}s">
+          <div class="card-dot dot-active" style="opacity:0.4"></div>
+          <div class="card-info">
+            <div class="card-header" onclick="toggleWod(this.closest('.card'))" style="cursor:pointer">
+              <div class="card-header-left">
+                <div class="card-title">${title}</div>
+              </div>
+              <div class="card-right">
+                <div class="card-date">${formatDate(date)}</div>
+                <div class="card-relative-day">${relativeDay(date)}</div>
+                <div class="wod-chevron">▾</div>
+              </div>
+            </div>
+            <div class="card-wod">${intervalsHtml}${stravaHtml}</div>
+          </div>
+        </div>`;
+    }
+
+
       titleEl.classList.toggle('open');
       titleEl.nextElementSibling.classList.toggle('open');
     }
@@ -1828,11 +1860,39 @@
           html += `</div>`;
         }
 
-        // Past
-        if (past.length > 0) {
-          html += `<div class="section-title">Eerder</div><div class="cards">`;
-          past.slice(-5).reverse().forEach((e, i) => html += renderPastCard(e, i * 0.05));
-          html += `</div>`;
+        // Past: CrossFit lessen + standalone activiteiten (intervals/Strava zonder les)
+        {
+          const classDates = new Set(signedUp.map(e => e.date));
+
+          // Activiteitsdatums zonder bijbehorende les (laatste 21 dagen)
+          const cutoff = new Date(); cutoff.setDate(cutoff.getDate() - 21);
+          const cutoffStr = cutoff.toISOString().slice(0, 10);
+          const activityDates = new Set([
+            ...Object.keys((intervalsData?.activities || {}).by_date || {}),
+            ...Object.keys((stravaData?.activities_by_date) || {}),
+          ]);
+          const orphanDates = Array.from(activityDates)
+            .filter(d => !classDates.has(d) && d >= cutoffStr && d <= new Date().toISOString().slice(0, 10));
+
+          // Bouw gecombineerde lijst: {type, date, item?}
+          const pastItems = [
+            ...past.slice(-5).map(e => ({ type: 'class', date: e.date, item: e })),
+            ...orphanDates.map(d => ({ type: 'activity', date: d })),
+          ];
+          pastItems.sort((a, b) => b.date.localeCompare(a.date));
+          const pastSlice = pastItems.slice(0, 8); // max 8 kaarten
+
+          if (pastSlice.length > 0) {
+            html += `<div class="section-title">Eerder</div><div class="cards">`;
+            pastSlice.forEach((entry, i) => {
+              if (entry.type === 'class') {
+                html += renderPastCard(entry.item, i * 0.05);
+              } else {
+                html += renderActivityCard(entry.date, i * 0.05);
+              }
+            });
+            html += `</div>`;
+          }
         }
 
         // Barbell progressie (table + chart)
