@@ -1710,15 +1710,34 @@
       const acts = ((intervalsData.activities || {}).by_date || {})[date];
       if (!acts || acts.length === 0) return '';
       return acts.map(act => {
-        const dur  = act.duration_min  ? `<span class="strava-stat"><strong>${act.duration_min}</strong> min</span>` : '';
-        const hr   = act.avg_hr        ? `<span class="strava-stat">gem.HR <strong>${act.avg_hr}</strong> bpm</span>` : '';
-        const hrMax= act.max_hr        ? `<span class="strava-stat">max.HR <strong>${act.max_hr}</strong> bpm</span>` : '';
-        const cal  = act.calories      ? `<span class="strava-stat"><strong>${act.calories}</strong> kcal</span>` : '';
-        const tl   = act.training_load != null ? `<span class="strava-stat">TL <strong>${Math.round(act.training_load)}</strong></span>` : '';
+        const dur      = act.duration_min   ? `<span class="strava-stat"><strong>${act.duration_min}</strong> min</span>` : '';
+        const hr       = act.avg_hr         ? `<span class="strava-stat">gem.HR <strong>${act.avg_hr}</strong> bpm</span>` : '';
+        const hrMax    = act.max_hr         ? `<span class="strava-stat">max.HR <strong>${act.max_hr}</strong> bpm</span>` : '';
+        const cal      = act.calories       ? `<span class="strava-stat"><strong>${act.calories}</strong> kcal</span>` : '';
+        const tl       = act.training_load != null ? `<span class="strava-stat">TL <strong>${Math.round(act.training_load)}</strong></span>` : '';
+        const dist     = act.distance_m     ? `<span class="strava-stat"><strong>${(act.distance_m / 1000).toFixed(2)}</strong> km</span>` : '';
+        const elev     = act.elevation_m    ? `<span class="strava-stat">↑ <strong>${act.elevation_m}</strong> m</span>` : '';
+        const watts    = act.avg_watts      ? `<span class="strava-stat">gem. <strong>${act.avg_watts}</strong> W</span>` : '';
+        const rpe      = act.rpe != null    ? `<span class="strava-stat">RPE <strong>${act.rpe}</strong></span>` : '';
+        const intensity= act.intensity_pct  ? `<span class="strava-stat">IF <strong>${act.intensity_pct}%</strong></span>` : '';
+        // Tempo (min/km) alleen voor hardlopen
+        let pace = '';
+        if (act.avg_speed_ms && act.avg_speed_ms > 0) {
+          const type = (act.type || '').toLowerCase();
+          if (type.includes('run') || type.includes('walk')) {
+            const secPerKm = 1000 / act.avg_speed_ms;
+            const m = Math.floor(secPerKm / 60);
+            const s = Math.round(secPerKm % 60).toString().padStart(2, '0');
+            pace = `<span class="strava-stat">tempo <strong>${m}:${s}</strong>/km</span>`;
+          } else if (!type.includes('crossfit') && !type.includes('workout') && !type.includes('weight')) {
+            const kmh = (act.avg_speed_ms * 3.6).toFixed(1);
+            pace = `<span class="strava-stat"><strong>${kmh}</strong> km/u</span>`;
+          }
+        }
         const name = act.name || act.type || 'Activiteit';
         return `<div class="strava-block">
           <div class="strava-block-label">Intervals — ${name}</div>
-          ${dur}${hr}${hrMax}${cal}${tl}
+          ${dur}${dist}${pace}${elev}${hr}${hrMax}${watts}${cal}${tl}${intensity}${rpe}
         </div>`;
       }).join('');
     }

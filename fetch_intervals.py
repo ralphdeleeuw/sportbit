@@ -211,6 +211,36 @@ def fetch_intervals_data() -> dict | None:
             if tl is not None:
                 entry["training_load"] = round(float(tl), 1)
 
+            # Afstand (meters → opslaan als meters, weergave in km)
+            dist = act.get("distance")
+            if dist is not None and dist > 0:
+                entry["distance_m"] = round(float(dist))
+
+            # Hoogtemeters
+            elev = act.get("total_elevation_gain")
+            if elev is not None and elev > 0:
+                entry["elevation_m"] = round(float(elev))
+
+            # Gemiddeld vermogen (watt, relevant voor fietsen)
+            watts = act.get("average_watts")
+            if watts is not None and watts > 0:
+                entry["avg_watts"] = round(float(watts))
+
+            # Gemiddelde snelheid (m/s → opslaan, weergave als km/u of tempo)
+            speed = act.get("average_speed")
+            if speed is not None and speed > 0:
+                entry["avg_speed_ms"] = round(float(speed), 2)
+
+            # Perceived exertion (RPE 1-10)
+            rpe = act.get("perceived_exertion")
+            if rpe is not None:
+                entry["rpe"] = round(float(rpe), 1)
+
+            # Intensiteit percentage (intervals.icu berekening)
+            intensity = act.get("icu_intensity")
+            if intensity is not None and intensity > 0:
+                entry["intensity_pct"] = round(float(intensity) * 100)
+
             result["activities"]["by_date"].setdefault(day, []).append(entry)
 
     except Exception as exc:
