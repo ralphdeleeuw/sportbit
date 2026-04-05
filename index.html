@@ -2278,7 +2278,6 @@
 
       if (filledToday && !healthInputExpanded) {
         // Compact weergave: alleen de ingevulde waarden + wijzig-knop
-        const slaap   = healthInput.slaap;
         const energie = healthInput.energie;
         const pijn    = healthInput.spierpijn;
         const stress  = healthInput.stress;
@@ -2286,7 +2285,6 @@
           <div class="health-compact-row">
             <span class="health-input-label">Herstel vandaag</span>
             <span class="health-compact-values">
-              <span title="Slaap">💤 ${slaap}</span>
               <span title="Energie">⚡ ${energie}</span>
               <span title="Spierpijn">💪 ${pijn}</span>
               <span title="Stress">😓 ${stress}</span>
@@ -2296,7 +2294,6 @@
         </div>`;
       }
 
-      const slaap   = healthInput.slaap    != null ? healthInput.slaap    : 3;
       const energie = healthInput.energie  != null ? healthInput.energie  : 3;
       const pijn    = healthInput.spierpijn != null ? healthInput.spierpijn : 3;
       const stress  = healthInput.stress   != null ? healthInput.stress   : 3;
@@ -2304,13 +2301,6 @@
       return `<div class="health-input-block">
         <div class="health-input-label">Herstel vandaag</div>
         <div class="health-sliders">
-          <div class="health-slider-row">
-            <span class="health-slider-name">Slaap</span>
-            <input type="range" id="sliderSlaap" min="1" max="5" step="1" value="${slaap}"
-              oninput="document.getElementById('valSlaap').textContent=this.value">
-            <span class="health-slider-val" id="valSlaap">${slaap}</span>
-          </div>
-          ${healthTrendPips('slaap')}
           <div class="health-slider-row">
             <span class="health-slider-name">Energie</span>
             <input type="range" id="sliderEnergie" min="1" max="5" step="1" value="${energie}"
@@ -2357,13 +2347,12 @@
       }
 
       const today = new Date().toISOString().slice(0, 10);
-      const slaap     = parseInt(document.getElementById('sliderSlaap').value);
       const energie   = parseInt(document.getElementById('sliderEnergie').value);
       const spierpijn = parseInt(document.getElementById('sliderSpierpijn').value);
       const stress    = parseInt(document.getElementById('sliderStress').value);
 
       // Build updated history: keep existing entries, replace/add today
-      const todayEntry = { date: today, slaap, energie, spierpijn, stress };
+      const todayEntry = { date: today, energie, spierpijn, stress };
       const updatedHistory = [
         ...(healthHistory || []).filter(h => h.date !== today),
         todayEntry,
@@ -2371,7 +2360,6 @@
 
       const data = {
         date: today,
-        slaap,
         energie,
         spierpijn,
         stress,
