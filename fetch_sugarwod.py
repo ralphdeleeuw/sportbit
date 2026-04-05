@@ -2636,6 +2636,45 @@ def save_to_gist(gist_id: str, token: str, wod_data: dict, meals: list[dict] | N
 # Main
 # ──────────────────────────────────────────────────────────────
 
+def _health_only_update(gist_id: str, token: str, strava_data, intervals_data, withings_data) -> int:
+    """Lees bestaande Gist, vervang alleen de health-data velden, schrijf terug."""
+    try:
+        resp = requests.get(
+            f"https://api.github.com/gists/{gist_id}",
+            headers={"Authorization": f"token {token}", "Accept": "application/json"},
+            timeout=15,
+        )
+        resp.raise_for_status()
+        raw = resp.json().get("files", {}).get(GIST_FILENAME, {}).get("content", "")
+        existing: dict = json.loads(raw) if raw else {}
+    except Exception as exc:
+        log.error("Kon bestaande Gist niet lezen: %s", exc)
+        return 1
+
+    if strava_data is not None:
+        existing["strava_data"] = strava_data
+    if intervals_data is not None:
+        existing["intervals_data"] = intervals_data
+    if withings_data is not None:
+        existing["withings_data"] = withings_data
+    existing["health_data_refreshed_at"] = datetime.now(timezone.utc).isoformat()
+
+    try:
+        resp = requests.patch(
+            f"https://api.github.com/gists/{gist_id}",
+            json={"files": {GIST_FILENAME: {"content": json.dumps(existing, ensure_ascii=False, indent=2)}}},
+            headers={"Authorization": f"token {token}", "Content-Type": "application/json"},
+            timeout=30,
+        )
+        resp.raise_for_status()
+        log.info("Health data bijgewerkt in Gist %s", gist_id)
+    except Exception as exc:
+        log.error("Gist update mislukt: %s", exc)
+        return 1
+
+    return 0
+
+
 def main() -> int:
     email = os.environ.get("SUGARWOD_EMAIL", "").strip()
     password = os.environ.get("SUGARWOD_PASSWORD", "").strip()
@@ -2643,6 +2682,47 @@ def main() -> int:
     token = os.environ.get("GITHUB_TOKEN", "").strip()
     skip_strava = os.environ.get("SKIP_STRAVA", "false").lower() in ("true", "1", "yes")
     skip_ai = os.environ.get("SKIP_AI", "false").lower() in ("true", "1", "yes")
+    health_only = os.environ.get("HEALTH_ONLY", "false").lower() in ("true", "1", "yes")
+
+    if health_only:
+        log.info("HEALTH_ONLY modus: alleen Strava/Intervals/Withings verversen")
+        if not gist_id or not token:
+            log.error("GIST_ID en GITHUB_TOKEN zijn vereist voor HEALTH_ONLY modus")
+            return 1
+        skip_withings = os.environ.get("SKIP_WITHINGS", "false").lower() in ("true", "1", "yes")
+
+        strava_data = None
+        if not skip_strava:
+            try:
+                from fetch_strava import fetch_strava_data  # noqa: PLC0415
+                strava_data = fetch_strava_data()
+                if strava_data:
+                    n = sum(len(v) for v in strava_data.get("activities_by_date", {}).values())
+                    log.info("Strava: %d activiteiten", n)
+            except Exception as exc:
+                log.warning("Strava fetch mislukt: %s", exc)
+
+        intervals_data = None
+        try:
+            from fetch_intervals import fetch_intervals_data  # noqa: PLC0415
+            intervals_data = fetch_intervals_data()
+            if intervals_data:
+                n_days = len((intervals_data.get("wellness") or {}).get("by_date") or {})
+                log.info("Intervals.icu: %d wellness-dagen", n_days)
+        except Exception as exc:
+            log.warning("Intervals.icu fetch mislukt: %s", exc)
+
+        withings_data = None
+        if not skip_withings:
+            try:
+                from fetch_withings import fetch_withings_data  # noqa: PLC0415
+                withings_data = fetch_withings_data()
+                if withings_data:
+                    log.info("Withings: %d metingen", len(withings_data.get("measurements", [])))
+            except Exception as exc:
+                log.warning("Withings fetch mislukt: %s", exc)
+
+        return _health_only_update(gist_id, token, strava_data, intervals_data, withings_data)
 
     if not email or not password:
         log.error("SUGARWOD_EMAIL and SUGARWOD_PASSWORD are required")

@@ -1,0 +1,51 @@
+name: Refresh Health Data
+
+on:
+  schedule:
+    # 3× per dag: 07:00, 13:00, 19:00 UTC (09:00, 15:00, 21:00 Amsterdam zomertijd)
+    - cron: '0 7 * * *'
+    - cron: '0 13 * * *'
+    - cron: '0 19 * * *'
+  workflow_dispatch:
+    inputs:
+      skip_strava:
+        description: 'Strava data overslaan'
+        required: false
+        default: 'false'
+        type: boolean
+      skip_withings:
+        description: 'Withings data overslaan'
+        required: false
+        default: 'false'
+        type: boolean
+
+jobs:
+  refresh-health:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install dependencies
+        run: pip install requests
+
+      - name: Refresh Strava / Intervals.icu / Withings data
+        env:
+          GIST_ID: ${{ secrets.GIST_ID }}
+          GITHUB_TOKEN: ${{ secrets.GIST_TOKEN }}
+          STRAVA_CLIENT_ID: ${{ secrets.STRAVA_CLIENT_ID }}
+          STRAVA_CLIENT_SECRET: ${{ secrets.STRAVA_CLIENT_SECRET }}
+          STRAVA_REFRESH_TOKEN: ${{ secrets.STRAVA_REFRESH_TOKEN }}
+          INTERVALS_ATHLETE_ID: ${{ secrets.INTERVALS_ATHLETE_ID }}
+          INTERVALS_API_KEY: ${{ secrets.INTERVALS_API_KEY }}
+          WITHINGS_CLIENT_ID: ${{ secrets.WITHINGS_CLIENT_ID }}
+          WITHINGS_CLIENT_SECRET: ${{ secrets.WITHINGS_CLIENT_SECRET }}
+          WITHINGS_REFRESH_TOKEN: ${{ secrets.WITHINGS_REFRESH_TOKEN }}
+          HEALTH_ONLY: 'true'
+          SKIP_STRAVA: ${{ inputs.skip_strava || 'false' }}
+          SKIP_WITHINGS: ${{ inputs.skip_withings || 'false' }}
+        run: python3 fetch_sugarwod.py
