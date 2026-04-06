@@ -236,10 +236,6 @@ def fetch_intervals_data() -> dict | None:
             if rpe is not None:
                 entry["rpe"] = round(float(rpe), 1)
 
-            # Intensiteit percentage (intervals.icu berekening)
-            intensity = act.get("icu_intensity")
-            if intensity is not None and intensity > 0:
-                entry["intensity_pct"] = round(float(intensity) * 100)
 
             result["activities"]["by_date"].setdefault(day, []).append(entry)
 

@@ -2003,8 +2003,6 @@ def generate_recovery_advice(
                     parts.append(f"{act['avg_watts']}W")
                 if act.get("training_load"):
                     parts.append(f"TL {act['training_load']:.0f}")
-                if act.get("intensity_pct"):
-                    parts.append(f"IF {act['intensity_pct']}%")
                 if act.get("calories"):
                     parts.append(f"{act['calories']}kcal")
                 if act.get("rpe"):
@@ -2291,8 +2289,6 @@ def generate_workout_plans(
                     _p.append(f"{_act['avg_watts']}W")
                 if _act.get("training_load"):
                     _p.append(f"TL {_act['training_load']:.0f}")
-                if _act.get("intensity_pct"):
-                    _p.append(f"IF {_act['intensity_pct']}%")
                 if _act.get("rpe"):
                     _p.append(f"RPE {_act['rpe']:.0f}")
                 _recent.append("- " + " · ".join(_p))

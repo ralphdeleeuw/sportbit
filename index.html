@@ -1719,7 +1719,6 @@
         const elev     = act.elevation_m    ? `<span class="strava-stat">↑ <strong>${act.elevation_m}</strong> m</span>` : '';
         const watts    = act.avg_watts      ? `<span class="strava-stat">gem. <strong>${act.avg_watts}</strong> W</span>` : '';
         const rpe      = act.rpe != null    ? `<span class="strava-stat">RPE <strong>${act.rpe}</strong></span>` : '';
-        const intensity= act.intensity_pct  ? `<span class="strava-stat">IF <strong>${act.intensity_pct}%</strong></span>` : '';
         // Tempo (min/km) alleen voor hardlopen
         let pace = '';
         if (act.avg_speed_ms && act.avg_speed_ms > 0) {
@@ -1737,7 +1736,7 @@
         const name = act.name || act.type || 'Activiteit';
         return `<div class="strava-block">
           <div class="strava-block-label">Intervals — ${name}</div>
-          ${dur}${dist}${pace}${elev}${hr}${hrMax}${watts}${cal}${tl}${intensity}${rpe}
+          ${dur}${dist}${pace}${elev}${hr}${hrMax}${watts}${cal}${tl}${rpe}
         </div>`;
       }).join('');
     }
