@@ -1,64 +1,60 @@
-# SportBit Auto Sign-Up
+# CrossFit Hilversum Auto Sign-Up
 
-Automated sign-up system for CrossFit Hilversum classes through SportBit. The system automatically registers for WOD classes according to a predefined weekly schedule, syncs them to Google Calendar, and sends push notifications.
+Automatically signs up for CrossFit WOD classes at CrossFit Hilversum through the SportBit platform. The system runs daily after midnight Amsterdam time, checks for scheduled classes within the next 8 days, and automatically registers you. It also syncs confirmed registrations to Google Calendar and sends push notifications via Pushover.
 
-## Project Description
+## Features
 
-This project automates the process of signing up for CrossFit classes at CrossFit Hilversum via the SportBit platform. It runs daily just after midnight Amsterdam time, checking for available classes up to 8 days ahead and automatically registering for classes that match the configured schedule. The system tracks which classes were signed up automatically versus manually, detects manual cancellations, and can optionally sync all registrations to Google Calendar.
-
-Key features:
-- Automatic daily sign-ups for predefined weekly schedule
-- Manual enrollment detection and calendar sync
-- Cancellation tracking to avoid re-registering
-- Push notifications via Pushover
-- Weekly summary reports
-- State persistence using GitHub Gists
-- Google Calendar integration
+- **Automated sign-up** for pre-configured weekly schedule
+- **Google Calendar sync** for confirmed registrations
+- **Push notifications** via Pushover for successful sign-ups
+- **Weekly summary** sent every Sunday evening
+- **State management** using GitHub Gist to track sign-ups and manual cancellations
+- **Manual enrollment detection** for classes outside the regular schedule
+- **Timezone-aware** scheduling (Amsterdam time, handles DST automatically)
 
 ## Configuration
 
 The following secrets need to be configured in your GitHub repository settings:
 
 ### SportBit Credentials
-- **`SPORTBIT_USERNAME`** — Your SportBit login username (email address)
-- **`SPORTBIT_PASSWORD`** — Your SportBit login password
+- **`SPORTBIT_USERNAME`** - Your SportBit login username
+- **`SPORTBIT_PASSWORD`** - Your SportBit login password
 
 ### Google Calendar Integration
-- **`GOOGLE_CREDENTIALS`** — Google service account credentials JSON for Calendar API access. This should be the complete JSON content from your service account key file
-- **`CALENDAR_ID`** — Google Calendar ID where events should be created (use `primary` for your main calendar or a specific calendar ID like `abc123@group.calendar.google.com`)
+- **`GOOGLE_CREDENTIALS`** - Google Service Account credentials JSON (raw JSON content, not a file path)
+- **`CALENDAR_ID`** - Google Calendar ID where events will be created (use `primary` for your main calendar)
 
 ### State Management
-- **`GIST_ID`** — GitHub Gist ID for storing signup state between runs. Create a private Gist and use its ID (the alphanumeric string in the URL)
-- **`GIST_TOKEN`** — GitHub personal access token with `gist` scope for updating the state Gist
+- **`GIST_ID`** - GitHub Gist ID for storing persistent state between runs
+- **`GIST_TOKEN`** - GitHub Personal Access Token with `gist` scope for updating the state Gist
 
 ### Push Notifications
-- **`PUSHOVER_USER_KEY`** — Your Pushover user key for receiving notifications
-- **`PUSHOVER_API_TOKEN`** — Pushover API token/key for your application
+- **`PUSHOVER_USER_KEY`** - Your Pushover user key
+- **`PUSHOVER_API_TOKEN`** - Pushover API token for your application
 
 ### Documentation Generation
-- **`ANTHROPIC_API_KEY`** — Anthropic API key for automatically generating README updates (optional, only needed if using the auto-documentation workflow)
+- **`ANTHROPIC_API_KEY`** - Anthropic API key for automatic README generation (optional)
 
 ## Schedule
 
-The system runs on three different schedules via GitHub Actions:
+The workflow runs on the following schedule:
 
-### Daily Auto Sign-Up
-- **Winter time (CET)**: Daily at 00:01 Amsterdam time (`cron: "1 23 * * *"`)
-- **Summer time (CEST)**: Daily at 00:01 Amsterdam time (`cron: "1 22 * * *"`)
+1. **Daily at 00:01 Amsterdam time** - Main auto sign-up process
+   - Winter time (CET): `23:01 UTC`
+   - Summer time (CEST): `22:01 UTC`
+   - Both cron schedules are configured to handle daylight saving time transitions
 
-The workflow automatically adjusts for daylight saving time by having two cron schedules. Only the one matching the current Amsterdam time (00:01) will execute the sign-up process.
+2. **Sunday at 18:00 Amsterdam time** - Weekly summary notification
+   - Sends an overview of all upcoming registrations for the week
 
-### Weekly Summary
-- **Every Sunday at 18:00 Amsterdam time** (`cron: "0 17 * * 0"`)
+3. **Manual trigger** - Can be run manually from GitHub Actions UI
+   - Uses `--force` flag to skip timezone check for immediate execution
 
-Sends a push notification with an overview of all upcoming registrations for the week.
-
-### Default Class Schedule
-The system automatically signs up for the following weekly classes:
+The default schedule attempts to register for:
 - Monday 20:00
 - Wednesday 08:00
 - Thursday 20:00
 - Saturday 09:00
 - Sunday 09:00
 
-The workflow checks up to 8 days ahead and will attempt to register for any matching slots that aren't already booked or manually cancelled.
+The system looks ahead 8 days by default, allowing registration as soon as slots become available on SportBit.
