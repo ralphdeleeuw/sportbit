@@ -2,22 +2,15 @@ name: Fetch SugarWOD
 
 on:
   schedule:
-    # Dagelijks om 05:00 UTC (07:00 Amsterdam zomertijd / 06:00 wintertijd)
+    # Dagelijks om 07:00 Amsterdam tijd
+    # 05:00 UTC zomertijd (CEST, UTC+2) — maart t/m oktober
     - cron: '0 5 * * *'
+    # 06:00 UTC wintertijd (CET, UTC+1) — november t/m februari
+    - cron: '0 6 * * *'
   workflow_dispatch:
     inputs:
-      skip_strava:
-        description: 'Strava data overslaan'
-        required: false
-        default: 'false'
-        type: boolean
       skip_ai:
         description: 'AI coaching overslaan (sneller)'
-        required: false
-        default: 'false'
-        type: boolean
-      skip_withings:
-        description: 'Withings data overslaan'
         required: false
         default: 'false'
         type: boolean
@@ -46,18 +39,9 @@ jobs:
           GIST_ID: ${{ secrets.GIST_ID }}
           GITHUB_TOKEN: ${{ secrets.GIST_TOKEN }}
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
-          STRAVA_CLIENT_ID: ${{ secrets.STRAVA_CLIENT_ID }}
-          STRAVA_CLIENT_SECRET: ${{ secrets.STRAVA_CLIENT_SECRET }}
-          STRAVA_REFRESH_TOKEN: ${{ secrets.STRAVA_REFRESH_TOKEN }}
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
-          INTERVALS_ATHLETE_ID: ${{ secrets.INTERVALS_ATHLETE_ID }}
-          INTERVALS_API_KEY: ${{ secrets.INTERVALS_API_KEY }}
-          WITHINGS_CLIENT_ID: ${{ secrets.WITHINGS_CLIENT_ID }}
-          WITHINGS_CLIENT_SECRET: ${{ secrets.WITHINGS_CLIENT_SECRET }}
-          WITHINGS_REFRESH_TOKEN: ${{ secrets.WITHINGS_REFRESH_TOKEN }}
           WAQI_API_TOKEN: ${{ secrets.WAQI_API_TOKEN }}
-          SKIP_STRAVA: ${{ inputs.skip_strava || 'false' }}
           SKIP_AI: ${{ inputs.skip_ai || 'false' }}
-          SKIP_WITHINGS: ${{ inputs.skip_withings || 'false' }}
+          # HEALTH_ONLY is false (default): alleen SugarWOD ophalen, gecachte health data uit Gist gebruiken
         run: python3 fetch_sugarwod.py

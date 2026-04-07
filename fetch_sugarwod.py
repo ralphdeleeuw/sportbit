@@ -2516,12 +2516,15 @@ def load_workout_log(gist_id: str, token: str) -> dict[str, dict]:
 
 
 def _load_previous_coach_context(gist_id: str, token: str) -> dict:
-    """Load historical coaching data from the gist for continuity and trend analysis.
+    """Load historical coaching data + full cached Gist data (single API call).
 
     Returns a dict with:
       - barbell_lifts_history: list of daily barbell snapshots
       - recovery_advice_history: list of {date, advice} entries (last 3 days)
+      - _full: full contents of sugarwod_wod.json (used for HEALTH_ONLY / SugarWOD-only caching)
+      - _keukenbaas: cached meals from keukenbaas_meals.json
     """
+    empty = {"barbell_lifts_history": [], "recovery_advice_history": [], "_full": {}, "_keukenbaas": []}
     try:
         resp = requests.get(
             f"https://api.github.com/gists/{gist_id}",
@@ -2529,17 +2532,22 @@ def _load_previous_coach_context(gist_id: str, token: str) -> dict:
             timeout=15,
         )
         resp.raise_for_status()
-        raw = resp.json().get("files", {}).get(GIST_FILENAME, {}).get("content", "")
+        files = resp.json().get("files", {})
+        raw = files.get(GIST_FILENAME, {}).get("content", "")
         if not raw:
-            return {"barbell_lifts_history": [], "recovery_advice_history": []}
+            return empty
         existing = json.loads(raw)
+        meals_raw = files.get("keukenbaas_meals.json", {}).get("content", "")
+        cached_meals = json.loads(meals_raw).get("meals", []) if meals_raw else []
         return {
             "barbell_lifts_history": existing.get("barbell_lifts_history", []),
             "recovery_advice_history": existing.get("recovery_advice_history", []),
+            "_full": existing,
+            "_keukenbaas": cached_meals,
         }
     except Exception as exc:
         log.warning("[gist] Could not load previous coach context: %s", exc)
-        return {"barbell_lifts_history": [], "recovery_advice_history": []}
+        return empty
 
 
 def save_to_gist(gist_id: str, token: str, wod_data: dict, meals: list[dict] | None = None) -> None:
@@ -2603,8 +2611,11 @@ def main() -> int:
     token = os.environ.get("GITHUB_TOKEN", "").strip()
     skip_strava = os.environ.get("SKIP_STRAVA", "false").lower() in ("true", "1", "yes")
     skip_ai = os.environ.get("SKIP_AI", "false").lower() in ("true", "1", "yes")
+    # HEALTH_ONLY=true → skip SugarWOD scraping, fetch only health data (Strava/Intervals/Withings/Environmental)
+    # Default (false) → fetch only SugarWOD, use cached health data from Gist
+    health_only = os.environ.get("HEALTH_ONLY", "false").lower() in ("true", "1", "yes")
 
-    if not email or not password:
+    if not health_only and (not email or not password):
         log.error("SUGARWOD_EMAIL and SUGARWOD_PASSWORD are required")
         return 1
 
@@ -2623,52 +2634,84 @@ def main() -> int:
         weeks.append(next_monday)
         log.info("Sunday: also fetching next week (%s)", next_monday.strftime("%Y%m%d"))
 
-    # ── Primary: Playwright headless browser (handles login via real form) ─
-    barbell_lifts: dict = {}
-    personal_records: list[dict] = []
-    benchmark_workouts: list[dict] = []
-    athlete_logbook: list[dict] = []
-
-    playwright_result = fetch_all_workouts_playwright(email, password, weeks, gist_id, token)
-    if playwright_result is not None:
-        workouts = playwright_result["workouts"]
-        scraped = playwright_result.get("barbell_lifts", {})
-        has_values = scraped and any(v for v in scraped.values())
-        barbell_lifts = scraped if has_values else BARBELL_LIFTS_FALLBACK
-        barbell_source = "scraper" if has_values else "fallback"
-        personal_records = playwright_result.get("personal_records", [])
-        benchmark_workouts = playwright_result.get("benchmark_workouts", [])
-        athlete_logbook = playwright_result.get("athlete_logbook", [])
+    # Load Gist cache once — used by both modes to avoid duplicate API calls.
+    prev_coach_ctx: dict = {"barbell_lifts_history": [], "recovery_advice_history": []}
+    cached_gist: dict = {}
+    cached_keukenbaas: list = []
+    if gist_id and token:
+        full_ctx = _load_previous_coach_context(gist_id, token)
+        cached_gist = full_ctx.pop("_full", {})
+        cached_keukenbaas = full_ctx.pop("_keukenbaas", [])
+        prev_coach_ctx = full_ctx
         log.info(
-            "Playwright fetched %d workouts, %d barbell lifts, %d PRs",
-            len(workouts), len(barbell_lifts), len(personal_records),
+            "Gist cache geladen: %d barbell snapshots, %d advice entries",
+            len(prev_coach_ctx["barbell_lifts_history"]),
+            len(prev_coach_ctx["recovery_advice_history"]),
         )
+
+    if not health_only:
+        # ── SUGARWOD MODE: Fetch fresh SugarWOD data via Playwright ─────────
+        barbell_lifts: dict = {}
+        personal_records: list[dict] = []
+        benchmark_workouts: list[dict] = []
+        athlete_logbook: list[dict] = []
+
+        playwright_result = fetch_all_workouts_playwright(email, password, weeks, gist_id, token)
+        if playwright_result is not None:
+            workouts = playwright_result["workouts"]
+            scraped = playwright_result.get("barbell_lifts", {})
+            has_values = scraped and any(v for v in scraped.values())
+            barbell_lifts = scraped if has_values else BARBELL_LIFTS_FALLBACK
+            barbell_source = "scraper" if has_values else "fallback"
+            personal_records = playwright_result.get("personal_records", [])
+            benchmark_workouts = playwright_result.get("benchmark_workouts", [])
+            athlete_logbook = playwright_result.get("athlete_logbook", [])
+            log.info(
+                "Playwright fetched %d workouts, %d barbell lifts, %d PRs",
+                len(workouts), len(barbell_lifts), len(personal_records),
+            )
+        else:
+            # ── Fallback: direct HTTP requests (workouts only) ────────────────
+            barbell_source = "fallback"
+            barbell_lifts = BARBELL_LIFTS_FALLBACK
+            log.info("Falling back to HTTP request approach")
+            csrf, session_token, athlete_id, affiliate_id = login(session, email, password)
+            if csrf is None:
+                log.warning("Proceeding without CSRF token — requests may be rejected")
+
+            workouts = []
+            for monday in weeks:
+                try:
+                    week_workouts = fetch_workouts_week(
+                        session, monday, csrf,
+                        session_token=session_token,
+                        athlete_id=athlete_id,
+                        affiliate_id=affiliate_id,
+                    )
+                    workouts.extend(week_workouts)
+                    log.info("Week %s: %d workout(s)", monday.strftime("%Y%m%d"), len(week_workouts))
+                except Exception as exc:
+                    log.warning("Failed to fetch week %s: %s", monday.strftime("%Y%m%d"), exc)
+
+        if not workouts:
+            log.error("No workouts fetched")
+            return 1
+
+        # Fetch Keukenbaas meal data (past 14 days + next 7 days)
+        keukenbaas_meals = fetch_keukenbaas_meals()
+
     else:
-        # ── Fallback: direct HTTP requests (workouts only) ────────────────
-        barbell_source = "fallback"
-        barbell_lifts = BARBELL_LIFTS_FALLBACK
-        log.info("Falling back to HTTP request approach")
-        csrf, session_token, athlete_id, affiliate_id = login(session, email, password)
-        if csrf is None:
-            log.warning("Proceeding without CSRF token — requests may be rejected")
-
-        workouts = []
-        for monday in weeks:
-            try:
-                week_workouts = fetch_workouts_week(
-                    session, monday, csrf,
-                    session_token=session_token,
-                    athlete_id=athlete_id,
-                    affiliate_id=affiliate_id,
-                )
-                workouts.extend(week_workouts)
-                log.info("Week %s: %d workout(s)", monday.strftime("%Y%m%d"), len(week_workouts))
-            except Exception as exc:
-                log.warning("Failed to fetch week %s: %s", monday.strftime("%Y%m%d"), exc)
-
-    if not workouts:
-        log.error("No workouts fetched")
-        return 1
+        # ── HEALTH_ONLY MODE: Use cached SugarWOD data from Gist ────────────
+        log.info("HEALTH_ONLY modus: gecachte SugarWOD data geladen uit Gist")
+        workouts = cached_gist.get("workouts", [])
+        barbell_lifts = cached_gist.get("barbell_lifts") or BARBELL_LIFTS_FALLBACK
+        barbell_source = "cache"
+        personal_records = cached_gist.get("personal_records", [])
+        benchmark_workouts = cached_gist.get("benchmark_workouts", [])
+        athlete_logbook = []
+        keukenbaas_meals = cached_keukenbaas
+        if not workouts:
+            log.warning("HEALTH_ONLY: geen gecachte workouts in Gist — coach context beperkt")
 
     # Build a date-keyed index so the PWA can look up workouts by date
     # without iterating the full list.
@@ -2681,71 +2724,65 @@ def main() -> int:
                 {"title": w["title"], "description": w["description"]}
             )
 
-    # Load previous coaching context from gist (barbell history + recovery advice history)
-    # Done once here to avoid multiple gist reads later.
-    prev_coach_ctx: dict = {"barbell_lifts_history": [], "recovery_advice_history": []}
-    if gist_id and token:
-        prev_coach_ctx = _load_previous_coach_context(gist_id, token)
-        log.info(
-            "Previous coach context: %d barbell snapshots, %d advice entries",
-            len(prev_coach_ctx["barbell_lifts_history"]),
-            len(prev_coach_ctx["recovery_advice_history"]),
-        )
-
-    # Fetch Keukenbaas meal data (past 14 days + next 7 days)
-    keukenbaas_meals = fetch_keukenbaas_meals()
-
     # Generate AI coaching plans for upcoming workouts (moved below load_sportbit_attended_dates
     # so that signed_up_times is available)
     upcoming_workouts = [w for w in workouts if w.get("date", "") >= today.isoformat()]
 
-    # Fetch Strava activity data (hartslag, duur, calorieën per activiteit)
-    # Requires STRAVA_CLIENT_ID / STRAVA_CLIENT_SECRET / STRAVA_REFRESH_TOKEN secrets.
-    if skip_strava:
-        log.info("Strava fetch overgeslagen (SKIP_STRAVA=true)")
-        strava_data = None
-    else:
-        try:
-            from fetch_strava import fetch_strava_data  # noqa: PLC0415
-            strava_data = fetch_strava_data()
-            if strava_data:
-                n_acts = sum(len(v) for v in strava_data.get("activities_by_date", {}).values())
-                log.info("Strava data opgehaald: %d activiteiten", n_acts)
-            else:
-                log.info("Geen Strava data beschikbaar — coach gebruikt alleen workoutgeschiedenis")
-        except Exception as exc:
-            log.warning("Strava fetch mislukt: %s", exc)
+    if health_only:
+        # ── HEALTH_ONLY: Fetch fresh health data ────────────────────────────
+        # Strava
+        if skip_strava:
+            log.info("Strava fetch overgeslagen (SKIP_STRAVA=true)")
             strava_data = None
-
-    # Intervals.icu data (Garmin wellness + activiteiten via intervals.icu API)
-    intervals_data = None
-    try:
-        from fetch_intervals import fetch_intervals_data  # noqa: PLC0415
-        intervals_data = fetch_intervals_data()
-        if intervals_data:
-            n_days = len((intervals_data.get("wellness") or {}).get("by_date") or {})
-            n_acts = sum(
-                len(v) for v in ((intervals_data.get("activities") or {}).get("by_date") or {}).values()
-            )
-            log.info("Intervals.icu data opgehaald: %d wellness-dagen, %d activiteiten", n_days, n_acts)
         else:
-            log.info("Geen intervals.icu data beschikbaar (API key ontbreekt of geen data)")
-    except Exception as exc:
-        log.warning("Intervals.icu fetch mislukt: %s", exc)
+            try:
+                from fetch_strava import fetch_strava_data  # noqa: PLC0415
+                strava_data = fetch_strava_data()
+                if strava_data:
+                    n_acts = sum(len(v) for v in strava_data.get("activities_by_date", {}).values())
+                    log.info("Strava data opgehaald: %d activiteiten", n_acts)
+                else:
+                    log.info("Geen Strava data beschikbaar — coach gebruikt alleen workoutgeschiedenis")
+            except Exception as exc:
+                log.warning("Strava fetch mislukt: %s", exc)
+                strava_data = None
 
-    # Withings data (lichaamssamenstelling: gewicht, vet, spier)
-    skip_withings = os.environ.get("SKIP_WITHINGS", "false").lower() in ("true", "1", "yes")
-    withings_data = None
-    if not skip_withings:
+        # Intervals.icu
+        intervals_data = None
         try:
-            from fetch_withings import fetch_withings_data  # noqa: PLC0415
-            withings_data = fetch_withings_data()
-            if withings_data:
-                log.info("Withings data opgehaald: %d metingen", len(withings_data.get("measurements", [])))
+            from fetch_intervals import fetch_intervals_data  # noqa: PLC0415
+            intervals_data = fetch_intervals_data()
+            if intervals_data:
+                n_days = len((intervals_data.get("wellness") or {}).get("by_date") or {})
+                n_acts = sum(
+                    len(v) for v in ((intervals_data.get("activities") or {}).get("by_date") or {}).values()
+                )
+                log.info("Intervals.icu data opgehaald: %d wellness-dagen, %d activiteiten", n_days, n_acts)
             else:
-                log.info("Geen Withings data beschikbaar (secrets ontbreken of geen data)")
+                log.info("Geen intervals.icu data beschikbaar (API key ontbreekt of geen data)")
         except Exception as exc:
-            log.warning("Withings fetch mislukt: %s", exc)
+            log.warning("Intervals.icu fetch mislukt: %s", exc)
+
+        # Withings
+        skip_withings = os.environ.get("SKIP_WITHINGS", "false").lower() in ("true", "1", "yes")
+        withings_data = None
+        if not skip_withings:
+            try:
+                from fetch_withings import fetch_withings_data  # noqa: PLC0415
+                withings_data = fetch_withings_data()
+                if withings_data:
+                    log.info("Withings data opgehaald: %d metingen", len(withings_data.get("measurements", [])))
+                else:
+                    log.info("Geen Withings data beschikbaar (secrets ontbreken of geen data)")
+            except Exception as exc:
+                log.warning("Withings fetch mislukt: %s", exc)
+
+    else:
+        # ── SUGARWOD MODE: Use cached health data from Gist ─────────────────
+        strava_data = cached_gist.get("strava_data")
+        intervals_data = cached_gist.get("intervals_data")
+        withings_data = cached_gist.get("withings_data")
+        log.info("SugarWOD modus: gecachte health data (Strava/Intervals/Withings) geladen uit Gist")
 
     # Lees subjectieve hersteldata (slaap/energie/spierpijn/stress) uit de gist.
     # De atleet vult dit in via het dashboard vóór de dagelijkse workflow draait.
@@ -2777,13 +2814,17 @@ def main() -> int:
 
     # Environmental data (weer + AQI) — opgehaald na signed_up_times zodat trainingsdagen bekend zijn
     env_data = None
-    try:
-        from fetch_environmental import fetch_environmental_data  # noqa: PLC0415
-        env_data = fetch_environmental_data(signed_up_times)
-        if env_data:
-            log.info("Environmental data opgehaald (AQI: %s)", (env_data.get("aqi") or {}).get("value", "n/a"))
-    except Exception as exc:
-        log.warning("Environmental fetch mislukt: %s", exc)
+    if health_only:
+        try:
+            from fetch_environmental import fetch_environmental_data  # noqa: PLC0415
+            env_data = fetch_environmental_data(signed_up_times)
+            if env_data:
+                log.info("Environmental data opgehaald (AQI: %s)", (env_data.get("aqi") or {}).get("value", "n/a"))
+        except Exception as exc:
+            log.warning("Environmental fetch mislukt: %s", exc)
+    else:
+        env_data = cached_gist.get("environmental_data")
+        log.info("SugarWOD modus: gecachte environmental data geladen uit Gist")
 
     # Load workout log early — needed by both generate_workout_plans and recovery advice
     workout_log = load_workout_log(gist_id, token)
