@@ -745,6 +745,38 @@
       color: var(--muted);
     }
 
+    .withings-block {
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 0.7rem 1rem;
+      margin-bottom: 1rem;
+    }
+
+    .withings-block-label {
+      font-size: 0.67rem;
+      letter-spacing: 0.16em;
+      text-transform: uppercase;
+      color: var(--muted);
+      font-weight: 600;
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+      margin-bottom: 0.3rem;
+    }
+
+    .withings-date {
+      font-weight: 400;
+      opacity: 0.7;
+      text-transform: none;
+      letter-spacing: 0;
+    }
+
+    .withings-block-details {
+      font-size: 0.78rem;
+      color: var(--muted);
+    }
+
     .recovery-block {
       background: #0a0f1a;
       border: 1px solid #1a2a4a;
@@ -2287,9 +2319,12 @@
       }
 
       const details = [];
-      if (latest.fat_pct != null)    details.push(`vet ${latest.fat_pct}%`);
-      if (latest.muscle_kg != null)  details.push(`spier ${latest.muscle_kg}kg`);
-      if (latest.hydration_pct != null) details.push(`hydratatie ${latest.hydration_pct}%`);
+      if (latest.fat_pct != null)      details.push(`vet ${latest.fat_pct}%`);
+      if (latest.muscle_kg != null)    details.push(`spier ${latest.muscle_kg}kg`);
+      if (latest.hydration_kg != null) details.push(`hydratatie ${latest.hydration_kg}kg`);
+      if (latest.visceral_fat != null) details.push(`visceraal vet ${latest.visceral_fat}`);
+      if (latest.nerve_health != null) details.push(`zenuw ${latest.nerve_health}/100`);
+      if (latest.pwv_ms != null)       details.push(`PWV ${latest.pwv_ms}m/s`);
 
       return `<div class="withings-block">
         <div class="withings-block-label">Withings — ${weight}kg${trendHtml} <span class="withings-date">${latest.date}</span></div>

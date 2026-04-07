@@ -61,11 +61,15 @@ log = logging.getLogger(__name__)
 WITHINGS_API = "https://wbsapi.withings.net"
 
 # Withings measure types (meastype)
-_MEASTYPE_WEIGHT = 1        # kg
-_MEASTYPE_FAT_RATIO = 6     # %
-_MEASTYPE_MUSCLE_MASS = 76  # kg
-_MEASTYPE_HYDRATION = 77    # %
-_MEASTYPE_BONE_MASS = 88    # kg
+_MEASTYPE_WEIGHT = 1          # kg
+_MEASTYPE_FAT_RATIO = 6       # %
+_MEASTYPE_MUSCLE_MASS = 76    # kg
+_MEASTYPE_HYDRATION = 77      # kg (niet %)
+_MEASTYPE_BONE_MASS = 88      # kg
+# Body Scan extra meetwaarden
+_MEASTYPE_PWV = 91            # Pulse Wave Velocity m/s (vaatgezondheid)
+_MEASTYPE_NERVE_HEALTH = 155  # Nerve Health Score 0–100 (zenuwgezondheid)
+_MEASTYPE_VISCERAL_FAT = 174  # Visceraal vet index
 
 
 def _refresh_access_token(client_id: str, client_secret: str, refresh_token: str) -> str | None:
@@ -126,6 +130,9 @@ def fetch_withings_data(max_measurements: int = 30) -> dict | None:
                     _MEASTYPE_MUSCLE_MASS,
                     _MEASTYPE_HYDRATION,
                     _MEASTYPE_BONE_MASS,
+                    _MEASTYPE_PWV,
+                    _MEASTYPE_NERVE_HEALTH,
+                    _MEASTYPE_VISCERAL_FAT,
                 ]),
                 "category": 1,  # echte metingen (geen doelstellingen)
             },
@@ -158,9 +165,15 @@ def fetch_withings_data(max_measurements: int = 30) -> dict | None:
             elif mtype == _MEASTYPE_MUSCLE_MASS:
                 values["muscle_kg"] = round(actual, 1)
             elif mtype == _MEASTYPE_HYDRATION:
-                values["hydration_pct"] = round(actual, 1)
+                values["hydration_kg"] = round(actual, 1)
             elif mtype == _MEASTYPE_BONE_MASS:
                 values["bone_kg"] = round(actual, 2)
+            elif mtype == _MEASTYPE_PWV:
+                values["pwv_ms"] = round(actual, 1)
+            elif mtype == _MEASTYPE_NERVE_HEALTH:
+                values["nerve_health"] = round(actual, 0)
+            elif mtype == _MEASTYPE_VISCERAL_FAT:
+                values["visceral_fat"] = round(actual, 1)
         if values:
             values["date"] = date_str
             measurements.append(values)
