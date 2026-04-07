@@ -2,10 +2,8 @@ name: Refresh Health Data
 
 on:
   schedule:
-    # 3× per dag: 07:00, 13:00, 19:00 UTC (09:00, 15:00, 21:00 Amsterdam zomertijd)
-    - cron: '0 7 * * *'
-    - cron: '0 13 * * *'
-    - cron: '0 19 * * *'
+    # Elke 4 uur (00:00, 04:00, 08:00, 12:00, 16:00, 20:00 UTC)
+    - cron: '0 */4 * * *'
   workflow_dispatch:
     inputs:
       skip_strava:
@@ -31,12 +29,13 @@ jobs:
           python-version: '3.12'
 
       - name: Install dependencies
-        run: pip install requests beautifulsoup4
+        run: pip install requests beautifulsoup4 anthropic
 
-      - name: Refresh Strava / Intervals.icu / Withings data
+      - name: Refresh Strava / Intervals.icu / Withings / Environmental data + AI coach
         env:
           GIST_ID: ${{ secrets.GIST_ID }}
           GITHUB_TOKEN: ${{ secrets.GIST_TOKEN }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
           STRAVA_CLIENT_ID: ${{ secrets.STRAVA_CLIENT_ID }}
           STRAVA_CLIENT_SECRET: ${{ secrets.STRAVA_CLIENT_SECRET }}
           STRAVA_REFRESH_TOKEN: ${{ secrets.STRAVA_REFRESH_TOKEN }}
@@ -45,6 +44,7 @@ jobs:
           WITHINGS_CLIENT_ID: ${{ secrets.WITHINGS_CLIENT_ID }}
           WITHINGS_CLIENT_SECRET: ${{ secrets.WITHINGS_CLIENT_SECRET }}
           WITHINGS_REFRESH_TOKEN: ${{ secrets.WITHINGS_REFRESH_TOKEN }}
+          WAQI_API_TOKEN: ${{ secrets.WAQI_API_TOKEN }}
           HEALTH_ONLY: 'true'
           SKIP_STRAVA: ${{ inputs.skip_strava || 'false' }}
           SKIP_WITHINGS: ${{ inputs.skip_withings || 'false' }}
