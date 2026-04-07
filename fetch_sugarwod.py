@@ -1966,8 +1966,11 @@ def generate_recovery_advice(
             atl = garmin_entry.get("atl")
             tsb = garmin_entry.get("tsb")
             if ctl is not None and atl is not None:
-                tsb_label = "fris" if tsb is not None and tsb > 5 else "vermoeid" if tsb is not None and tsb < -10 else "neutraal"
-                g_lines.append(f"- Trainingsvorm (TSB): {tsb:+.0f} ({tsb_label}) — fitness {ctl:.0f}, vermoeidheid {atl:.0f}")
+                if tsb is not None:
+                    tsb_label = "fris" if tsb > 5 else "vermoeid" if tsb < -10 else "neutraal"
+                    g_lines.append(f"- Trainingsvorm (TSB): {tsb:+.0f} ({tsb_label}) — fitness {ctl:.0f}, vermoeidheid {atl:.0f}")
+                else:
+                    g_lines.append(f"- Fitness (CTL): {ctl:.0f}, vermoeidheid (ATL): {atl:.0f}")
             if g_lines:
                 garmin_block = "\nGarmin hersteldata (via intervals.icu):\n" + "\n".join(g_lines) + "\n"
 
