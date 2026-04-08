@@ -710,28 +710,32 @@
     .bm-scaling { font-size: 0.75rem; color: var(--muted); }
     .bm-date { font-size: 0.75rem; color: var(--muted); white-space: nowrap; }
 
-    /* Daily recovery advice block */
-    .garmin-block {
-      background: var(--surface2);
-      border: 1px solid var(--border);
-      border-radius: 10px;
-      padding: 0.7rem 1rem;
+    /* ── Unified recovery today block ─────────────────────────────── */
+    .recovery-today-block {
+      background: #0f0a1a;
+      border: 1px solid #2a1a4a;
+      border-radius: 12px;
+      padding: 0.8rem 1.2rem;
       margin-bottom: 1rem;
+      animation: fadeUp 0.6s 0.1s ease both;
     }
 
-    .garmin-block-label {
-      font-size: 0.67rem;
-      letter-spacing: 0.16em;
-      text-transform: uppercase;
-      color: var(--muted);
-      font-weight: 600;
+    .recovery-today-header {
       display: flex;
       align-items: center;
-      gap: 0.5rem;
-      margin-bottom: 0.3rem;
+      justify-content: space-between;
+      margin-bottom: 0.45rem;
     }
 
-    .garmin-tsb-badge {
+    .recovery-today-label {
+      font-size: 0.67rem;
+      letter-spacing: 0.18em;
+      text-transform: uppercase;
+      color: #9a70ff;
+      font-weight: 600;
+    }
+
+    .recovery-tsb-badge {
       font-size: 0.72rem;
       font-weight: 700;
       letter-spacing: 0.04em;
@@ -740,42 +744,55 @@
       color: #000;
     }
 
-    .garmin-block-details {
+    .recovery-data-row {
       font-size: 0.78rem;
       color: var(--muted);
+      margin-bottom: 0.2rem;
+      line-height: 1.45;
     }
 
-    .withings-block {
-      background: var(--surface2);
-      border: 1px solid var(--border);
-      border-radius: 10px;
-      padding: 0.7rem 1rem;
-      margin-bottom: 1rem;
+    .recovery-data-row strong {
+      color: #cce0ff;
+      font-weight: 500;
     }
 
-    .withings-block-label {
-      font-size: 0.67rem;
-      letter-spacing: 0.16em;
+    .recovery-data-row .rec-source {
+      font-size: 0.62rem;
+      letter-spacing: 0.1em;
       text-transform: uppercase;
-      color: var(--muted);
-      font-weight: 600;
+      color: #4a3a6a;
+      margin-right: 0.4rem;
+    }
+
+    .recovery-divider {
+      height: 1px;
+      background: #2a1a4a;
+      margin: 0.5rem 0;
+    }
+
+    .recovery-subj-compact {
       display: flex;
       align-items: center;
-      gap: 0.5rem;
-      margin-bottom: 0.3rem;
+      gap: 0.6rem;
     }
 
-    .withings-date {
-      font-weight: 400;
-      opacity: 0.7;
-      text-transform: none;
-      letter-spacing: 0;
+    .recovery-subj-label {
+      font-size: 0.62rem;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+      color: #4a3a6a;
+      flex-shrink: 0;
     }
 
-    .withings-block-details {
+    .recovery-subj-scores {
+      display: flex;
+      gap: 0.65rem;
       font-size: 0.78rem;
-      color: var(--muted);
+      color: #cce0ff;
+      flex: 1;
     }
+
+    .recovery-subj-scores span { opacity: 0.85; }
 
     .recovery-block {
       background: #0a0f1a;
@@ -1957,10 +1974,8 @@
 
         let html = '';
 
-        // Health input + recovery coach
-        html += `<div id="healthInputWrapper">${renderHealthInputBlock()}</div>`;
-        html += renderGarminBlock();
-        html += renderWithingsBlock();
+        // Unified recovery block (Garmin/Intervals.icu + Withings + subjectief gevoel)
+        html += `<div id="recoveryTodayWrapper">${renderRecoveryTodayBlock()}</div>`;
         if (recoveryAdvice) {
           const adviceLabel = recoveryAdviceFromHistory
             ? `Coach Advies (${recoveryAdviceHistory[recoveryAdviceHistory.length - 1].date})`
@@ -2344,78 +2359,131 @@
       return `<div class="health-trend"><div class="health-trend-row">${pips}</div></div>`;
     }
 
-    function renderHealthInputBlock() {
-      const today   = new Date().toISOString().slice(0, 10);
-      const filledToday = healthInput.date === today;
+    function renderRecoveryTodayBlock() {
+      const today = new Date().toISOString().slice(0, 10);
+      const yesterday = (() => { const d = new Date(); d.setDate(d.getDate() - 1); return d.toISOString().slice(0, 10); })();
 
-      if (filledToday && !healthInputExpanded) {
-        // Compact weergave: alleen de ingevulde waarden + wijzig-knop
-        const slaap   = healthInput.slaap;
-        const energie = healthInput.energie;
-        const pijn    = healthInput.spierpijn;
-        const stress  = healthInput.stress;
-        return `<div class="health-input-block health-input-compact">
-          <div class="health-compact-row">
-            <span class="health-input-label">Herstel vandaag</span>
-            <span class="health-compact-values">
-              <span title="Slaap">💤 ${slaap}</span>
-              <span title="Energie">⚡ ${energie}</span>
-              <span title="Spierpijn">💪 ${pijn}</span>
-              <span title="Stress">😓 ${stress}</span>
-            </span>
-            <button class="health-edit-btn" onclick="expandHealthInput()">Wijzig</button>
-          </div>
-        </div>`;
+      // ── Intervals.icu wellness ──────────────────────────────────────
+      let w = null;
+      if (intervalsData?.wellness?.by_date) {
+        w = intervalsData.wellness.by_date[today] || intervalsData.wellness.by_date[yesterday];
       }
 
-      const slaap   = healthInput.slaap    != null ? healthInput.slaap    : 3;
-      const energie = healthInput.energie  != null ? healthInput.energie  : 3;
-      const pijn    = healthInput.spierpijn != null ? healthInput.spierpijn : 3;
-      const stress  = healthInput.stress   != null ? healthInput.stress   : 3;
+      // TSB badge
+      const tsb = w?.tsb;
+      const tsbColor = tsb == null ? '#888' : tsb > 5 ? '#2ecc71' : tsb < -10 ? '#e74c3c' : '#f39c12';
+      const tsbLabel = tsb == null ? '' : tsb > 5 ? 'Fris' : tsb < -10 ? 'Vermoeid' : 'Neutraal';
+      const tsbBadge = tsb != null
+        ? `<span class="recovery-tsb-badge" style="background:${tsbColor}">${tsbLabel} ${tsb > 0 ? '+' : ''}${Math.round(tsb)}</span>`
+        : '';
 
-      return `<div class="health-input-block">
-        <div class="health-input-label">Herstel vandaag</div>
-        <div class="health-sliders">
+      // Rij 1: biometrics (Garmin/Intervals.icu)
+      let metricsRow = '';
+      if (w) {
+        const p = [];
+        if (w.hrv != null)        p.push(`HRV <strong>${Math.round(w.hrv)}ms</strong>`);
+        if (w.resting_hr != null)  p.push(`RHR <strong>${w.resting_hr}bpm</strong>`);
+        if (w.sleep_hrs != null) {
+          let s = `Slaap <strong>${w.sleep_hrs.toFixed(1)}u`;
+          if (w.sleep_score != null) s += ` (${w.sleep_score})`;
+          p.push(s + '</strong>');
+        }
+        if (w.spo2 != null)        p.push(`SpO₂ <strong>${w.spo2}%</strong>`);
+        if (w.ctl != null && w.atl != null)
+          p.push(`Fitness <strong>${Math.round(w.ctl)}</strong> · Moe <strong>${Math.round(w.atl)}</strong>`);
+        if (p.length) metricsRow = `<div class="recovery-data-row"><span class="rec-source">Garmin</span>${p.join(' · ')}</div>`;
+      }
+
+      // Rij 2: lichaamssamenstelling (Withings)
+      let bodyRow = '';
+      if (withingsData?.measurements?.length) {
+        const latest = withingsData.measurements.find(m => m.weight_kg != null);
+        if (latest) {
+          const prev = withingsData.measurements.find(m => m.weight_kg != null && m !== latest);
+          let wt = `<strong>${latest.weight_kg}kg</strong>`;
+          if (prev) {
+            const delta = Math.round((latest.weight_kg - prev.weight_kg) * 10) / 10;
+            if (delta !== 0) {
+              const col = delta > 0 ? '#e74c3c' : '#2ecc71';
+              wt += `<span style="color:${col};margin-left:2px">${delta > 0 ? '↑' : '↓'}${Math.abs(delta)}</span>`;
+            }
+          }
+          const p = [wt];
+          if (latest.fat_pct != null)   p.push(`Vet <strong>${latest.fat_pct}%</strong>`);
+          if (latest.muscle_kg != null) p.push(`Spier <strong>${latest.muscle_kg}kg</strong>`);
+          if (latest.visceral_fat != null) p.push(`Visceraal <strong>${latest.visceral_fat}</strong>`);
+          bodyRow = `<div class="recovery-data-row"><span class="rec-source">Withings</span>${p.join(' · ')}</div>`;
+        }
+      }
+
+      const hasSensorData = metricsRow || bodyRow;
+
+      // ── Subjectief gevoel ───────────────────────────────────────────
+      const filledToday = healthInput.date === today;
+      let subjHtml = '';
+
+      if (filledToday && !healthInputExpanded) {
+        subjHtml = `<div class="recovery-subj-compact">
+          <span class="recovery-subj-label">Gevoel</span>
+          <span class="recovery-subj-scores">
+            <span title="Slaap">💤 ${healthInput.slaap}</span>
+            <span title="Energie">⚡ ${healthInput.energie}</span>
+            <span title="Spierpijn">💪 ${healthInput.spierpijn}</span>
+            <span title="Stress">😓 ${healthInput.stress}</span>
+          </span>
+          <button class="health-edit-btn" onclick="expandHealthInput()">Wijzig</button>
+        </div>`;
+      } else {
+        const sv  = healthInput.slaap     ?? 3;
+        const ev  = healthInput.energie   ?? 3;
+        const pv  = healthInput.spierpijn ?? 3;
+        const stv = healthInput.stress    ?? 3;
+        subjHtml = `<div class="health-sliders">
           <div class="health-slider-row">
             <span class="health-slider-name">Slaap</span>
-            <input type="range" id="sliderSlaap" min="1" max="5" step="1" value="${slaap}"
+            <input type="range" id="sliderSlaap" min="1" max="5" step="1" value="${sv}"
               oninput="document.getElementById('valSlaap').textContent=this.value">
-            <span class="health-slider-val" id="valSlaap">${slaap}</span>
+            <span class="health-slider-val" id="valSlaap">${sv}</span>
           </div>
-          ${healthTrendPips('slaap')}
           <div class="health-slider-row">
             <span class="health-slider-name">Energie</span>
-            <input type="range" id="sliderEnergie" min="1" max="5" step="1" value="${energie}"
+            <input type="range" id="sliderEnergie" min="1" max="5" step="1" value="${ev}"
               oninput="document.getElementById('valEnergie').textContent=this.value">
-            <span class="health-slider-val" id="valEnergie">${energie}</span>
+            <span class="health-slider-val" id="valEnergie">${ev}</span>
           </div>
-          ${healthTrendPips('energie')}
           <div class="health-slider-row">
             <span class="health-slider-name">Spierpijn</span>
-            <input type="range" id="sliderSpierpijn" min="1" max="5" step="1" value="${pijn}"
+            <input type="range" id="sliderSpierpijn" min="1" max="5" step="1" value="${pv}"
               oninput="document.getElementById('valSpierpijn').textContent=this.value">
-            <span class="health-slider-val" id="valSpierpijn">${pijn}</span>
+            <span class="health-slider-val" id="valSpierpijn">${pv}</span>
           </div>
-          ${healthTrendPips('spierpijn', true)}
           <div class="health-slider-row">
             <span class="health-slider-name">Stress</span>
-            <input type="range" id="sliderStress" min="1" max="5" step="1" value="${stress}"
+            <input type="range" id="sliderStress" min="1" max="5" step="1" value="${stv}"
               oninput="document.getElementById('valStress').textContent=this.value">
-            <span class="health-slider-val" id="valStress">${stress}</span>
+            <span class="health-slider-val" id="valStress">${stv}</span>
           </div>
-          ${healthTrendPips('stress', true)}
         </div>
         <div class="health-save-row">
           <button class="health-save-btn" onclick="saveHealthInput()">Opslaan</button>
           <span class="health-save-status" id="healthSaveStatus"></span>
+        </div>`;
+      }
+
+      return `<div class="recovery-today-block">
+        <div class="recovery-today-header">
+          <span class="recovery-today-label">Herstel vandaag</span>
+          ${tsbBadge}
         </div>
+        ${metricsRow}${bodyRow}${hasSensorData ? '<div class="recovery-divider"></div>' : ''}
+        ${subjHtml}
       </div>`;
     }
 
     function expandHealthInput() {
       healthInputExpanded = true;
-      const wrapper = document.getElementById('healthInputWrapper');
-      if (wrapper) wrapper.innerHTML = renderHealthInputBlock();
+      const wrapper = document.getElementById('recoveryTodayWrapper');
+      if (wrapper) wrapper.innerHTML = renderRecoveryTodayBlock();
     }
 
     async function saveHealthInput() {
@@ -2462,89 +2530,14 @@
         healthInput = { ...data };
         healthHistory = updatedHistory;
         healthInputExpanded = false;
-        const wrapper = document.getElementById('healthInputWrapper');
-        if (wrapper) wrapper.innerHTML = renderHealthInputBlock();
+        const wrapper = document.getElementById('recoveryTodayWrapper');
+        if (wrapper) wrapper.innerHTML = renderRecoveryTodayBlock();
       } catch(e) {
         if (statusEl) { statusEl.textContent = `Fout: ${e.message}`; statusEl.className = 'health-save-status err'; }
       }
     }
 
     // ── end health input helpers ──────────────────────────────────────────
-
-    // ── Garmin / intervals.icu wellness widget ───────────────────────────
-    function renderGarminBlock() {
-      if (!intervalsData || !intervalsData.wellness || !intervalsData.wellness.by_date) return '';
-      const today = new Date().toISOString().slice(0, 10);
-      const yesterday = (() => { const d = new Date(); d.setDate(d.getDate() - 1); return d.toISOString().slice(0, 10); })();
-      const entry = intervalsData.wellness.by_date[today] || intervalsData.wellness.by_date[yesterday];
-      if (!entry) return '';
-
-      const rhr  = entry.resting_hr;
-      const hrv  = entry.hrv;
-      const tsb  = entry.tsb;
-      const ctl  = entry.ctl;
-      const atl  = entry.atl;
-      const slp  = entry.sleep_hrs;
-      const slpScore = entry.sleep_score;
-
-      if (rhr == null && hrv == null && tsb == null) return '';
-
-      // TSB kleur: positief = groen (fris), negatief = oranje/rood (vermoeid)
-      const tsbColor = tsb == null ? '#888'
-        : tsb > 5  ? '#2ecc71'
-        : tsb < -10 ? '#e74c3c'
-        : '#f39c12';
-      const tsbLabel = tsb == null ? '' : tsb > 5 ? 'Fris' : tsb < -10 ? 'Vermoeid' : 'Neutraal';
-      const tsbBadge = tsb != null
-        ? `<span class="garmin-tsb-badge" style="background:${tsbColor}">${tsbLabel} ${tsb > 0 ? '+' : ''}${Math.round(tsb)}</span>`
-        : '';
-
-      const details = [];
-      if (rhr != null) details.push(`rustpols ${rhr} bpm`);
-      if (hrv != null) details.push(`HRV ${Math.round(hrv)} ms`);
-      if (slp != null) details.push(`slaap ${slp.toFixed(1)}u`);
-      if (slpScore != null) details.push(`slaapscore ${slpScore}`);
-      if (ctl != null && atl != null) details.push(`fitness ${Math.round(ctl)} · vermoeidheid ${Math.round(atl)}`);
-
-      return `<div class="garmin-block">
-        <div class="garmin-block-label">Garmin ${tsbBadge}</div>
-        ${details.length ? `<div class="garmin-block-details">${details.join(' · ')}</div>` : ''}
-      </div>`;
-    }
-
-    // ── Withings widget ──────────────────────────────────────────────────
-    function renderWithingsBlock() {
-      if (!withingsData || !withingsData.measurements || withingsData.measurements.length === 0) return '';
-      // Zoek de meest recente meting MET gewicht (sommige Withings-groepen hebben alleen PWV/zenuw)
-      const latest = withingsData.measurements.find(m => m.weight_kg != null);
-      if (!latest) return '';
-      const prev = withingsData.measurements.find(m => m.weight_kg != null && m !== latest);
-
-      const weight = latest.weight_kg;
-
-      let trendHtml = '';
-      if (prev && prev.weight_kg != null) {
-        const delta = Math.round((weight - prev.weight_kg) * 10) / 10;
-        if (delta !== 0) {
-          const arrow = delta > 0 ? '↑' : '↓';
-          const color = delta > 0 ? '#e74c3c' : '#2ecc71';
-          trendHtml = `<span style="color:${color};margin-left:4px">${arrow} ${Math.abs(delta)}kg</span>`;
-        }
-      }
-
-      const details = [];
-      if (latest.fat_pct != null)      details.push(`vet ${latest.fat_pct}%`);
-      if (latest.muscle_kg != null)    details.push(`spier ${latest.muscle_kg}kg`);
-      if (latest.hydration_kg != null) details.push(`hydratatie ${latest.hydration_kg}kg`);
-      if (latest.visceral_fat != null) details.push(`visceraal vet ${latest.visceral_fat}`);
-      if (latest.nerve_health != null) details.push(`zenuw ${latest.nerve_health}/100`);
-      if (latest.pwv_ms != null)       details.push(`PWV ${latest.pwv_ms}m/s`);
-
-      return `<div class="withings-block">
-        <div class="withings-block-label">Withings — ${weight}kg${trendHtml} <span class="withings-date">${latest.date}</span></div>
-        ${details.length ? `<div class="withings-block-details">${details.join(' · ')}</div>` : ''}
-      </div>`;
-    }
 
     // ── Environmental widget (gebruikt in renderCard via renderEnvBadge) ─
     function renderEnvBadge(dateStr) {
