@@ -2302,11 +2302,12 @@
     // ── Withings widget ──────────────────────────────────────────────────
     function renderWithingsBlock() {
       if (!withingsData || !withingsData.measurements || withingsData.measurements.length === 0) return '';
-      const latest = withingsData.measurements[0];
-      const prev   = withingsData.measurements[1];
+      // Zoek de meest recente meting MET gewicht (sommige Withings-groepen hebben alleen PWV/zenuw)
+      const latest = withingsData.measurements.find(m => m.weight_kg != null);
+      if (!latest) return '';
+      const prev = withingsData.measurements.find(m => m.weight_kg != null && m !== latest);
 
       const weight = latest.weight_kg;
-      if (weight == null) return '';
 
       let trendHtml = '';
       if (prev && prev.weight_kg != null) {
