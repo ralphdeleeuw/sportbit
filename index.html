@@ -764,6 +764,13 @@
       margin-right: 0.4rem;
     }
 
+    .recovery-data-row .rec-avg {
+      font-size: 0.68rem;
+      font-weight: 400;
+      color: #5a4a7a;
+      margin-left: 2px;
+    }
+
     .recovery-divider {
       height: 1px;
       background: #2a1a4a;
@@ -2364,10 +2371,24 @@
       const yesterday = (() => { const d = new Date(); d.setDate(d.getDate() - 1); return d.toISOString().slice(0, 10); })();
 
       // ── Intervals.icu wellness ──────────────────────────────────────
-      let w = null;
-      if (intervalsData?.wellness?.by_date) {
-        w = intervalsData.wellness.by_date[today] || intervalsData.wellness.by_date[yesterday];
-      }
+      const byDate = intervalsData?.wellness?.by_date || {};
+      let w = byDate[today] || byDate[yesterday] || null;
+
+      // Historische reeks voor baselines (laatste 28 dagen vóór vandaag, gesorteerd)
+      const histDates = Object.keys(byDate).filter(d => d < today).sort().slice(-28);
+      const histHrv   = histDates.map(d => byDate[d].hrv).filter(v => v != null);
+      const histSpo2  = histDates.slice(-7).map(d => byDate[d].spo2).filter(v => v != null);
+
+      // HRV baseline (28-daags gemiddelde) + kleur op basis van afwijking
+      const hrvBaseline = histHrv.length >= 5
+        ? histHrv.reduce((a, b) => a + b, 0) / histHrv.length : null;
+      const hrvColor = (hrvBaseline && w?.hrv != null)
+        ? (w.hrv / hrvBaseline >= 0.90 ? '#2ecc71' : w.hrv / hrvBaseline >= 0.75 ? '#f39c12' : '#e74c3c')
+        : null;
+
+      // SpO₂ 7-daags gemiddelde
+      const spo2Avg = histSpo2.length >= 3
+        ? Math.round(histSpo2.reduce((a, b) => a + b, 0) / histSpo2.length * 10) / 10 : null;
 
       // TSB badge
       const tsb = w?.tsb;
@@ -2381,20 +2402,29 @@
       let metricsRow = '';
       if (w) {
         const p = [];
-        if (w.hrv != null)        p.push(`HRV <strong>${Math.round(w.hrv)}ms</strong>`);
+        if (w.hrv != null) {
+          const baselineTitle = hrvBaseline ? ` (28d gem: ${Math.round(hrvBaseline)}ms)` : '';
+          const col = hrvColor ? ` style="color:${hrvColor}"` : '';
+          p.push(`HRV <strong${col} title="Vandaag${baselineTitle}">${Math.round(w.hrv)}ms</strong>`);
+        }
         if (w.resting_hr != null)  p.push(`RHR <strong>${w.resting_hr}bpm</strong>`);
         if (w.sleep_hrs != null) {
           let s = `Slaap <strong>${w.sleep_hrs.toFixed(1)}u`;
           if (w.sleep_score != null) s += ` (${w.sleep_score})`;
           p.push(s + '</strong>');
         }
-        if (w.spo2 != null)        p.push(`SpO₂ <strong>${w.spo2}%</strong>`);
+        if (w.spo2 != null) {
+          let spo2Str = `SpO₂ <strong>${w.spo2}%`;
+          if (spo2Avg != null && Math.abs(w.spo2 - spo2Avg) >= 0.5)
+            spo2Str += ` <span class="rec-avg">gem ${spo2Avg}%</span>`;
+          p.push(spo2Str + '</strong>');
+        }
         if (w.ctl != null && w.atl != null)
           p.push(`Fitness <strong>${Math.round(w.ctl)}</strong> · Moe <strong>${Math.round(w.atl)}</strong>`);
         if (p.length) metricsRow = `<div class="recovery-data-row"><span class="rec-source">Garmin</span>${p.join(' · ')}</div>`;
       }
 
-      // Rij 2: lichaamssamenstelling (Withings)
+      // Rij 2: lichaamssamenstelling (Withings) + meetdatum
       let bodyRow = '';
       if (withingsData?.measurements?.length) {
         const latest = withingsData.measurements.find(m => m.weight_kg != null);
@@ -2408,11 +2438,13 @@
               wt += `<span style="color:${col};margin-left:2px">${delta > 0 ? '↑' : '↓'}${Math.abs(delta)}</span>`;
             }
           }
+          const d = new Date(latest.date + 'T00:00:00');
+          const dateLabel = `${d.getDate()} ${MONTH_NL[d.getMonth()]}`;
           const p = [wt];
-          if (latest.fat_pct != null)   p.push(`Vet <strong>${latest.fat_pct}%</strong>`);
-          if (latest.muscle_kg != null) p.push(`Spier <strong>${latest.muscle_kg}kg</strong>`);
+          if (latest.fat_pct != null)      p.push(`Vet <strong>${latest.fat_pct}%</strong>`);
+          if (latest.muscle_kg != null)    p.push(`Spier <strong>${latest.muscle_kg}kg</strong>`);
           if (latest.visceral_fat != null) p.push(`Visceraal <strong>${latest.visceral_fat}</strong>`);
-          bodyRow = `<div class="recovery-data-row"><span class="rec-source">Withings</span>${p.join(' · ')}</div>`;
+          bodyRow = `<div class="recovery-data-row"><span class="rec-source">Withings ${dateLabel}</span>${p.join(' · ')}</div>`;
         }
       }
 
