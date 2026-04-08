@@ -1212,6 +1212,116 @@
       display: inline-block;
       flex-shrink: 0;
     }
+
+    /* ── Personal events ─────────────────────────────────────────── */
+    .dot-personal { background: #4db8ff; box-shadow: 0 0 8px rgba(77,184,255,0.6); }
+
+    .add-event-btn {
+      background: transparent;
+      color: var(--accent);
+      border: 1px solid var(--accent);
+      border-radius: 6px;
+      padding: 0.15rem 0.65rem;
+      font-size: 0.7rem;
+      font-family: 'DM Sans', sans-serif;
+      font-weight: 500;
+      cursor: pointer;
+      letter-spacing: 0.06em;
+      transition: background 0.15s;
+      flex-shrink: 0;
+    }
+    .add-event-btn:hover { background: rgba(232,255,60,0.08); }
+
+    .personal-delete-btn {
+      background: transparent;
+      color: var(--muted);
+      border: none;
+      font-size: 0.78rem;
+      cursor: pointer;
+      padding: 0.1rem 0.35rem;
+      border-radius: 4px;
+      line-height: 1;
+      transition: color 0.15s;
+    }
+    .personal-delete-btn:hover { color: var(--accent2); }
+    .personal-delete-btn:disabled { opacity: 0.4; cursor: default; }
+
+    .add-event-form {
+      background: var(--surface);
+      border: 1px solid rgba(77,184,255,0.4);
+      border-radius: 12px;
+      padding: 1rem 1.2rem;
+      margin-bottom: 0.6rem;
+      animation: fadeUp 0.3s ease both;
+    }
+    .add-event-form-title {
+      font-size: 0.7rem;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+      color: #4db8ff;
+      font-weight: 600;
+      margin-bottom: 0.8rem;
+    }
+    .add-event-fields { display: flex; flex-direction: column; gap: 0.5rem; margin-bottom: 0.75rem; }
+    .add-event-row { display: flex; gap: 0.6rem; align-items: flex-start; }
+    .add-event-label {
+      font-size: 0.68rem;
+      color: var(--muted);
+      text-transform: uppercase;
+      letter-spacing: 0.07em;
+      width: 62px;
+      flex-shrink: 0;
+      padding-top: 0.55rem;
+    }
+    .add-event-input {
+      flex: 1;
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 0.48rem 0.75rem;
+      color: var(--text);
+      font-family: 'DM Sans', sans-serif;
+      font-size: 0.82rem;
+      outline: none;
+      transition: border-color 0.2s;
+    }
+    .add-event-input:focus { border-color: #4db8ff; }
+    .add-event-input::placeholder { color: var(--muted); }
+    .add-event-actions {
+      display: flex;
+      gap: 0.6rem;
+      align-items: center;
+      justify-content: flex-end;
+    }
+    .add-event-save-btn {
+      background: #4db8ff;
+      color: #000;
+      border: none;
+      border-radius: 8px;
+      padding: 0.42rem 1rem;
+      font-family: 'DM Sans', sans-serif;
+      font-size: 0.82rem;
+      font-weight: 500;
+      cursor: pointer;
+      transition: opacity 0.2s;
+    }
+    .add-event-save-btn:hover { opacity: 0.85; }
+    .add-event-save-btn:disabled { opacity: 0.5; cursor: default; }
+    .add-event-cancel-btn {
+      background: transparent;
+      color: var(--muted);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 0.42rem 0.9rem;
+      font-family: 'DM Sans', sans-serif;
+      font-size: 0.82rem;
+      cursor: pointer;
+      transition: color 0.15s;
+    }
+    .add-event-cancel-btn:hover { color: var(--text); }
+    .add-event-status { font-size: 0.75rem; color: var(--muted); margin-right: auto; }
+    .add-event-status.ok  { color: #4caf50; }
+    .add-event-status.err { color: var(--accent2); }
   </style>
 </head>
 <body>
@@ -1360,6 +1470,7 @@
     let healthHistory = []; // [{date, slaap, energie, spierpijn, stress}]
     let classCapacity = {}; // {"YYYY-MM-DD_HH:MM": {current, max, checked_at}}
     let keukenbaasData = null; // {meals: [...], fetched_at}
+    let personalEvents = []; // [{id, title, date, time?, location?, notes?, created_at}]
     let intervalsData = null;   // {wellness: {by_date: {...}}, activities: {by_date: {...}}, fetched_at}
     let withingsData = null;    // {measurements: [...], fetched_at}
     let environmentalData = null; // {training_conditions: {...}, aqi: {...}, fetched_at}
@@ -1463,6 +1574,17 @@
       const mealsFile = files['keukenbaas_meals.json'];
       if (mealsFile) {
         try { keukenbaasData = JSON.parse(mealsFile.content); } catch(e) {}
+      }
+
+      // personal_events.json
+      const personalEventsFile = files['personal_events.json'];
+      if (personalEventsFile) {
+        try {
+          const pe = JSON.parse(personalEventsFile.content);
+          personalEvents = pe.events || [];
+        } catch(e) { personalEvents = []; }
+      } else {
+        personalEvents = [];
       }
     }
 
@@ -1853,12 +1975,24 @@
         const mealsHtml = renderMealsBlock();
         if (mealsHtml) html += mealsHtml;
 
-        // Upcoming classes
-        html += `<div class="section-title">Aankomend</div><div class="cards">`;
-        if (upcoming.length === 0) {
-          html += `<div class="empty"><span class="empty-icon">🏋️</span>Geen aankomende inschrijvingen</div>`;
+        // Upcoming: CrossFit classes + personal events combined
+        _upcomingCrossfit = upcoming;
+        const upcomingPersonal = personalEvents.filter(e => isUpcoming(e.date, e.time || null));
+        const allUpcoming = [
+          ...upcoming.map(e => ({ ...e, _src: 'crossfit' })),
+          ...upcomingPersonal.map(e => ({ ...e, _src: 'personal' })),
+        ].sort((a, b) => a.date.localeCompare(b.date) || (a.time || '').localeCompare(b.time || ''));
+
+        html += `<div class="section-title">Aankomend <button class="add-event-btn" onclick="showAddEventForm()">+ Toevoegen</button></div>`;
+        html += `<div id="addEventFormWrapper"></div>`;
+        html += `<div class="cards" id="upcomingCards">`;
+        if (allUpcoming.length === 0) {
+          html += `<div class="empty"><span class="empty-icon">📅</span>Geen aankomende events</div>`;
         } else {
-          upcoming.forEach((e, i) => html += renderCard(e, 'active', i * 0.05, wodByDate[e.date]));
+          allUpcoming.forEach((e, i) => {
+            if (e._src === 'crossfit') html += renderCard(e, 'active', i * 0.05, wodByDate[e.date]);
+            else html += renderPersonalEventCard(e, i * 0.05);
+          });
         }
         html += `</div>`;
 
@@ -2631,6 +2765,245 @@
     }
 
     // ── end barbell chart ─────────────────────────────────────────────────
+
+    // ── Personal events ───────────────────────────────────────────────────
+
+    function renderPersonalEventCard(event, delay) {
+      const timeHtml = event.time ? `<span class="card-time" style="color:#4db8ff">${event.time}</span>` : '';
+      const locHtml  = event.location ? `<span>${escapeHtml(event.location)}</span>` : '';
+      const metaHtml = (timeHtml || locHtml) ? `<div class="card-meta">${timeHtml}${locHtml}</div>` : '';
+      const deleteBtn = `<button class="personal-delete-btn" title="Verwijderen"
+        onclick="event.stopPropagation();deletePersonalEvent('${escapeHtml(event.id)}',this)">✕</button>`;
+
+      if (event.notes) {
+        return `
+          <div class="card has-wod" style="animation-delay:${delay}s" onclick="toggleWod(this)">
+            <div class="card-dot dot-personal"></div>
+            <div class="card-info">
+              <div class="card-header">
+                <div class="card-header-left">
+                  <div class="card-title">${escapeHtml(event.title)}</div>
+                  ${metaHtml}
+                </div>
+                <div class="card-right">
+                  <div class="card-date" style="color:#4db8ff">${formatDate(event.date)}</div>
+                  <div class="card-relative-day">${relativeDay(event.date)}</div>
+                  <div style="display:flex;gap:0.3rem;align-items:center">${deleteBtn}<div class="wod-chevron" style="color:#4db8ff">▾</div></div>
+                </div>
+              </div>
+              <div class="card-wod">
+                <div style="font-size:0.82rem;color:#b0ccf0;white-space:pre-wrap;line-height:1.6">${escapeHtml(event.notes)}</div>
+              </div>
+            </div>
+          </div>`;
+      }
+
+      return `
+        <div class="card" style="animation-delay:${delay}s">
+          <div class="card-dot dot-personal"></div>
+          <div class="card-info">
+            <div class="card-title">${escapeHtml(event.title)}</div>
+            ${metaHtml}
+          </div>
+          <div class="card-right">
+            <div class="card-date" style="color:#4db8ff">${formatDate(event.date)}</div>
+            <div class="card-relative-day">${relativeDay(event.date)}</div>
+            ${deleteBtn}
+          </div>
+        </div>`;
+    }
+
+    function showAddEventForm() {
+      const wrapper = document.getElementById('addEventFormWrapper');
+      if (!wrapper) return;
+      if (wrapper.innerHTML) { wrapper.innerHTML = ''; return; }
+      const today = new Date().toISOString().slice(0, 10);
+      wrapper.innerHTML = `
+        <div class="add-event-form">
+          <div class="add-event-form-title">Nieuw event toevoegen</div>
+          <div class="add-event-fields">
+            <div class="add-event-row">
+              <span class="add-event-label">Activiteit</span>
+              <select class="add-event-input" id="newEventTitle" onchange="handleEventTitleChange(this)">
+                <option value="">— Kies type —</option>
+                <option value="Hardlopen">Hardlopen</option>
+                <option value="Hiken">Hiken</option>
+                <option value="SUPpen">SUPpen</option>
+                <option value="Zwemmen">Zwemmen</option>
+                <option value="Fietsen">Fietsen</option>
+                <option value="Yoga">Yoga</option>
+                <option value="Gym">Gym</option>
+                <option value="Anders">Anders…</option>
+              </select>
+            </div>
+            <div class="add-event-row" id="customTitleRow" style="display:none">
+              <span class="add-event-label"></span>
+              <input type="text" class="add-event-input" id="newEventTitleCustom" placeholder="Eigen naam" />
+            </div>
+            <div class="add-event-row">
+              <span class="add-event-label">Datum</span>
+              <input type="date" class="add-event-input" id="newEventDate" value="${today}" />
+            </div>
+            <div class="add-event-row">
+              <span class="add-event-label">Tijd</span>
+              <input type="time" class="add-event-input" id="newEventTime" />
+            </div>
+            <div class="add-event-row">
+              <span class="add-event-label">Locatie</span>
+              <input type="text" class="add-event-input" id="newEventLocation" placeholder="Optioneel" />
+            </div>
+            <div class="add-event-row">
+              <span class="add-event-label">Notities</span>
+              <textarea class="add-event-input" id="newEventNotes" placeholder="Optioneel" rows="2" style="resize:vertical"></textarea>
+            </div>
+          </div>
+          <div class="add-event-actions">
+            <span class="add-event-status" id="addEventStatus"></span>
+            <button class="add-event-cancel-btn" onclick="hideAddEventForm()">Annuleren</button>
+            <button class="add-event-save-btn" id="addEventSaveBtn" onclick="savePersonalEvent()">Toevoegen</button>
+          </div>
+        </div>`;
+    }
+
+    function hideAddEventForm() {
+      const wrapper = document.getElementById('addEventFormWrapper');
+      if (wrapper) wrapper.innerHTML = '';
+    }
+
+    function handleEventTitleChange(sel) {
+      const row = document.getElementById('customTitleRow');
+      if (row) row.style.display = sel.value === 'Anders' ? 'flex' : 'none';
+    }
+
+    async function savePersonalEvent() {
+      const token = document.getElementById('githubToken').value.trim();
+      const statusEl = document.getElementById('addEventStatus');
+      const saveBtn  = document.getElementById('addEventSaveBtn');
+
+      if (!token) {
+        if (statusEl) { statusEl.textContent = '⚠ Token nodig'; statusEl.className = 'add-event-status err'; }
+        return;
+      }
+
+      const titleSel = document.getElementById('newEventTitle');
+      let title = titleSel ? titleSel.value : '';
+      if (title === 'Anders') {
+        title = (document.getElementById('newEventTitleCustom')?.value || '').trim();
+      }
+      const date     = (document.getElementById('newEventDate')?.value     || '').trim();
+      const time     = (document.getElementById('newEventTime')?.value     || '').trim();
+      const location = (document.getElementById('newEventLocation')?.value || '').trim();
+      const notes    = (document.getElementById('newEventNotes')?.value    || '').trim();
+
+      if (!title) {
+        if (statusEl) { statusEl.textContent = '⚠ Kies een activiteit'; statusEl.className = 'add-event-status err'; }
+        return;
+      }
+      if (!date) {
+        if (statusEl) { statusEl.textContent = '⚠ Kies een datum'; statusEl.className = 'add-event-status err'; }
+        return;
+      }
+
+      if (statusEl) { statusEl.textContent = 'Opslaan…'; statusEl.className = 'add-event-status'; }
+      if (saveBtn)  saveBtn.disabled = true;
+
+      const newEvent = { id: `personal_${Date.now()}`, title, date };
+      if (time)     newEvent.time     = time;
+      if (location) newEvent.location = location;
+      if (notes)    newEvent.notes    = notes;
+      newEvent.created_at = new Date().toISOString();
+
+      try {
+        const resp = await fetch(`https://api.github.com/gists/${currentGistId}`, {
+          headers: { Authorization: `token ${token}` },
+        });
+        if (!resp.ok) throw new Error(`GitHub API ${resp.status}`);
+        const gist = await resp.json();
+
+        let events = [];
+        const existing = gist.files['personal_events.json'];
+        if (existing) {
+          try { events = JSON.parse(existing.content).events || []; } catch(e) {}
+        }
+
+        // Drop events older than 30 days to keep the file tidy
+        const cutoff = new Date(); cutoff.setDate(cutoff.getDate() - 30);
+        const cutoffStr = cutoff.toISOString().slice(0, 10);
+        events = events.filter(e => e.date >= cutoffStr);
+        events.push(newEvent);
+        events.sort((a, b) => a.date.localeCompare(b.date) || (a.time || '').localeCompare(b.time || ''));
+
+        const patch = await fetch(`https://api.github.com/gists/${currentGistId}`, {
+          method: 'PATCH',
+          headers: { Authorization: `token ${token}`, 'Content-Type': 'application/json' },
+          body: JSON.stringify({ files: { 'personal_events.json': { content: JSON.stringify({ events }, null, 2) } } }),
+        });
+        if (!patch.ok) throw new Error(`Opslaan mislukt: ${patch.status}`);
+
+        personalEvents = events;
+        if (statusEl) { statusEl.textContent = '✓ Toegevoegd'; statusEl.className = 'add-event-status ok'; }
+
+        setTimeout(() => {
+          hideAddEventForm();
+          rerenderUpcomingCards();
+        }, 500);
+
+      } catch(e) {
+        if (statusEl) { statusEl.textContent = `❌ ${e.message}`; statusEl.className = 'add-event-status err'; }
+        if (saveBtn)  saveBtn.disabled = false;
+      }
+    }
+
+    async function deletePersonalEvent(id, btn) {
+      const token = document.getElementById('githubToken').value.trim();
+      if (!token) { btn.textContent = '⚠'; return; }
+
+      btn.disabled = true;
+      btn.textContent = '…';
+
+      try {
+        personalEvents = personalEvents.filter(e => e.id !== id);
+
+        const patch = await fetch(`https://api.github.com/gists/${currentGistId}`, {
+          method: 'PATCH',
+          headers: { Authorization: `token ${token}`, 'Content-Type': 'application/json' },
+          body: JSON.stringify({ files: { 'personal_events.json': { content: JSON.stringify({ events: personalEvents }, null, 2) } } }),
+        });
+        if (!patch.ok) throw new Error(`${patch.status}`);
+
+        btn.closest('.card').remove();
+      } catch(e) {
+        personalEvents.push({ id }); // restore so next delete attempt still works
+        btn.disabled = false;
+        btn.textContent = '✕';
+      }
+    }
+
+    // Re-renders only the upcoming cards list (used after add/delete without full reload)
+    let _upcomingCrossfit = [];
+    function rerenderUpcomingCards() {
+      const cardsEl = document.getElementById('upcomingCards');
+      if (!cardsEl) return;
+      const todayStr = new Date().toISOString().slice(0, 10);
+      const combined = [
+        ..._upcomingCrossfit.map(e => ({ ...e, _src: 'crossfit' })),
+        ...personalEvents
+          .filter(e => isUpcoming(e.date, e.time || null))
+          .map(e => ({ ...e, _src: 'personal' })),
+      ].sort((a, b) => a.date.localeCompare(b.date) || (a.time || '').localeCompare(b.time || ''));
+
+      if (combined.length === 0) {
+        cardsEl.innerHTML = `<div class="empty"><span class="empty-icon">📅</span>Geen aankomende events</div>`;
+        return;
+      }
+      cardsEl.innerHTML = combined.map((e, i) =>
+        e._src === 'crossfit'
+          ? renderCard(e, 'active', i * 0.05, wodByDate[e.date])
+          : renderPersonalEventCard(e, i * 0.05)
+      ).join('');
+    }
+
+    // ── end personal events ───────────────────────────────────────────────
 
     function escapeHtml(str) {
       return String(str)
