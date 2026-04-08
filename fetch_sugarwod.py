@@ -1776,6 +1776,7 @@ def generate_recovery_advice(
     withings_data: "dict | None" = None,
     environmental_data: "dict | None" = None,
     intervals_data: "dict | None" = None,
+    personal_events: list[dict] | None = None,
 ) -> str:
     """
     Generate a daily recovery/intensity advice based on recent workouts and
@@ -2086,6 +2087,45 @@ def generate_recovery_advice(
         if pr_lines:
             pr_text = "\nPersoonlijke records & benchmarks (context voor intensiteitsadvies):\n" + "\n".join(pr_lines) + "\n"
 
+    # Persoonlijke geplande activiteiten (handmatig toegevoegd via dashboard)
+    personal_events_text = ""
+    if personal_events:
+        today_iso = today.isoformat() if today else ""
+        upcoming_pe = sorted(
+            [e for e in personal_events if e.get("date", "") >= today_iso],
+            key=lambda e: (e.get("date", ""), e.get("time", "")),
+        )[:7]
+        recent_pe = sorted(
+            [e for e in personal_events if e.get("date", "") < today_iso],
+            key=lambda e: e.get("date", ""),
+            reverse=True,
+        )[:5]
+        lines = []
+        if recent_pe:
+            lines.append("Recente persoonlijke activiteiten (extra trainingsbelasting buiten de box):")
+            for e in reversed(recent_pe):
+                line = f"  {e['date']}: {e['title']}"
+                if e.get("time"):
+                    line += f" om {e['time']}"
+                if e.get("location"):
+                    line += f" ({e['location']})"
+                if e.get("notes"):
+                    line += f" — {e['notes'][:80]}"
+                lines.append(line)
+        if upcoming_pe:
+            lines.append("Aankomende persoonlijke activiteiten (gepland):")
+            for e in upcoming_pe:
+                line = f"  {e['date']}: {e['title']}"
+                if e.get("time"):
+                    line += f" om {e['time']}"
+                if e.get("location"):
+                    line += f" ({e['location']})"
+                if e.get("notes"):
+                    line += f" — {e['notes'][:80]}"
+                lines.append(line)
+        if lines:
+            personal_events_text = "\n" + "\n".join(lines) + "\n"
+
     prompt = f"""Je bent een ervaren CrossFit coach. Geef een kort, persoonlijk hersteladvies voor vandaag.
 
 Vandaag is: {today_str}
@@ -2106,7 +2146,7 @@ Waar beschikbaar is Strava-data (↳) toegevoegd: hartslag, duur, calorieën, Re
 Gebruik dit om de werkelijke intensiteit te beoordelen, NIET alleen de WOD-beschrijving:
 {hr_zones_text}
 {past_text if past_text.strip() else "Geen recente trainingen bekend."}
-
+{personal_events_text}
 Volgende workout:
 {upcoming_text}{upcoming_timing_context}{meals_text}{env_block}
 {pr_text}{prev_advice_text}
@@ -2149,6 +2189,7 @@ def generate_workout_plans(
     personal_records: list[dict] | None = None,
     intervals_data: dict | None = None,
     environmental_data: dict | None = None,
+    personal_events: list[dict] | None = None,
 ) -> dict[str, str]:
     """
     Call the Claude API to generate a personalised execution plan for each
@@ -2339,6 +2380,28 @@ def generate_workout_plans(
             if env_parts:
                 env_context = "\nOmstandigheden op trainingsdag: " + " | ".join(env_parts) + "\n"
 
+        # Persoonlijke geplande activiteiten rondom deze trainingsdatum
+        personal_event_context = ""
+        if personal_events:
+            nearby = [
+                e for e in personal_events
+                if abs((date_cls.fromisoformat(e["date"]) - date_cls.fromisoformat(date)).days) <= 3
+                and e.get("date") != date
+            ]
+            if nearby:
+                nearby.sort(key=lambda e: e["date"])
+                lines = ["Andere geplande activiteiten nabij deze training (±3 dagen, houd rekening met herstel):"]
+                for e in nearby:
+                    diff = (date_cls.fromisoformat(e["date"]) - date_cls.fromisoformat(date)).days
+                    when = f"{abs(diff)} dag{'en' if abs(diff) != 1 else ''} {'na' if diff > 0 else 'voor'} deze training"
+                    line = f"  {e['date']} ({when}): {e['title']}"
+                    if e.get("time"):
+                        line += f" om {e['time']}"
+                    if e.get("notes"):
+                        line += f" — {e['notes'][:60]}"
+                    lines.append(line)
+                personal_event_context = "\n" + "\n".join(lines) + "\n"
+
         prompt = f"""Je bent een ervaren CrossFit coach. Genereer een beknopt, praktisch uitvoeringsplan.
 
 Atleet: {athlete_profile['name']}
@@ -2353,7 +2416,7 @@ Persoonlijke focusgebieden (bewegen waarbij groei gewenst is):
 
 Barbell maxima (kg):
 {barbell_text}{barbell_trend_text}
-{pr_text}{recent_log_text}
+{pr_text}{recent_log_text}{personal_event_context}
 Gewichtnotatie: Als gewichten genoteerd zijn als "X/Y lbs" of "X/Y kg", gebruik dan altijd het eerste getal (X) — dat is het gewicht voor mannen.
 
 Hoofdworkout ({date} — {title}):
@@ -2524,7 +2587,7 @@ def _load_previous_coach_context(gist_id: str, token: str) -> dict:
       - _full: full contents of sugarwod_wod.json (used for HEALTH_ONLY / SugarWOD-only caching)
       - _keukenbaas: cached meals from keukenbaas_meals.json
     """
-    empty = {"barbell_lifts_history": [], "recovery_advice_history": [], "_full": {}, "_keukenbaas": []}
+    empty = {"barbell_lifts_history": [], "recovery_advice_history": [], "_full": {}, "_keukenbaas": [], "_personal_events": []}
     try:
         resp = requests.get(
             f"https://api.github.com/gists/{gist_id}",
@@ -2539,11 +2602,14 @@ def _load_previous_coach_context(gist_id: str, token: str) -> dict:
         existing = json.loads(raw)
         meals_raw = files.get("keukenbaas_meals.json", {}).get("content", "")
         cached_meals = json.loads(meals_raw).get("meals", []) if meals_raw else []
+        personal_events_raw = files.get("personal_events.json", {}).get("content", "")
+        personal_events = json.loads(personal_events_raw).get("events", []) if personal_events_raw else []
         return {
             "barbell_lifts_history": existing.get("barbell_lifts_history", []),
             "recovery_advice_history": existing.get("recovery_advice_history", []),
             "_full": existing,
             "_keukenbaas": cached_meals,
+            "_personal_events": personal_events,
         }
     except Exception as exc:
         log.warning("[gist] Could not load previous coach context: %s", exc)
@@ -2638,11 +2704,14 @@ def main() -> int:
     prev_coach_ctx: dict = {"barbell_lifts_history": [], "recovery_advice_history": []}
     cached_gist: dict = {}
     cached_keukenbaas: list = []
+    personal_events: list[dict] = []
     if gist_id and token:
         full_ctx = _load_previous_coach_context(gist_id, token)
         cached_gist = full_ctx.pop("_full", {})
         cached_keukenbaas = full_ctx.pop("_keukenbaas", [])
+        personal_events = full_ctx.pop("_personal_events", [])
         prev_coach_ctx = full_ctx
+        log.info("[gist] personal_events.json: %d events geladen", len(personal_events))
         log.info(
             "Gist cache geladen: %d barbell snapshots, %d advice entries",
             len(prev_coach_ctx["barbell_lifts_history"]),
@@ -2846,6 +2915,7 @@ def main() -> int:
             personal_records=personal_records,
             intervals_data=intervals_data,
             environmental_data=env_data,
+            personal_events=personal_events,
         )
     past_sportbit_dates = sorted(
         [d for d in sportbit_attended if d < today.isoformat()],
@@ -2921,6 +2991,7 @@ def main() -> int:
             intervals_data=intervals_data,
             withings_data=withings_data,
             environmental_data=env_data,
+            personal_events=personal_events,
         )
 
     # 2. SugarWOD logbook (athlete scored a result)
@@ -2957,6 +3028,7 @@ def main() -> int:
             intervals_data=intervals_data,
             withings_data=withings_data,
             environmental_data=env_data,
+            personal_events=personal_events,
         )
 
     # 3. Fallback: all programmed past workouts
@@ -2981,6 +3053,7 @@ def main() -> int:
             intervals_data=intervals_data,
             withings_data=withings_data,
             environmental_data=env_data,
+            personal_events=personal_events,
         )
 
     wod_data = {
