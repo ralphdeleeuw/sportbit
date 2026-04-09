@@ -2088,21 +2088,22 @@ def generate_recovery_advice(
             pr_text = "\nPersoonlijke records & benchmarks (context voor intensiteitsadvies):\n" + "\n".join(pr_lines) + "\n"
 
     # Persoonlijke geplande activiteiten (handmatig toegevoegd via dashboard)
-    personal_events_text = ""
+    # Split into past (for the past-workouts context) and upcoming (for the next-workout context)
+    past_personal_text = ""
+    upcoming_personal_text = ""
     if personal_events:
         today_iso = today.isoformat() if today else ""
         upcoming_pe = sorted(
-            [e for e in personal_events if e.get("date", "") >= today_iso],
+            [e for e in personal_events if e.get("date", "") > today_iso],
             key=lambda e: (e.get("date", ""), e.get("time", "")),
         )[:7]
         recent_pe = sorted(
-            [e for e in personal_events if e.get("date", "") < today_iso],
+            [e for e in personal_events if e.get("date", "") <= today_iso],
             key=lambda e: e.get("date", ""),
             reverse=True,
         )[:5]
-        lines = []
         if recent_pe:
-            lines.append("Recente persoonlijke activiteiten (extra trainingsbelasting buiten de box):")
+            lines = ["Recente persoonlijke activiteiten (extra trainingsbelasting buiten de box):"]
             for e in reversed(recent_pe):
                 line = f"  {e['date']}: {e['title']}"
                 if e.get("time"):
@@ -2112,8 +2113,9 @@ def generate_recovery_advice(
                 if e.get("notes"):
                     line += f" — {e['notes'][:80]}"
                 lines.append(line)
+            past_personal_text = "\n" + "\n".join(lines) + "\n"
         if upcoming_pe:
-            lines.append("Aankomende persoonlijke activiteiten (gepland):")
+            lines = [f"Aankomende persoonlijke activiteiten (gepland, datum NA vandaag {today_iso}):"]
             for e in upcoming_pe:
                 line = f"  {e['date']}: {e['title']}"
                 if e.get("time"):
@@ -2123,8 +2125,7 @@ def generate_recovery_advice(
                 if e.get("notes"):
                     line += f" — {e['notes'][:80]}"
                 lines.append(line)
-        if lines:
-            personal_events_text = "\n" + "\n".join(lines) + "\n"
+            upcoming_personal_text = "\n" + "\n".join(lines) + "\n"
 
     prompt = f"""Je bent een ervaren CrossFit coach. Geef een kort, persoonlijk hersteladvies voor vandaag.
 
@@ -2146,9 +2147,9 @@ Waar beschikbaar is Strava-data (↳) toegevoegd: hartslag, duur, calorieën, Re
 Gebruik dit om de werkelijke intensiteit te beoordelen, NIET alleen de WOD-beschrijving:
 {hr_zones_text}
 {past_text if past_text.strip() else "Geen recente trainingen bekend."}
-{personal_events_text}
+{past_personal_text}
 Volgende workout:
-{upcoming_text}{upcoming_timing_context}{meals_text}{env_block}
+{upcoming_text}{upcoming_timing_context}{upcoming_personal_text}{meals_text}{env_block}
 {pr_text}{prev_advice_text}
 Geef advies over:
 1. **Herstelniveau** — zijn er spiergroepen die extra rust nodig hebben op basis van de recente workouts?{"  Gebruik de subjectieve hersteldata (slaap, energie, spierpijn) als primaire fysiologische herstelIndicator. Gebruik de Strava workout-data (hartslag, duur) om de werkelijke trainingsbelasting per sessie te beoordelen." if health_input else ""}{"  De ACWR-ratio geeft de trainingsbelasting aan: check of er een patroon is met het vorige advies." if acwr else ""}
