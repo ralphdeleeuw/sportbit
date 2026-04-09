@@ -827,6 +827,45 @@
     .chip-green  { color: #4caf50; }
     .chip-lime   { color: #a5d648; }
     .chip-orange { color: #ff9800; }
+
+    /* ── Data bronnen inspector ──────────────────────────────────── */
+    .ds-block {
+      display: flex;
+      flex-direction: column;
+      gap: 1.5rem;
+    }
+    .ds-section-title {
+      font-size: 0.65rem;
+      letter-spacing: 0.14em;
+      text-transform: uppercase;
+      color: #7060a0;
+      font-weight: 600;
+      margin-bottom: 0.4rem;
+    }
+    .ds-table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 0.72rem;
+      overflow-x: auto;
+      display: block;
+    }
+    .ds-table thead th {
+      text-align: left;
+      color: var(--muted);
+      font-weight: 500;
+      padding: 0.2rem 0.5rem 0.2rem 0;
+      border-bottom: 1px solid #1a1a2e;
+      white-space: nowrap;
+    }
+    .ds-table tbody tr:nth-child(even) { background: rgba(255,255,255,0.02); }
+    .ds-table tbody td {
+      padding: 0.2rem 0.5rem 0.2rem 0;
+      color: #c8c0e0;
+      white-space: nowrap;
+    }
+    .ds-table tbody td:first-child { color: var(--muted); }
+    .ds-null { color: #333; }
+    .ds-empty { font-size: 0.72rem; color: var(--muted); font-style: normal; }
     .chip-red    { color: var(--accent2); }
     .chip-blue   { color: #6ab0ff; }
     .chip-purple { color: #b070ff; }
@@ -1928,6 +1967,9 @@
           html += `<div class="section-title collapsible" onclick="toggleSection(this)">Benchmark Workouts</div><div class="collapsible-body">` + renderBenchmarks(benchmarkWorkouts) + `</div>`;
         }
 
+        // Data bronnen inspector
+        html += renderDataSourcesBlock();
+
         content.innerHTML = html;
 
         // Initialize chart after DOM is ready
@@ -2183,6 +2225,111 @@
         return `${d.getDate()} ${MONTH_NL[d.getMonth()]} ${d.getFullYear()}`;
       }
       return raw;
+    }
+
+    // ── Data bronnen inspector ────────────────────────────────────────────
+    function renderDataSourcesBlock() {
+      const rows = [];
+
+      // helper: maak een tabel van een array van objecten
+      function makeTable(records, cols) {
+        if (!records || records.length === 0) return '<em class="ds-empty">geen data</em>';
+        const header = cols.map(c => `<th>${c.label}</th>`).join('');
+        const body = records.map(r => {
+          const cells = cols.map(c => {
+            const v = c.get ? c.get(r) : r[c.key];
+            return `<td>${v == null ? '<span class="ds-null">—</span>' : v}</td>`;
+          }).join('');
+          return `<tr>${cells}</tr>`;
+        }).join('');
+        return `<table class="ds-table"><thead><tr>${header}</tr></thead><tbody>${body}</tbody></table>`;
+      }
+
+      // ── Intervals.icu wellness (laatste 14 dagen) ──────────────────
+      {
+        const byDate = intervalsData?.wellness?.by_date || {};
+        const dates = Object.keys(byDate).sort().slice(-14);
+        const records = dates.map(d => ({ date: d, ...byDate[d] }));
+        const cols = [
+          { label: 'Datum',    get: r => r.date },
+          { label: 'HRV ms',   key: 'hrv', get: r => r.hrv != null ? Math.round(r.hrv) : null },
+          { label: 'RHR bpm',  key: 'resting_hr' },
+          { label: 'Slaap u',  get: r => r.sleep_hrs != null ? r.sleep_hrs.toFixed(1) : null },
+          { label: 'Slaapscore', key: 'sleep_score' },
+          { label: 'SpO₂ %',  key: 'spo2' },
+          { label: 'CTL',      get: r => r.ctl != null ? Math.round(r.ctl) : null },
+          { label: 'ATL',      get: r => r.atl != null ? Math.round(r.atl) : null },
+          { label: 'TSB',      get: r => r.tsb != null ? Math.round(r.tsb) : null },
+          { label: 'Gewicht',  key: 'weight_kg' },
+        ];
+        rows.push(`<div class="ds-section-title">Intervals.icu — Wellness (laatste 14 dagen)</div>${makeTable(records, cols)}`);
+      }
+
+      // ── Intervals.icu activiteiten (laatste 21 dagen) ──────────────
+      {
+        const byDate = intervalsData?.activities?.by_date || {};
+        const allActs = Object.entries(byDate)
+          .sort((a, b) => b[0].localeCompare(a[0]))
+          .slice(0, 21)
+          .flatMap(([date, acts]) => (acts || []).map(a => ({ date, ...a })));
+        const cols = [
+          { label: 'Datum',    key: 'date' },
+          { label: 'Naam',     key: 'name' },
+          { label: 'Type',     key: 'type' },
+          { label: 'Duur min', key: 'duration_min' },
+          { label: 'Afstand m', get: r => r.distance_m != null ? Math.round(r.distance_m) : null },
+          { label: 'HR gem',   key: 'avg_hr' },
+          { label: 'HR max',   key: 'max_hr' },
+          { label: 'Watt gem', get: r => r.avg_watts != null ? Math.round(r.avg_watts) : null },
+          { label: 'TL',       get: r => r.training_load != null ? Math.round(r.training_load) : null },
+          { label: 'RPE',      key: 'rpe' },
+          { label: 'kcal',     key: 'calories' },
+        ];
+        rows.push(`<div class="ds-section-title">Intervals.icu — Activiteiten</div>${makeTable(allActs, cols)}`);
+      }
+
+      // ── Withings metingen ──────────────────────────────────────────
+      {
+        const measurements = (withingsData?.measurements || []).slice(0, 10);
+        const cols = [
+          { label: 'Datum',        key: 'date' },
+          { label: 'Gewicht kg',   key: 'weight_kg' },
+          { label: 'Vet %',        key: 'fat_pct' },
+          { label: 'Spier kg',     key: 'muscle_kg' },
+          { label: 'Hydratatie kg', key: 'hydration_kg' },
+          { label: 'Visceraal',    key: 'visceral_fat' },
+          { label: 'Bot kg',       key: 'bone_kg' },
+          { label: 'PWV m/s',      key: 'pwv_ms' },
+          { label: 'Zenuw /100',   key: 'nerve_health' },
+        ];
+        rows.push(`<div class="ds-section-title">Withings — Metingen (laatste 10)</div>${makeTable(measurements, cols)}`);
+      }
+
+      // ── Strava activiteiten ────────────────────────────────────────
+      {
+        const byDate = stravaData?.activities_by_date || {};
+        const allActs = Object.entries(byDate)
+          .sort((a, b) => b[0].localeCompare(a[0]))
+          .slice(0, 14)
+          .flatMap(([date, acts]) => (acts || []).map(a => ({ date, ...a })));
+        const cols = [
+          { label: 'Datum',     key: 'date' },
+          { label: 'Naam',      key: 'name' },
+          { label: 'Type',      key: 'type' },
+          { label: 'Duur min',  key: 'duration_min' },
+          { label: 'HR gem',    get: r => r.avg_hr != null ? Math.round(r.avg_hr) : null },
+          { label: 'HR max',    get: r => r.max_hr != null ? Math.round(r.max_hr) : null },
+          { label: 'kcal',      get: r => r.calories != null ? Math.round(r.calories) : null },
+          { label: 'Suffer',    key: 'suffer_score' },
+          { label: 'RPE',       key: 'perceived_exertion' },
+        ];
+        rows.push(`<div class="ds-section-title">Strava — Activiteiten</div>${makeTable(allActs, cols)}`);
+      }
+
+      return `<div class="section-title collapsible" onclick="toggleSection(this)">Data bronnen</div>
+        <div class="collapsible-body">
+          <div class="ds-block">${rows.join('')}</div>
+        </div>`;
     }
 
     // ── Recovery today block ──────────────────────────────────────────────
