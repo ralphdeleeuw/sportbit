@@ -1334,12 +1334,19 @@
           </div>`;
       }
 
+      const undoBtn = cancelled && item.event_id ? `
+        <button class="niet-gedaan-btn" style="margin-top:0.5rem;font-size:0.75rem" id="undo-${item.event_id}"
+          onclick="markOngedaanGemaakt('${item.event_id}','${item.date}','${item.time}','${escapeHtml(item.title)}',this)">
+          Ongedaan maken
+        </button>` : '';
+
       return `
         <div class="card ${cancelled ? 'cancelled' : ''}" style="animation-delay:${delay}s">
           <div class="card-dot ${cancelled ? 'dot-cancelled' : 'dot-active'}"></div>
           <div class="card-info">
             <div class="card-title">${item.title}</div>
             ${metaHtml}
+            ${undoBtn}
           </div>
           <div class="card-right">
             <div class="card-date ${cancelled ? 'cancelled-date' : ''}">${formatDate(item.date)}</div>
@@ -1698,6 +1705,49 @@
       }
     }
 
+    async function markOngedaanGemaakt(eventId, date, time, title, btn) {
+      const token = document.getElementById('githubToken').value.trim();
+      if (!token) {
+        btn.textContent = '⚠ Token nodig';
+        return;
+      }
+      btn.disabled = true;
+      btn.textContent = 'Opslaan…';
+      try {
+        const resp = await fetch(`https://api.github.com/gists/${currentGistId}`, {
+          headers: { Authorization: `token ${token}` },
+        });
+        if (!resp.ok) throw new Error(`GitHub API ${resp.status}`);
+        const gist = await resp.json();
+        const stateRaw = gist.files['sportbit_state.json']?.content;
+        if (!stateRaw) throw new Error('sportbit_state.json niet gevonden');
+        const state = JSON.parse(stateRaw);
+
+        // Move event from cancelled back to signed_up
+        delete state.cancelled[eventId];
+        state.signed_up = state.signed_up || {};
+        state.signed_up[eventId] = {
+          date, time, title,
+          signed_up_at: new Date().toISOString(),
+        };
+
+        const patch = await fetch(`https://api.github.com/gists/${currentGistId}`, {
+          method: 'PATCH',
+          headers: { Authorization: `token ${token}`, 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            files: { 'sportbit_state.json': { content: JSON.stringify(state, null, 2) } }
+          }),
+        });
+        if (!patch.ok) throw new Error(`Opslaan mislukt ${patch.status}`);
+
+        btn.textContent = '✓ Hersteld';
+        btn.closest('.card').style.opacity = '0.4';
+      } catch(e) {
+        btn.disabled = false;
+        btn.textContent = `❌ ${e.message}`;
+      }
+    }
+
     function renderWodSections(wods, date) {
       const sections = wods.map(w => {
         const desc = stripHtml(w.description || '').trim();
@@ -1843,7 +1893,7 @@
         const state = JSON.parse(stateFile.content);
         // Include event_id in each item so the "Niet gedaan" button can patch the state
         const signedUp = Object.entries(state.signed_up || {}).map(([id, info]) => ({...info, event_id: id}));
-        const cancelled = Object.values(state.cancelled || {});
+        const cancelled = Object.entries(state.cancelled || {}).map(([id, info]) => ({...info, event_id: id}));
 
         signedUp.sort((a, b) => a.date.localeCompare(b.date));
         cancelled.sort((a, b) => b.date.localeCompare(a.date));
