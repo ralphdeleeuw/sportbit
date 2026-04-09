@@ -228,36 +228,42 @@ def fetch_withings_data(max_measurements: int = 30) -> dict | None:
         log.warning("Withings getmeas fout: %s", exc)
         return None
 
-    # ── 3. Verwerk metingen per groep (datum + tijdstip) ─────────────────
+    # ── 3. Verwerk metingen — samenvoegen per dag ────────────────────────
+    # Withings levert elke meting-sessie (weging, Body Scan, etc.) als
+    # aparte measuregrp. We voegen alle sessies van dezelfde dag samen zodat
+    # PWV en zenuwgezondheid (Body Scan) gecombineerd worden met de weging.
     measuregrps = body.get("body", {}).get("measuregrps", [])
-    measurements: list[dict] = []
+    by_date: dict[str, dict] = {}
 
-    for grp in sorted(measuregrps, key=lambda g: g.get("date", 0), reverse=True)[:max_measurements]:
+    for grp in sorted(measuregrps, key=lambda g: g.get("date", 0), reverse=True):
         date_str = datetime.fromtimestamp(grp["date"], tz=timezone.utc).strftime("%Y-%m-%d")
-        values: dict = {}
+        if date_str not in by_date:
+            by_date[date_str] = {"date": date_str}
+        entry = by_date[date_str]
         for m in grp.get("measures", []):
             # Withings stores value as integer + unit exponent: actual = value * 10^unit
             actual = m["value"] * (10 ** m["unit"])
             mtype = m["type"]
-            if mtype == _MEASTYPE_WEIGHT:
-                values["weight_kg"] = round(actual, 2)
-            elif mtype == _MEASTYPE_FAT_RATIO:
-                values["fat_pct"] = round(actual, 1)
-            elif mtype == _MEASTYPE_MUSCLE_MASS:
-                values["muscle_kg"] = round(actual, 1)
-            elif mtype == _MEASTYPE_HYDRATION:
-                values["hydration_kg"] = round(actual, 1)
-            elif mtype == _MEASTYPE_BONE_MASS:
-                values["bone_kg"] = round(actual, 2)
-            elif mtype == _MEASTYPE_PWV:
-                values["pwv_ms"] = round(actual, 1)
-            elif mtype == _MEASTYPE_NERVE_HEALTH:
-                values["nerve_health"] = round(actual, 0)
-            elif mtype == _MEASTYPE_VISCERAL_FAT:
-                values["visceral_fat"] = round(actual, 1)
-        if values:
-            values["date"] = date_str
-            measurements.append(values)
+            # Eerste (meest recente sessie van die dag) waarde wint
+            if mtype == _MEASTYPE_WEIGHT and "weight_kg" not in entry:
+                entry["weight_kg"] = round(actual, 2)
+            elif mtype == _MEASTYPE_FAT_RATIO and "fat_pct" not in entry:
+                entry["fat_pct"] = round(actual, 1)
+            elif mtype == _MEASTYPE_MUSCLE_MASS and "muscle_kg" not in entry:
+                entry["muscle_kg"] = round(actual, 1)
+            elif mtype == _MEASTYPE_HYDRATION and "hydration_kg" not in entry:
+                entry["hydration_kg"] = round(actual, 1)
+            elif mtype == _MEASTYPE_BONE_MASS and "bone_kg" not in entry:
+                entry["bone_kg"] = round(actual, 2)
+            elif mtype == _MEASTYPE_PWV and "pwv_ms" not in entry:
+                entry["pwv_ms"] = round(actual, 1)
+            elif mtype == _MEASTYPE_NERVE_HEALTH and "nerve_health" not in entry:
+                entry["nerve_health"] = round(actual, 0)
+            elif mtype == _MEASTYPE_VISCERAL_FAT and "visceral_fat" not in entry:
+                entry["visceral_fat"] = round(actual, 1)
+
+    # Sorteer op datum (nieuwste eerst), maximaal max_measurements dagen
+    measurements = sorted(by_date.values(), key=lambda x: x["date"], reverse=True)[:max_measurements]
 
     log.info("Withings: %d metingen opgehaald", len(measurements))
     return {

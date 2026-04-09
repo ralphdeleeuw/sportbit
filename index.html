@@ -2412,6 +2412,8 @@
           if (latest.fat_pct != null)      p.push(`Vet <strong>${latest.fat_pct}%</strong>`);
           if (latest.muscle_kg != null)    p.push(`Spier <strong>${latest.muscle_kg}kg</strong>`);
           if (latest.visceral_fat != null) p.push(`Visceraal <strong>${latest.visceral_fat}</strong>`);
+          if (latest.pwv_ms != null)       p.push(`PWV <strong>${latest.pwv_ms}m/s</strong>`);
+          if (latest.nerve_health != null) p.push(`Zenuw <strong>${latest.nerve_health}/100</strong>`);
           bodyRow = `<div class="recovery-data-row"><span class="rec-source">Withings ${dateLabel}</span>${p.join(' · ')}</div>`;
         }
       }
