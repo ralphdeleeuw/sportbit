@@ -142,7 +142,10 @@ def fetch_intervals_data() -> dict | None:
             if atl is not None:
                 entry["atl"] = round(float(atl), 1)
 
+            # TSB: intervals.icu retourneert dit niet altijd — fallback: ctl - atl
             tsb = w.get("tsb")
+            if tsb is None and ctl is not None and atl is not None:
+                tsb = float(ctl) - float(atl)
             if tsb is not None:
                 entry["tsb"] = round(float(tsb), 1)
 
@@ -150,7 +153,8 @@ def fetch_intervals_data() -> dict | None:
             if weight is not None and weight > 0:
                 entry["weight_kg"] = round(float(weight), 1)
 
-            spo2 = w.get("spO2")
+            # SpO₂: intervals.icu gebruikt 'spO2' (camelCase) of 'spo2' (lowercase)
+            spo2 = w.get("spO2") if w.get("spO2") is not None else w.get("spo2")
             if spo2 is not None and spo2 > 0:
                 entry["spo2"] = round(float(spo2), 1)
 
