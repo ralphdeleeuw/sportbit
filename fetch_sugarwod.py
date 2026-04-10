@@ -1617,6 +1617,20 @@ def _training_time_context(date_str: str, signed_up_times: dict[str, str] | None
     return f"\nTrainingstijdstip: {time_str}. {meal_relation}"
 
 
+_NL_WEEKDAYS = ["maandag", "dinsdag", "woensdag", "donderdag", "vrijdag", "zaterdag", "zondag"]
+_NL_MONTHS = ["januari", "februari", "maart", "april", "mei", "juni",
+               "juli", "augustus", "september", "oktober", "november", "december"]
+
+
+def _nl_date(date_str: str) -> str:
+    """Format an ISO date string as 'weekdag D maand' in Dutch, e.g. 'zondag 12 april'."""
+    try:
+        d = date_cls.fromisoformat(date_str)
+        return f"{_NL_WEEKDAYS[d.weekday()]} {d.day} {_NL_MONTHS[d.month - 1]}"
+    except Exception:
+        return date_str
+
+
 def _compute_acwr(strava_data: dict | None) -> dict | None:
     """Compute a 7:14 Acute:Chronic Workload Ratio from Strava suffer scores.
 
@@ -2105,7 +2119,7 @@ def generate_recovery_advice(
         if recent_pe:
             lines = ["Recente persoonlijke activiteiten (extra trainingsbelasting buiten de box):"]
             for e in reversed(recent_pe):
-                line = f"  {e['date']}: {e['title']}"
+                line = f"  {_nl_date(e['date'])}: {e['title']}"
                 if e.get("time"):
                     line += f" om {e['time']}"
                 if e.get("location"):
@@ -2117,7 +2131,7 @@ def generate_recovery_advice(
         if upcoming_pe:
             lines = [f"Aankomende persoonlijke activiteiten (gepland, datum NA vandaag {today_iso}):"]
             for e in upcoming_pe:
-                line = f"  {e['date']}: {e['title']}"
+                line = f"  {_nl_date(e['date'])}: {e['title']}"
                 if e.get("time"):
                     line += f" om {e['time']}"
                 if e.get("location"):
@@ -2854,9 +2868,9 @@ def main() -> int:
         withings_data = cached_gist.get("withings_data")
         log.info("SugarWOD modus: gecachte health data (Strava/Intervals/Withings) geladen uit Gist")
 
-    # Lees subjectieve hersteldata (slaap/energie/spierpijn/stress) uit de gist.
-    # De atleet vult dit in via het dashboard vóór de dagelijkse workflow draait.
-    health_input, health_history = load_health_input(gist_id, token)
+    # Subjectieve hersteldata (sliders) is verwijderd uit de UI — niet meer gebruiken.
+    health_input: dict | None = None
+    health_history: list[dict] = []
 
     # Generate daily recovery advice.
     # Priority for "which days did the athlete actually train":
