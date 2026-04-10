@@ -1986,6 +1986,26 @@ def generate_recovery_advice(
                     g_lines.append(f"- Trainingsvorm (TSB): {tsb:+.0f} ({tsb_label}) — fitness {ctl:.0f}, vermoeidheid {atl:.0f}")
                 else:
                     g_lines.append(f"- Fitness (CTL): {ctl:.0f}, vermoeidheid (ATL): {atl:.0f}")
+            if garmin_entry.get("steps") is not None:
+                g_lines.append(f"- Stappen: {garmin_entry['steps']:,}")
+            if garmin_entry.get("vo2max") is not None:
+                g_lines.append(f"- VO2max: {garmin_entry['vo2max']:.1f}")
+            if garmin_entry.get("spo2") is not None:
+                g_lines.append(f"- SpO₂: {garmin_entry['spo2']:.1f}%")
+            # Subjectieve metrics (1-5 schaal)
+            subj = []
+            if garmin_entry.get("soreness") is not None:
+                subj.append(f"spierpijn {garmin_entry['soreness']}/5")
+            if garmin_entry.get("fatigue") is not None:
+                subj.append(f"vermoeidheid {garmin_entry['fatigue']}/5")
+            if garmin_entry.get("stress") is not None:
+                subj.append(f"stress {garmin_entry['stress']}/5")
+            if garmin_entry.get("mood") is not None:
+                subj.append(f"stemming {garmin_entry['mood']}/5")
+            if garmin_entry.get("motivation") is not None:
+                subj.append(f"motivatie {garmin_entry['motivation']}/5")
+            if subj:
+                g_lines.append(f"- Subjectief: {', '.join(subj)}")
             if g_lines:
                 garmin_block = "\nGarmin hersteldata (via intervals.icu):\n" + "\n".join(g_lines) + "\n"
 
@@ -2278,6 +2298,20 @@ def generate_workout_plans(
                 _gp.append(f"HRV {_ge['hrv']:.0f}ms")
             if _ge.get("tsb") is not None:
                 _gp.append(f"TSB {_ge['tsb']:+.0f}")
+            if _ge.get("sleep_hrs") is not None:
+                _gp.append(f"slaap {_ge['sleep_hrs']:.1f}u")
+            if _ge.get("sleep_score") is not None:
+                _gp.append(f"slaapscore {_ge['sleep_score']}/100")
+            if _ge.get("steps") is not None:
+                _gp.append(f"stappen {_ge['steps']:,}")
+            if _ge.get("vo2max") is not None:
+                _gp.append(f"VO2max {_ge['vo2max']:.1f}")
+            if _ge.get("spo2") is not None:
+                _gp.append(f"SpO₂ {_ge['spo2']:.1f}%")
+            for _field, _label in [("soreness", "spierpijn"), ("fatigue", "vermoeidheid"),
+                                    ("stress", "stress"), ("mood", "stemming"), ("motivation", "motivatie")]:
+                if _ge.get(_field) is not None:
+                    _gp.append(f"{_label} {_ge[_field]}/5")
             if _gp:
                 recovery_status_text += "Garmin: " + ", ".join(_gp) + "\n"
     acwr = _compute_acwr(strava_data)
