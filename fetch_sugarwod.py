@@ -818,47 +818,7 @@ def fetch_all_workouts_playwright(
                     browser.close()
                     return None
 
-            # ── 2. Load the workouts page once to get CSRF token + trackId ───
-            # The SPA ignores the ?week= URL param and always loads the current
-            # week. Instead of fighting the router, we load once to grab the
-            # browser credentials (CSRF token, trackId, session cookies), then
-            # call /api/workouts directly for each requested week.
-            first_week_str = weeks[0].strftime("%Y%m%d")
-            captured.clear()
-            log.info("[browser] Loading workouts page to capture credentials")
-            page.goto(
-                f"{SUGARWOD_BASE}/workouts?week={first_week_str}&track=workout-of-the-day",
-                wait_until="networkidle",
-                timeout=30000,
-            )
-            log.info("[browser] Captured %d JSON responses", len(captured))
-
-            # Extract CSRF token and trackId from the intercepted /api/workouts URL
-            from urllib.parse import urlparse, parse_qs
-            api_csrf: str | None = None
-            track_id: str | None = None
-            for item in captured:
-                if "/api/workouts" in item["url"] and "week=" in item["url"]:
-                    p = parse_qs(urlparse(item["url"]).query)
-                    api_csrf = p.get("_csrf", [None])[0]
-                    track_id = p.get("trackId", [None])[0]
-                    log.info("[browser] Extracted _csrf=%s… trackId=%s",
-                             api_csrf[:10] if api_csrf else "none", track_id)
-                    break
-
-            if not api_csrf or not track_id:
-                log.warning("[browser] Could not extract CSRF/trackId from browser")
-                browser.close()
-                return None
-
-            # Capture session cookies from the browser context
-            browser_cookies = {
-                c["name"]: c["value"] for c in context.cookies()
-                if "sugarwod.com" in c.get("domain", "")
-            }
-            log.info("[browser] Captured %d session cookies", len(browser_cookies))
-
-            # ── 3. Scrape barbell lifts ───────────────────────────────────────
+            # ── 2. Scrape barbell lifts ───────────────────────────────────────
             barbell_lifts: dict = {}
             log.info("[browser] Navigating to barbell lifts page")
             captured.clear()
@@ -1114,55 +1074,61 @@ def fetch_all_workouts_playwright(
                 except Exception as exc:
                     log.warning("[browser] Could not save debug HTML: %s", exc)
 
-            browser.close()
-
-            # ── 3. Direct API calls for each week ────────────────────────────
-            # Now that we have valid credentials, use requests for each week so
-            # we control the ?week= parameter precisely.
-            api_session = requests.Session()
-            api_session.headers.update({
-                "User-Agent": (
-                    "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 "
-                    "(KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36"
-                ),
-                "Accept": "application/json",
-                "X-Requested-With": "XMLHttpRequest",
-                "Referer": f"{SUGARWOD_BASE}/workouts",
-            })
-            requests.utils.add_dict_to_cookiejar(api_session.cookies, browser_cookies)
-
+            # ── 3. Fetch workouts for each week via browser navigation ────────
+            # Navigate the browser to each week's workouts page and extract
+            # workout data directly from captured XHR responses.  This is more
+            # robust than a separate HTTP API call because the browser handles
+            # all authentication (cookies, CSRF, trackId) automatically,
+            # regardless of how SugarWOD's API internals change over time.
             for monday in weeks:
                 week_str = monday.strftime("%Y%m%d")
-                ts = str(int(time.time() * 1000))
-                log.info("[browser→http] Fetching week %s via /api/workouts", week_str)
+                captured.clear()
+                log.info("[browser] Fetching workouts for week %s", week_str)
                 try:
-                    resp = api_session.get(
-                        f"{SUGARWOD_BASE}/api/workouts",
-                        params={
-                            "week": week_str,
-                            "track": "workout-of-the-day",
-                            "trackId": track_id,
-                            "_csrf": api_csrf,
-                            "_": ts,
-                        },
-                        timeout=30,
+                    page.goto(
+                        f"{SUGARWOD_BASE}/workouts?week={week_str}&track=workout-of-the-day",
+                        wait_until="networkidle",
+                        timeout=30000,
                     )
-                    log.info("  → HTTP %d | %s", resp.status_code, resp.text[:500])
-                    if resp.status_code == 200:
-                        data = resp.json()
-                        results = data.get("data") or data.get("workouts") or []
-                        if results:
-                            log.info("  Got %d workouts for week %s",
-                                     len(results), week_str)
-                            # Log first item in full so we can see the exact field names
-                            log.info("  First item keys/values: %s",
-                                     json.dumps(results[0], default=str)[:1000])
-                            all_workouts.extend(_parse_parse_workouts(results, week_str))
+                    log.info("[browser] Week %s: %d XHR responses captured",
+                             week_str, len(captured))
+                    found = False
+                    for item in captured:
+                        data = item["data"]
+                        results = (
+                            (data.get("data") or data.get("workouts") or data.get("results"))
+                            if isinstance(data, dict)
+                            else (data if isinstance(data, list) else None)
+                        )
+                        if not results or not isinstance(results, list):
+                            continue
+                        sample = results[0] if results else {}
+                        if not isinstance(sample, dict):
+                            continue
+                        if any(k in sample for k in (
+                            "scheduledDateInteger", "scheduledDate", "title", "name"
+                        )):
+                            parsed = _parse_parse_workouts(results, week_str)
+                            if parsed:
+                                all_workouts.extend(parsed)
+                                log.info("[browser] Week %s: %d workout(s) from XHR (%s)",
+                                         week_str, len(parsed), item["url"])
+                                found = True
+                                break
+                    if not found:
+                        # Fallback: try to parse workout data from the page HTML
+                        html_workouts = _parse_workouts_html(page.content(), monday)
+                        if html_workouts:
+                            all_workouts.extend(html_workouts)
+                            log.info("[browser] Week %s: %d workout(s) from HTML",
+                                     week_str, len(html_workouts))
                         else:
-                            log.info("  No workouts for week %s (not programmed yet?)",
-                                     week_str)
+                            log.info("[browser] Week %s: no workouts found "
+                                     "(may not be programmed yet)", week_str)
                 except Exception as exc:
-                    log.warning("  Error fetching week %s: %s", week_str, exc)
+                    log.warning("[browser] Week %s: navigation failed: %s", week_str, exc)
+
+            browser.close()
 
     except Exception as exc:
         log.warning("Playwright error: %s", exc)
@@ -2742,12 +2708,12 @@ def main() -> int:
     next_monday = this_monday + timedelta(weeks=1)
     # Always fetch the past 4 weeks so the recovery coach has real WOD descriptions
     # for attended dates instead of falling back on empty "CrossFit WOD" entries.
-    weeks = [this_monday - timedelta(weeks=i) for i in range(3, 0, -1)] + [this_monday]
-    # Include next week only from Sunday onwards — coaches typically publish
-    # next week's programming on Sunday.
-    if now.weekday() == 6:  # 6 = Sunday
-        weeks.append(next_monday)
-        log.info("Sunday: also fetching next week (%s)", next_monday.strftime("%Y%m%d"))
+    # Always include next week: auto-signup looks 8 days ahead, so upcoming
+    # class signups can span into next week on any day of the week.  Without
+    # next week's workouts in by_date, those cards would show no WOD info.
+    weeks = [this_monday - timedelta(weeks=i) for i in range(3, 0, -1)] + [this_monday, next_monday]
+    log.info("Fetching %d weeks: %s … %s",
+             len(weeks), weeks[0].strftime("%Y%m%d"), weeks[-1].strftime("%Y%m%d"))
 
     # Load Gist cache once — used by both modes to avoid duplicate API calls.
     prev_coach_ctx: dict = {"barbell_lifts_history": [], "recovery_advice_history": []}
