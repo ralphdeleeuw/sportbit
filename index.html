@@ -2306,11 +2306,18 @@
           { label: 'RHR bpm',  key: 'resting_hr' },
           { label: 'Slaap u',  get: r => r.sleep_hrs != null ? r.sleep_hrs.toFixed(1) : null },
           { label: 'Slaapscore', key: 'sleep_score' },
-          { label: 'SpO₂ %',  key: 'spo2' },
-          { label: 'CTL',      get: r => r.ctl != null ? Math.round(r.ctl) : null },
-          { label: 'ATL',      get: r => r.atl != null ? Math.round(r.atl) : null },
-          { label: 'TSB',      get: r => r.tsb != null ? Math.round(r.tsb) : null },
-          { label: 'Gewicht',  key: 'weight_kg' },
+          { label: 'SpO₂ %',    key: 'spo2' },
+          { label: 'CTL',        get: r => r.ctl != null ? Math.round(r.ctl) : null },
+          { label: 'ATL',        get: r => r.atl != null ? Math.round(r.atl) : null },
+          { label: 'TSB',        get: r => r.tsb != null ? Math.round(r.tsb) : null },
+          { label: 'Gewicht',    key: 'weight_kg' },
+          { label: 'Stappen',    key: 'steps' },
+          { label: 'VO2max',     key: 'vo2max' },
+          { label: 'Spierpijn',  key: 'soreness' },
+          { label: 'Vermoeid',   key: 'fatigue' },
+          { label: 'Stress',     key: 'stress' },
+          { label: 'Stemming',   key: 'mood' },
+          { label: 'Motivatie',  key: 'motivation' },
         ];
         rows.push(`<div class="ds-section-title">Intervals.icu — Wellness (laatste 14 dagen)</div>${makeTable(records, cols)}`);
       }

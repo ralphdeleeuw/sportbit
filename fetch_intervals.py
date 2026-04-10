@@ -158,6 +158,20 @@ def fetch_intervals_data() -> dict | None:
             if spo2 is not None and spo2 > 0:
                 entry["spo2"] = round(float(spo2), 1)
 
+            steps = w.get("steps")
+            if steps is not None and steps > 0:
+                entry["steps"] = int(steps)
+
+            vo2max = w.get("vo2max")
+            if vo2max is not None and vo2max > 0:
+                entry["vo2max"] = round(float(vo2max), 1)
+
+            # Subjectieve metrics (schaal 1-5 in intervals.icu)
+            for field in ("soreness", "fatigue", "stress", "mood", "motivation"):
+                val = w.get(field)
+                if val is not None:
+                    entry[field] = int(val)
+
             if entry:
                 result["wellness"]["by_date"][day] = entry
 
