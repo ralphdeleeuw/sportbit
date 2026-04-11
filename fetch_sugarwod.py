@@ -22,6 +22,7 @@ import json
 import logging
 import os
 import time
+import urllib.parse
 from datetime import date as date_cls, datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
 
@@ -1074,61 +1075,124 @@ def fetch_all_workouts_playwright(
                 except Exception as exc:
                     log.warning("[browser] Could not save debug HTML: %s", exc)
 
-            # ── 3. Fetch workouts for each week via browser navigation ────────
-            # Navigate the browser to each week's workouts page and extract
-            # workout data directly from captured XHR responses.  This is more
-            # robust than a separate HTTP API call because the browser handles
-            # all authentication (cookies, CSRF, trackId) automatically,
-            # regardless of how SugarWOD's API internals change over time.
+            # ── 3. Fetch workouts via HTTP using browser session cookies ──────
+            # Navigate to /workouts once to ensure the browser has loaded the
+            # workout page and fired the /api/workouts XHR (which embeds the
+            # CSRF token + trackId in its URL parameters).  Then close the
+            # browser and make direct HTTP requests for each week.  This
+            # approach is more reliable than staying in the browser because
+            # React's in-memory cache can suppress repeated XHR calls when
+            # navigating between week params within the same session.
+
+            # Load /workouts so the /api/workouts XHR fires and we can capture
+            # the CSRF token and trackId before closing the browser.
+            captured.clear()
+            log.info("[browser] Loading /workouts to capture auth tokens")
+            try:
+                page.goto(
+                    f"{SUGARWOD_BASE}/workouts",
+                    wait_until="networkidle",
+                    timeout=30000,
+                )
+                log.info("[browser] /workouts: %d XHR responses captured",
+                         len(captured))
+            except Exception as exc:
+                log.warning("[browser] /workouts navigation failed: %s", exc)
+
+            # Capture session cookies before closing the browser
+            browser_cookies = {
+                c["name"]: c["value"] for c in context.cookies()
+                if "sugarwod.com" in c.get("domain", "")
+            }
+            log.info("[browser] Captured %d session cookies", len(browser_cookies))
+
+            # Try to extract CSRF and trackId from the /api/workouts XHR URL
+            api_csrf: str | None = None
+            track_id: str | None = None
+            for item in list(captured) + _barbell_page_captured:
+                url = item["url"]
+                if "/api/workouts" in url:
+                    p = dict(urllib.parse.parse_qs(urllib.parse.urlparse(url).query))
+                    if not api_csrf:
+                        api_csrf = p.get("_csrf", [None])[0]
+                    if not track_id:
+                        track_id = p.get("trackId", [None])[0]
+                    if api_csrf:
+                        log.info("[browser] Extracted _csrf=…%s trackId=%s",
+                                 api_csrf[-6:] if api_csrf else "none", track_id)
+                        break
+
+            # Fallback: get CSRF from a cookie (SugarWOD sets _csrf as a cookie)
+            if not api_csrf:
+                api_csrf = browser_cookies.get("_csrf") or browser_cookies.get("XSRF-TOKEN")
+                if api_csrf:
+                    log.info("[browser] CSRF token from cookie")
+
+            log.info("[browser] CSRF: %s, trackId: %s",
+                     (api_csrf[:10] + "…" if api_csrf else "none"), track_id)
+            browser.close()
+
+            # Set up HTTP session with browser cookies
+            api_session = requests.Session()
+            api_session.headers.update({
+                "User-Agent": (
+                    "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 "
+                    "(KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36"
+                ),
+                "Accept": "application/json",
+                "X-Requested-With": "XMLHttpRequest",
+                "Referer": f"{SUGARWOD_BASE}/workouts",
+            })
+            requests.utils.add_dict_to_cookiejar(api_session.cookies, browser_cookies)
+
             for monday in weeks:
                 week_str = monday.strftime("%Y%m%d")
-                captured.clear()
-                log.info("[browser] Fetching workouts for week %s", week_str)
+                ts = str(int(time.time() * 1000))
+                params: dict = {
+                    "week": week_str,
+                    "track": "workout-of-the-day",
+                    "_": ts,
+                }
+                if api_csrf:
+                    params["_csrf"] = api_csrf
+                if track_id:
+                    params["trackId"] = track_id
+                log.info("[http] Fetching workouts week %s", week_str)
                 try:
-                    page.goto(
-                        f"{SUGARWOD_BASE}/workouts?week={week_str}&track=workout-of-the-day",
-                        wait_until="networkidle",
-                        timeout=30000,
+                    resp = api_session.get(
+                        f"{SUGARWOD_BASE}/api/workouts",
+                        params=params,
+                        timeout=30,
                     )
-                    log.info("[browser] Week %s: %d XHR responses captured",
-                             week_str, len(captured))
-                    found = False
-                    for item in captured:
-                        data = item["data"]
+                    log.info("[http] Week %s: HTTP %d | %s",
+                             week_str, resp.status_code, resp.text[:400])
+                    if resp.status_code == 200:
+                        data = resp.json()
                         results = (
-                            (data.get("data") or data.get("workouts") or data.get("results"))
-                            if isinstance(data, dict)
-                            else (data if isinstance(data, list) else None)
+                            data.get("data") or data.get("workouts")
+                            or data.get("results") or []
                         )
-                        if not results or not isinstance(results, list):
-                            continue
-                        sample = results[0] if results else {}
-                        if not isinstance(sample, dict):
-                            continue
-                        if any(k in sample for k in (
-                            "scheduledDateInteger", "scheduledDate", "title", "name"
-                        )):
+                        if isinstance(results, list) and results:
+                            log.info("[http] Week %s: first item keys: %s",
+                                     week_str,
+                                     list(results[0].keys())
+                                     if isinstance(results[0], dict) else type(results[0]))
                             parsed = _parse_parse_workouts(results, week_str)
                             if parsed:
                                 all_workouts.extend(parsed)
-                                log.info("[browser] Week %s: %d workout(s) from XHR (%s)",
-                                         week_str, len(parsed), item["url"])
-                                found = True
-                                break
-                    if not found:
-                        # Fallback: try to parse workout data from the page HTML
-                        html_workouts = _parse_workouts_html(page.content(), monday)
-                        if html_workouts:
-                            all_workouts.extend(html_workouts)
-                            log.info("[browser] Week %s: %d workout(s) from HTML",
-                                     week_str, len(html_workouts))
+                                log.info("[http] Week %s: %d workout(s) added",
+                                         week_str, len(parsed))
+                            else:
+                                log.info("[http] Week %s: 0 workouts parsed from %d results",
+                                         week_str, len(results))
                         else:
-                            log.info("[browser] Week %s: no workouts found "
-                                     "(may not be programmed yet)", week_str)
+                            log.info("[http] Week %s: no workouts in response",
+                                     week_str)
+                    else:
+                        log.warning("[http] Week %s: HTTP %d — %s",
+                                    week_str, resp.status_code, resp.text[:200])
                 except Exception as exc:
-                    log.warning("[browser] Week %s: navigation failed: %s", week_str, exc)
-
-            browser.close()
+                    log.warning("[http] Week %s failed: %s", week_str, exc)
 
     except Exception as exc:
         log.warning("Playwright error: %s", exc)
