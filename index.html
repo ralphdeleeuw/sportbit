@@ -534,6 +534,62 @@
       font-weight: 600;
     }
 
+    /* Runna hardlopen */
+    .runna-block {
+      margin-top: 0.85rem;
+      padding: 0.65rem 0.9rem;
+      background: #051a0d;
+      border: 1px solid #0d3a1a;
+      border-radius: 8px;
+    }
+
+    .runna-block-label {
+      font-size: 0.67rem;
+      letter-spacing: 0.16em;
+      text-transform: uppercase;
+      color: #00c853;
+      font-weight: 600;
+      margin-bottom: 0.35rem;
+    }
+
+    .runna-plan-badge {
+      display: inline-block;
+      font-size: 0.65rem;
+      font-weight: 700;
+      letter-spacing: 0.04em;
+      padding: 0.1rem 0.45rem;
+      border-radius: 4px;
+      background: #00c853;
+      color: #000;
+      margin-left: 0.5rem;
+      vertical-align: middle;
+    }
+
+    .runna-run-item {
+      display: flex;
+      justify-content: space-between;
+      align-items: baseline;
+      padding: 0.35rem 0;
+      border-bottom: 1px solid #0d2a15;
+      font-size: 0.82rem;
+      color: #a0c8a8;
+      gap: 0.5rem;
+    }
+
+    .runna-run-item:last-child { border-bottom: none; }
+
+    .runna-run-title {
+      flex: 1;
+      font-weight: 500;
+      color: #c8e8d0;
+    }
+
+    .runna-run-meta {
+      font-size: 0.75rem;
+      color: #5a8a62;
+      white-space: nowrap;
+    }
+
     /* AI coaching plan */
     .coach-plan {
       margin-top: 0.85rem;
@@ -1381,6 +1437,7 @@
     let intervalsData = null;   // {wellness: {by_date: {...}}, activities: {by_date: {...}}, fetched_at}
     let withingsData = null;    // {measurements: [...], fetched_at}
     let environmentalData = null; // {training_conditions: {...}, aqi: {...}, fetched_at}
+    let runnaData = null;   // {training_plan, upcoming_sessions, recent_completed, fetched_at}
     let activeChartLift = null;
     let liftChart = null;
     let currentGistId = '';
@@ -1492,6 +1549,12 @@
         } catch(e) { personalEvents = []; }
       } else {
         personalEvents = [];
+      }
+
+      // runna_data.json
+      const runnaFile = files['runna_data.json'];
+      if (runnaFile) {
+        try { runnaData = JSON.parse(runnaFile.content); } catch(e) {}
       }
     }
 
@@ -1805,6 +1868,66 @@
       }).join('');
     }
 
+    function renderRunnaSection() {
+      if (!runnaData || runnaData.error) return '';
+
+      const plan = runnaData.training_plan || {};
+      const upcoming = (runnaData.upcoming_sessions || []).slice(0, 7);
+      const completed = (runnaData.recent_completed || []).slice(0, 7);
+      if (!plan.name && upcoming.length === 0 && completed.length === 0) return '';
+
+      // Trainingsplan-header
+      let planHtml = '';
+      if (plan.name) {
+        const weekBadge = plan.current_week && plan.total_weeks
+          ? `<span class="runna-plan-badge">Week ${plan.current_week}/${plan.total_weeks}</span>` : '';
+        planHtml = `<div class="runna-block">
+          <div class="runna-block-label">Runna — Trainingsplan${weekBadge}</div>
+          <div style="font-size:0.88rem;color:#c8e8d0;font-weight:500">${escapeHtml(plan.name)}</div>
+          ${plan.goal ? `<div style="font-size:0.78rem;color:#5a8a62;margin-top:0.2rem">${escapeHtml(plan.goal)}</div>` : ''}
+          ${plan.phase ? `<div style="font-size:0.72rem;color:#3a6a42;margin-top:0.1rem">${escapeHtml(plan.phase)}</div>` : ''}
+        </div>`;
+      }
+
+      // Aankomende sessies
+      let upcomingHtml = '';
+      if (upcoming.length > 0) {
+        const rows = upcoming.map(s => {
+          const dist = s.distance_km ? `${s.distance_km}km` : '';
+          const dur  = s.duration_min ? `${s.duration_min}min` : '';
+          const meta = [formatDate(s.date), dist, dur].filter(Boolean).join(' · ');
+          return `<div class="runna-run-item">
+            <span class="runna-run-title">${escapeHtml(s.title || s.session_type || 'Run')}</span>
+            <span class="runna-run-meta">${escapeHtml(meta)}</span>
+          </div>`;
+        }).join('');
+        upcomingHtml = `<div class="runna-block" style="margin-top:0.6rem">
+          <div class="runna-block-label">Aankomende runs</div>
+          ${rows}
+        </div>`;
+      }
+
+      // Recent voltooide runs
+      let completedHtml = '';
+      if (completed.length > 0) {
+        const rows = completed.map(s => {
+          const dist = s.distance_km ? `${s.distance_km}km` : '';
+          const dur  = s.duration_min ? `${s.duration_min}min` : '';
+          const meta = [formatDate(s.date), dist, dur].filter(Boolean).join(' · ');
+          return `<div class="runna-run-item">
+            <span class="runna-run-title">${escapeHtml(s.title || 'Run')}</span>
+            <span class="runna-run-meta">${escapeHtml(meta)}</span>
+          </div>`;
+        }).join('');
+        completedHtml = `<div class="runna-block" style="margin-top:0.6rem">
+          <div class="runna-block-label">Recent gelopen</div>
+          ${rows}
+        </div>`;
+      }
+
+      return planHtml + upcomingHtml + completedHtml;
+    }
+
     function renderActivityCard(date, delay) {
       const acts = ((intervalsData?.activities || {}).by_date || {})[date] || [];
       const stravaActs = (stravaData?.activities_by_date || {})[date] || [];
@@ -2015,6 +2138,13 @@
         // Benchmark Workouts
         if (benchmarkWorkouts.length > 0) {
           html += `<div class="section-title collapsible" onclick="toggleSection(this)">Benchmark Workouts</div><div class="collapsible-body">` + renderBenchmarks(benchmarkWorkouts) + `</div>`;
+        }
+
+        // Runna hardlopen
+        const runnaHtml = renderRunnaSection();
+        if (runnaHtml) {
+          html += `<div class="section-title collapsible" onclick="toggleSection(this)">Runna Hardlopen</div>
+                   <div class="collapsible-body">${runnaHtml}</div>`;
         }
 
         // Data bronnen inspector
@@ -2381,6 +2511,23 @@
           { label: 'RPE',       key: 'perceived_exertion' },
         ];
         rows.push(`<div class="ds-section-title">Strava — Activiteiten</div>${makeTable(allActs, cols)}`);
+      }
+
+      // ── Runna sessies ──────────────────────────────────────────────
+      {
+        const allSessions = [
+          ...(runnaData?.upcoming_sessions || []),
+          ...(runnaData?.recent_completed || []),
+        ].sort((a, b) => b.date.localeCompare(a.date));
+        const cols = [
+          { label: 'Datum',    key: 'date' },
+          { label: 'Titel',    key: 'title' },
+          { label: 'Type',     key: 'session_type' },
+          { label: 'km',       key: 'distance_km' },
+          { label: 'min',      key: 'duration_min' },
+          { label: 'Gedaan',   get: r => r.completed ? 'ja' : 'nee' },
+        ];
+        rows.push(`<div class="ds-section-title">Runna — Sessies</div>${makeTable(allSessions, cols)}`);
       }
 
       return `<div class="section-title collapsible" onclick="toggleSection(this)">Data bronnen</div>
