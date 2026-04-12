@@ -608,9 +608,26 @@ def fetch_runna_data(
             if "runna" not in url.lower():
                 return
             data = response.json()
-            log.info("  [xhr] %s → %s", url, str(data)[:300])
-            captured.append({"url": url, "data": data})
-            debug_urls.append(url)
+
+            # Voeg operatienaam toe voor GraphQL-calls (staat in request POST-body)
+            op_name = ""
+            if "graphql" in url.lower():
+                try:
+                    post_raw = response.request.post_data
+                    if post_raw:
+                        body = json.loads(post_raw)
+                        op_name = body.get("operationName") or ""
+                        if not op_name:
+                            m = re.search(r'query\s+(\w+)', body.get("query", ""))
+                            if m:
+                                op_name = m.group(1)
+                except Exception:
+                    pass
+
+            url_label = f"{url}#{op_name}" if op_name else url
+            log.info("  [xhr] %s → %s", url_label, str(data)[:400])
+            captured.append({"url": url_label, "data": data})
+            debug_urls.append(url_label)
         except Exception:
             pass
 
@@ -854,9 +871,28 @@ def fetch_runna_data(
                     break
 
             # ── 11. Stel resultaat samen ──────────────────────────────────
+            # debug_captures: compacte samenvatting van elke onderschepte response
+            # zodat we kunnen zien welke GraphQL-operaties data retourneren.
+            debug_captures = []
+            for cap in all_captured:
+                op = cap["url"].split("#")[-1] if "#" in cap["url"] else ""
+                data_node = cap.get("data") or {}
+                top_keys = list(data_node.keys()) if isinstance(data_node, dict) else []
+                gql_keys: list[str] = []
+                gql_data = data_node.get("data") if isinstance(data_node, dict) else None
+                if isinstance(gql_data, dict):
+                    gql_keys = list(gql_data.keys())
+                debug_captures.append({
+                    "op": op,
+                    "url": cap["url"].split("?")[0],
+                    "top_keys": top_keys,
+                    "gql_keys": gql_keys,
+                })
+
             result: dict = {
                 "fetched_at": datetime.now(timezone.utc).isoformat(),
                 "debug_urls": debug_urls,
+                "debug_captures": debug_captures,
                 **debug_extra,
             }
             if raw_active_order is not None:
