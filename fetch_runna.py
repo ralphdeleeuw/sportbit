@@ -413,15 +413,24 @@ def _fetch_ical_sessions(
         summary     = str(component.get("SUMMARY", "Training")).strip()
         description = str(component.get("DESCRIPTION", "")).strip()
 
-        # Extraheer afstand en duur uit de beschrijving (Runna-formaat)
-        distance_km: float | None = None
-        duration_min: int | None  = None
+        # Runna zet de afstand al in de SUMMARY (bijv. "Walk Run • 3km").
+        # Strip dat suffix zodat het niet dubbel getoond wordt naast distance_km.
+        title = re.sub(r"\s*[•·]\s*\d+(?:[.,]\d+)?\s*km\s*$", "", summary,
+                       flags=re.IGNORECASE).strip()
 
-        m = re.search(r"(\d+(?:[.,]\d+)?)\s*km", description, re.IGNORECASE)
+        # Extraheer afstand uit SUMMARY (betrouwbaarder dan beschrijving)
+        distance_km: float | None = None
+        m = re.search(r"(\d+(?:[.,]\d+)?)\s*km", summary, re.IGNORECASE)
         if m:
             distance_km = float(m.group(1).replace(",", "."))
+        elif description:
+            m = re.search(r"(\d+(?:[.,]\d+)?)\s*km", description, re.IGNORECASE)
+            if m:
+                distance_km = float(m.group(1).replace(",", "."))
 
-        m = re.search(r"(\d+)\s*(?:min|minutes?)", description, re.IGNORECASE)
+        # Extraheer duur: minimaal 10 minuten om valse matches te vermijden
+        duration_min: int | None = None
+        m = re.search(r"\b([1-9]\d{1,2})\s*(?:min|minutes?)\b", description, re.IGNORECASE)
         if m:
             duration_min = int(m.group(1))
 
@@ -436,8 +445,8 @@ def _fetch_ical_sessions(
 
         session: dict = {
             "date":         session_date.isoformat(),
-            "title":        summary,
-            "session_type": _normalize_session_type(summary),
+            "title":        title,
+            "session_type": _normalize_session_type(title),
             "completed":    is_completed,
         }
         if distance_km is not None:
