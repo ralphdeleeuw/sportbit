@@ -29,14 +29,25 @@ GIST_FILENAME = "runna_data.json"
 # Pagina's om na login te bezoeken (triggert GraphQL-calls)
 # Gebruik "load" + wacht — niet "networkidle" (app blijft pollen)
 PAGES_TO_VISIT = [
+    ("/today",    "vandaag"),
     ("/plan",     "trainingsplan"),
     ("/schedule", "schema"),
+    ("/calendar", "kalender"),
     ("/history",  "geschiedenis"),
+    ("/runs",     "runs"),
 ]
+
+# Sleutels die wijzen op race-evenementen (niet op trainings-sessies)
+RACE_EVENT_INDICATORS = frozenset({
+    "noSponsorName", "imageUrl", "websiteUrl", "elevation",
+    "keywords", "weather", "bio", "endDate",
+})
 
 # GraphQL-queries om te proberen (schema is ongedocumenteerd — breed zoeken)
 # Elke query wordt geprobeerd; fouten worden genegeerd
 GRAPHQL_QUERIES = [
+    # ── Schema-introspectie (ontdek beschikbare types) ─────────────────────
+    ("__schema_types", """{ __schema { types { name } } }"""),
     # ── Trainingsplan via getActiveOrderDetails (bewezen werkend) ──────────
     ("getActiveOrderDetails", """query {
       getActiveOrderDetails {
@@ -51,28 +62,38 @@ GRAPHQL_QUERIES = [
         }
       }
     }"""),
-    # ── Alternatieve namen voor hetzelfde endpoint ─────────────────────────
-    ("getActivePlanWeeks", """query {
+    # ── Variant: planWeeks met sessies per week ────────────────────────────
+    ("getActiveOrderDetails_planWeeks", """query {
       getActiveOrderDetails {
+        customPlanName currentWeekNumber totalWeeks
         planV2 { id shortPlanName planLength }
-        currentWeekNumber
         planWeeks {
           weekNumber isCurrentWeek
           sessions {
             id scheduledDate title sessionType status
-            targetDistance targetDuration completed
+            targetDistance targetDuration completed description isRestDay
           }
         }
       }
     }"""),
-    # ── Schema / geplande sessies ──────────────────────────────────────────
+    # ── Huidig week-schema ─────────────────────────────────────────────────
+    ("getWeekSchedule",      """query { getWeekSchedule { id scheduledDate title sessionType status targetDistance targetDuration description isRestDay } }"""),
+    ("getCurrentWeekPlan",   """query { getCurrentWeekPlan { sessions { id scheduledDate title sessionType status targetDistance targetDuration description isRestDay } } }"""),
+    ("getSchedule",          """query { getSchedule { id scheduledDate title sessionType status targetDistance targetDuration isRestDay } }"""),
+    ("getPlanSchedule",      """query { getPlanSchedule { sessions { id scheduledDate title sessionType status targetDistance targetDuration description isRestDay } } }"""),
+    ("getUpcomingSessions",  """query { getUpcomingSessions { id scheduledDate title sessionType status targetDistance targetDuration description isRestDay } }"""),
+    ("getTodaySession",      """query { getTodaySession { id scheduledDate title sessionType status targetDistance targetDuration description } }"""),
+    ("getUserSessions",      """query { getUserSessions { id scheduledDate title sessionType status targetDistance targetDuration description isRestDay } }"""),
+    # ── Generieke schema / geplande sessies ───────────────────────────────
     ("sessions",     """query { sessions { id scheduledDate date title sessionType type status targetDistance targetDuration completed description isRestDay } }"""),
     ("weekSessions", """query { weekSessions { id scheduledDate date title sessionType type status targetDistance targetDuration completed isRestDay } }"""),
     ("schedule",     """query { schedule { sessions { id scheduledDate date title sessionType type status targetDistance targetDuration completed } } }"""),
     # ── Voltooide runs ─────────────────────────────────────────────────────
-    ("completedSessions", """query { completedSessions { id completedDate date title sessionType type actualDistance actualDuration } }"""),
-    ("completedRuns",     """query { completedRuns { id date completedDate title type distance duration completed } }"""),
-    ("activityHistory",   """query { activityHistory { id date completedDate title type distance duration } }"""),
+    ("getWorkoutHistory",  """query { getWorkoutHistory { id completedDate date title sessionType type actualDistance actualDuration description } }"""),
+    ("completedSessions",  """query { completedSessions { id completedDate date title sessionType type actualDistance actualDuration } }"""),
+    ("completedRuns",      """query { completedRuns { id date completedDate title type distance duration completed } }"""),
+    ("activityHistory",    """query { activityHistory { id date completedDate title type distance duration } }"""),
+    ("getRunHistory",      """query { getRunHistory { id completedDate title sessionType actualDistance actualDuration } }"""),
     # ── Overig ────────────────────────────────────────────────────────────
     ("userProfile",   """query { userProfile { id email firstName lastName } }"""),
 ]
@@ -234,6 +255,14 @@ def _extract_sessions_from_captures(
             has_date  = any(k in sample for k in date_keys)
             has_title = any(k in sample for k in title_keys)
             if not (has_date and has_title):
+                continue
+
+            # Sla race-evenement-arrays over (getTrendingRaceEvents e.d.)
+            if RACE_EVENT_INDICATORS & set(sample.keys()):
+                log.debug(
+                    "[extract] Race-evenement-array overgeslagen in %s — sample keys: %s",
+                    item["url"], list(sample.keys())[:12]
+                )
                 continue
 
             log.info(
@@ -405,7 +434,16 @@ def _run_graphql_queries(auth_headers: dict, captured: list[dict]) -> None:
                 log.debug("[graphql] %s → alleen errors: %s",
                           query_name, [e.get("message") for e in data["errors"]])
                 continue
-            log.info("[graphql] %s → %s", query_name, str(data)[:300])
+            # Speciale verwerking voor schema-introspectie
+            if query_name == "__schema_types":
+                types_data = (data.get("data") or {}).get("__schema", {}).get("types", [])
+                type_names = sorted(
+                    t["name"] for t in types_data
+                    if isinstance(t, dict) and not t.get("name", "").startswith("__")
+                )
+                log.info("[graphql] Schema-types (%d): %s", len(type_names), type_names[:60])
+            else:
+                log.info("[graphql] %s → %s", query_name, str(data)[:300])
             captured.append({"url": f"{GRAPHQL_URL}#{query_name}", "data": data})
         except Exception as exc:
             log.debug("[graphql] %s mislukt: %s", query_name, exc)
@@ -616,6 +654,18 @@ def fetch_runna_data(
                     "fetched_at": datetime.now(timezone.utc).isoformat(),
                 }
 
+            # ── 5b. Onboarding-redirect overslaan ────────────────────────
+            # Op de web-app kan het zijn dat de gebruiker in een onboarding-flow
+            # terechtkomt (/onboarding/...). We navigeren er direct doorheen.
+            if "/onboarding" in page.url:
+                log.info("[browser] Onboarding gedetecteerd (%s) — naar /today navigeren", page.url)
+                try:
+                    page.goto(f"{RUNNA_BASE}/today", wait_until="domcontentloaded", timeout=15000)
+                    page.wait_for_timeout(3000)
+                    log.info("[browser] Na onboarding-bypass — URL: %s", page.url)
+                except Exception as exc:
+                    log.warning("[browser] Onboarding-bypass mislukt: %s", exc)
+
             # ── 6. JWT-token extraheren ───────────────────────────────────
             auth_headers = _get_auth_headers(page)
 
@@ -648,7 +698,7 @@ def fetch_runna_data(
             upcoming, completed_runs = _extract_sessions_from_captures(all_captured)
 
             # ── 10. Debug: voeg raw sample toe als sessies leeg zijn ─────
-            if not upcoming and not completed:
+            if not upcoming and not completed_runs:
                 # Sla de eerste gevonden sessie-array op voor diagnose
                 for cap in all_captured:
                     arrays = _deep_find_arrays(cap["data"])
