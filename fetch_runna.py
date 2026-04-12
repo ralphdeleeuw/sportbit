@@ -46,8 +46,16 @@ RACE_EVENT_INDICATORS = frozenset({
 # GraphQL-queries om te proberen (schema is ongedocumenteerd — breed zoeken)
 # Elke query wordt geprobeerd; fouten worden genegeerd
 GRAPHQL_QUERIES = [
-    # ── Schema-introspectie (ontdek beschikbare types) ─────────────────────
-    ("__schema_types", """{ __schema { types { name } } }"""),
+    # ── Schema-introspectie (ontdek ALLE beschikbare queries) ─────────────
+    ("__schema_types",    """{ __schema { types { name } } }"""),
+    ("__fields_Query",    """{ __type(name: "Query") { fields { name type { name kind ofType { name kind } } } } }"""),
+    # ── Veld-introspectie voor sessie-gerelateerde types ───────────────────
+    ("__fields_ActiveOrderDetails", """{ __type(name: "ActiveOrderDetails") { fields { name type { name kind ofType { name kind } } } } }"""),
+    ("__fields_PlanSession",        """{ __type(name: "PlanSession") { fields { name type { name kind } } } }"""),
+    ("__fields_Session",            """{ __type(name: "Session") { fields { name type { name kind } } } }"""),
+    ("__fields_WeekSession",        """{ __type(name: "WeekSession") { fields { name type { name kind } } } }"""),
+    ("__fields_TrainingSession",    """{ __type(name: "TrainingSession") { fields { name type { name kind } } } }"""),
+    ("__fields_WorkoutSession",     """{ __type(name: "WorkoutSession") { fields { name type { name kind } } } }"""),
     # ── Trainingsplan via getActiveOrderDetails (bewezen werkend) ──────────
     ("getActiveOrderDetails", """query {
       getActiveOrderDetails {
@@ -408,45 +416,70 @@ def _get_auth_headers(page) -> dict | None:
     return None
 
 
-def _run_graphql_queries(auth_headers: dict, captured: list[dict]) -> None:
+def _run_graphql_in_browser(page, captured: list[dict]) -> None:
     """
-    Voer directe GraphQL-queries uit en voeg de resultaten toe aan `captured`.
+    Voer GraphQL-queries uit via page.evaluate(fetch(...)).
+    Voordeel: browser stuurt automatisch cookies mee, waardoor auth werkt
+    zonder het JWT-token handmatig te raden.
     """
-    headers = {
-        "Content-Type": "application/json",
-        "Accept": "application/json",
-        **auth_headers,
-    }
     for query_name, query in GRAPHQL_QUERIES:
         try:
-            resp = requests.post(
-                GRAPHQL_URL,
-                json={"query": query},
-                headers=headers,
-                timeout=15,
-            )
-            if resp.status_code != 200:
-                log.debug("[graphql] %s → HTTP %d", query_name, resp.status_code)
+            query_json = json.dumps(query)   # veilig escapen voor JS-inlining
+            data = page.evaluate(f"""
+                async () => {{
+                    try {{
+                        const resp = await fetch('{GRAPHQL_URL}', {{
+                            method: 'POST',
+                            headers: {{ 'Content-Type': 'application/json' }},
+                            credentials: 'include',
+                            body: JSON.stringify({{ query: {query_json} }})
+                        }});
+                        if (!resp.ok) return {{ _httpError: resp.status }};
+                        return await resp.json();
+                    }} catch (e) {{
+                        return {{ _fetchError: e.toString() }};
+                    }}
+                }}
+            """)
+            if not isinstance(data, dict):
                 continue
-            data = resp.json()
-            # Sla op als errors-only response
+            if data.get("_httpError"):
+                log.info("[browser-gql] %s → HTTP %s", query_name, data["_httpError"])
+                continue
+            if data.get("_fetchError"):
+                log.debug("[browser-gql] %s → fetch-fout: %s", query_name, data["_fetchError"])
+                continue
             if data.get("errors") and not data.get("data"):
-                log.debug("[graphql] %s → alleen errors: %s",
-                          query_name, [e.get("message") for e in data["errors"]])
+                err_msgs = [e.get("message", "") for e in data.get("errors", [])]
+                log.info("[browser-gql] %s → GraphQL errors: %s", query_name, err_msgs[:3])
                 continue
-            # Speciale verwerking voor schema-introspectie
+
+            # Speciale logging per type
             if query_name == "__schema_types":
-                types_data = (data.get("data") or {}).get("__schema", {}).get("types", [])
+                types_data = ((data.get("data") or {}).get("__schema") or {}).get("types", [])
                 type_names = sorted(
                     t["name"] for t in types_data
                     if isinstance(t, dict) and not t.get("name", "").startswith("__")
                 )
-                log.info("[graphql] Schema-types (%d): %s", len(type_names), type_names[:60])
+                log.info("[browser-gql] Schema-types (%d): %s", len(type_names), type_names)
+            elif query_name == "__fields_Query":
+                fields = ((data.get("data") or {}).get("__type") or {}).get("fields", []) or []
+                names = [f["name"] for f in fields]
+                log.info("[browser-gql] Query-velden (%d): %s", len(names), names)
+            elif query_name.startswith("__fields_"):
+                type_info = (data.get("data") or {}).get("__type")
+                if type_info:
+                    fields = [f["name"] for f in (type_info.get("fields") or [])]
+                    log.info("[browser-gql] %s velden: %s", query_name[10:], fields)
+                else:
+                    log.info("[browser-gql] %s → type niet gevonden in schema", query_name)
+                    continue  # niet opslaan als type niet bestaat
             else:
-                log.info("[graphql] %s → %s", query_name, str(data)[:300])
+                log.info("[browser-gql] %s → %s", query_name, str(data)[:800])
+
             captured.append({"url": f"{GRAPHQL_URL}#{query_name}", "data": data})
         except Exception as exc:
-            log.debug("[graphql] %s mislukt: %s", query_name, exc)
+            log.debug("[browser-gql] %s mislukt: %s", query_name, exc)
 
 
 # ── Gist opslaan ─────────────────────────────────────────────────────────────
@@ -666,8 +699,7 @@ def fetch_runna_data(
                 except Exception as exc:
                     log.warning("[browser] Onboarding-bypass mislukt: %s", exc)
 
-            # ── 6. JWT-token extraheren ───────────────────────────────────
-            auth_headers = _get_auth_headers(page)
+            # ── 6. (Gereserveerd voor toekomstige auth-logica) ────────────
 
             # ── 7. Bezoek pagina's om meer XHR/GraphQL te triggeren ───────
             all_captured: list[dict] = list(captured)
@@ -684,49 +716,56 @@ def fetch_runna_data(
                 except Exception as exc:
                     log.warning("[browser] Navigatie naar %s mislukt: %s", label, exc)
 
-            browser.close()
+            # ── 8. Browser-gebaseerde GraphQL-queries (cookies automatisch) ──
+            log.info("[browser-gql] Directe queries uitvoeren in browsercontext")
+            _run_graphql_in_browser(page, all_captured)
 
-            # ── 8. Directe GraphQL-queries (als JWT beschikbaar) ──────────
-            if auth_headers:
-                log.info("[graphql] Directe queries uitvoeren met JWT-token")
-                _run_graphql_queries(auth_headers, all_captured)
-            else:
-                log.info("[graphql] Geen JWT — alleen XHR-interceptie gebruikt")
+            browser.close()
 
             # ── 9. Extraheer data ─────────────────────────────────────────
             plan = _extract_plan_from_captures(all_captured)
             upcoming, completed_runs = _extract_sessions_from_captures(all_captured)
 
-            # ── 10. Debug: voeg raw sample toe als sessies leeg zijn ─────
+            # ── 10. Verzamel debug-informatie ─────────────────────────────
+            # Sla de volledige getActiveOrderDetails op (niet afgekapt)
+            raw_active_order: dict | None = None
+            for cap in all_captured:
+                gql_data = (cap.get("data") or {}).get("data") or {}
+                if isinstance(gql_data, dict) and "getActiveOrderDetails" in gql_data:
+                    raw_active_order = gql_data["getActiveOrderDetails"]
+                    break
+            if raw_active_order:
+                log.info("[debug] getActiveOrderDetails (volledig): %s", raw_active_order)
+
+            # Als geen sessies: sla eerste niet-race array op voor diagnose
+            debug_extra: dict = {}
             if not upcoming and not completed_runs:
-                # Sla de eerste gevonden sessie-array op voor diagnose
                 for cap in all_captured:
                     arrays = _deep_find_arrays(cap["data"])
                     for arr in arrays:
                         s = arr[0] if arr else None
-                        if isinstance(s, dict) and len(arr) >= 5:
-                            result_extra = {
-                                "debug_sample_session": s,
-                                "debug_array_len": len(arr),
-                                "debug_array_source": cap["url"],
-                            }
-                            log.info("[debug] Sample sessie: %s", str(s)[:300])
-                            break
+                        if isinstance(s, dict) and len(arr) >= 3:
+                            # Sla race-arrays over in debug ook
+                            if not (RACE_EVENT_INDICATORS & set(s.keys())):
+                                debug_extra = {
+                                    "debug_sample": s,
+                                    "debug_array_len": len(arr),
+                                    "debug_array_source": cap["url"],
+                                }
+                                log.info("[debug] Sample array: %s", str(s)[:500])
+                                break
                     else:
                         continue
                     break
 
             # ── 11. Stel resultaat samen ──────────────────────────────────
-            try:
-                extra_debug = result_extra  # type: ignore[name-defined]
-            except NameError:
-                extra_debug = {}
-
             result: dict = {
                 "fetched_at": datetime.now(timezone.utc).isoformat(),
                 "debug_urls": debug_urls,
-                **extra_debug,
+                **debug_extra,
             }
+            if raw_active_order is not None:
+                result["debug_active_order"] = raw_active_order
             if plan:
                 result["training_plan"] = plan
             if upcoming:
