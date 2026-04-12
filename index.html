@@ -2059,9 +2059,10 @@
         // Upcoming: CrossFit classes + personal events + Runna runs combined
         _upcomingCrossfit = upcoming;
         const todayForRunna = new Date().toISOString().slice(0, 10);
+        const cutoffRunna = (() => { const d = new Date(); d.setDate(d.getDate() + 7); return d.toISOString().slice(0, 10); })();
         const upcomingPersonal = personalEvents.filter(e => isUpcoming(e.date, e.time || null));
         const upcomingRunna = runnaData
-          ? (runnaData.upcoming_sessions || []).filter(s => s.date >= todayForRunna)
+          ? (runnaData.upcoming_sessions || []).filter(s => s.date >= todayForRunna && s.date <= cutoffRunna)
           : [];
         const allUpcoming = [
           ...upcoming.map(e => ({ ...e, _src: 'crossfit' })),
