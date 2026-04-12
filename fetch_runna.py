@@ -56,13 +56,18 @@ GRAPHQL_QUERIES = [
     ("__fields_WeekSession",        """{ __type(name: "WeekSession") { fields { name type { name kind } } } }"""),
     ("__fields_TrainingSession",    """{ __type(name: "TrainingSession") { fields { name type { name kind } } } }"""),
     ("__fields_WorkoutSession",     """{ __type(name: "WorkoutSession") { fields { name type { name kind } } } }"""),
-    # ── Trainingsplan via getActiveOrderDetails (bewezen werkend) ──────────
-    ("getActiveOrderDetails", """query {
+    # ── Trainingsplan — alleen bekende velden (uit debug_active_order) ────────
+    ("getActiveOrderDetails_minimal", """query {
       getActiveOrderDetails {
         customPlanName
+        planV2 { shortPlanName planLength raceDistance }
+      }
+    }"""),
+    # ── Probeer aanvullende velden op OrderDetails ─────────────────────────
+    ("getActiveOrderDetails_weeks", """query {
+      getActiveOrderDetails {
         currentWeekNumber
         totalWeeks
-        planV2 { id shortPlanName planLength raceDistance }
         weekSessions {
           id scheduledDate title sessionType status
           targetDistance targetDuration completedDate
@@ -73,8 +78,7 @@ GRAPHQL_QUERIES = [
     # ── Variant: planWeeks met sessies per week ────────────────────────────
     ("getActiveOrderDetails_planWeeks", """query {
       getActiveOrderDetails {
-        customPlanName currentWeekNumber totalWeeks
-        planV2 { id shortPlanName planLength }
+        currentWeekNumber totalWeeks
         planWeeks {
           weekNumber isCurrentWeek
           sessions {
@@ -429,7 +433,7 @@ def _run_graphql_in_browser(
     headers_to_use: dict = {"Content-Type": "application/json"}
     if app_headers:
         for k, v in app_headers.items():
-            if k.lower() in ("authorization", "x-api-key", "x-amz-user-agent"):
+            if k.lower() in ("authorization", "x-api-key", "x-amz-user-agent", "x-rb-platform-source"):
                 headers_to_use[k] = v
     log.info("[browser-gql] Headers voor directe queries: %s", list(headers_to_use.keys()))
     headers_json = json.dumps(headers_to_use)
@@ -449,7 +453,10 @@ def _run_graphql_in_browser(
                                 query: {query_json}
                             }})
                         }});
-                        if (!resp.ok) return {{ _httpError: resp.status }};
+                        // Lees altijd de body — AppSync geeft bij 400 JSON-errors terug
+                        let body;
+                        try {{ body = await resp.json(); }} catch(_) {{ body = null; }}
+                        if (!resp.ok) return {{ _httpError: resp.status, _body: body }};
                         return await resp.json();
                     }} catch (e) {{
                         return {{ _fetchError: e.toString() }};
@@ -459,7 +466,14 @@ def _run_graphql_in_browser(
             if not isinstance(data, dict):
                 continue
             if data.get("_httpError"):
-                log.info("[browser-gql] %s → HTTP %s", query_name, data["_httpError"])
+                body = data.get("_body") or {}
+                errs = [e.get("message", "") for e in (body.get("errors") or [])]
+                if errs:
+                    log.info("[browser-gql] %s → HTTP %s: %s",
+                             query_name, data["_httpError"], errs[:3])
+                else:
+                    log.info("[browser-gql] %s → HTTP %s (body: %s)",
+                             query_name, data["_httpError"], str(body)[:200])
                 continue
             if data.get("_fetchError"):
                 log.info("[browser-gql] %s → fetch-fout: %s", query_name, data["_fetchError"])
