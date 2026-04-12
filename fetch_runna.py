@@ -416,23 +416,38 @@ def _get_auth_headers(page) -> dict | None:
     return None
 
 
-def _run_graphql_in_browser(page, captured: list[dict]) -> None:
+def _run_graphql_in_browser(
+    page,
+    captured: list[dict],
+    app_headers: dict | None = None,
+) -> None:
     """
-    Voer GraphQL-queries uit via page.evaluate(fetch(...)).
-    Voordeel: browser stuurt automatisch cookies mee, waardoor auth werkt
-    zonder het JWT-token handmatig te raden.
+    Voer GraphQL-queries uit via page.evaluate(fetch(...)) met dezelfde
+    headers als de Runna-app zelf (inclusief Authorization-token).
     """
+    # Bouw de headers op die de browser meestuurt
+    headers_to_use: dict = {"Content-Type": "application/json"}
+    if app_headers:
+        for k, v in app_headers.items():
+            if k.lower() in ("authorization", "x-api-key", "x-amz-user-agent"):
+                headers_to_use[k] = v
+    log.info("[browser-gql] Headers voor directe queries: %s", list(headers_to_use.keys()))
+    headers_json = json.dumps(headers_to_use)
+
     for query_name, query in GRAPHQL_QUERIES:
         try:
             query_json = json.dumps(query)   # veilig escapen voor JS-inlining
+            op_name_json = json.dumps(query_name.lstrip("_"))
             data = page.evaluate(f"""
                 async () => {{
                     try {{
                         const resp = await fetch('{GRAPHQL_URL}', {{
                             method: 'POST',
-                            headers: {{ 'Content-Type': 'application/json' }},
-                            credentials: 'include',
-                            body: JSON.stringify({{ query: {query_json} }})
+                            headers: {headers_json},
+                            body: JSON.stringify({{
+                                operationName: {op_name_json},
+                                query: {query_json}
+                            }})
                         }});
                         if (!resp.ok) return {{ _httpError: resp.status }};
                         return await resp.json();
@@ -447,7 +462,7 @@ def _run_graphql_in_browser(page, captured: list[dict]) -> None:
                 log.info("[browser-gql] %s → HTTP %s", query_name, data["_httpError"])
                 continue
             if data.get("_fetchError"):
-                log.debug("[browser-gql] %s → fetch-fout: %s", query_name, data["_fetchError"])
+                log.info("[browser-gql] %s → fetch-fout: %s", query_name, data["_fetchError"])
                 continue
             if data.get("errors") and not data.get("data"):
                 err_msgs = [e.get("message", "") for e in data.get("errors", [])]
@@ -479,7 +494,7 @@ def _run_graphql_in_browser(page, captured: list[dict]) -> None:
 
             captured.append({"url": f"{GRAPHQL_URL}#{query_name}", "data": data})
         except Exception as exc:
-            log.debug("[browser-gql] %s mislukt: %s", query_name, exc)
+            log.info("[browser-gql] %s → Python-uitzondering: %s", query_name, exc)
 
 
 # ── Gist opslaan ─────────────────────────────────────────────────────────────
@@ -528,6 +543,7 @@ def fetch_runna_data(
     log.info("Playwright headless browser starten (mobiele emulatie)")
     captured: list[dict] = []
     debug_urls: list[str] = []
+    graphql_req_headers: dict = {}   # auth-headers van het eerste geslaagde GQL-verzoek
 
     def _on_response(response) -> None:
         try:
@@ -541,6 +557,26 @@ def fetch_runna_data(
             log.info("  [xhr] %s → %s", url, str(data)[:300])
             captured.append({"url": url, "data": data})
             debug_urls.append(url)
+        except Exception:
+            pass
+
+    def _on_graphql_request(request) -> None:
+        """Leg de headers van het eerste geslaagde GraphQL-verzoek vast."""
+        try:
+            if "hydra.platform.runna.com/graphql" not in request.url:
+                return
+            if graphql_req_headers:
+                return  # alleen eerste keer
+            h = dict(request.headers)
+            graphql_req_headers.update(h)
+            interesting = {
+                k: v for k, v in h.items()
+                if k.lower() in (
+                    "authorization", "content-type", "x-api-key",
+                    "origin", "referer", "x-amz-user-agent",
+                )
+            }
+            log.info("[req] GraphQL-verzoek headers: %s", interesting)
         except Exception:
             pass
 
@@ -570,6 +606,7 @@ def fetch_runna_data(
 
             page = context.new_page()
             page.on("response", _on_response)
+            page.on("request",  _on_graphql_request)
 
             # ── 1. Navigeer direct naar de inlogpagina ────────────────────
             log.info("[browser] Navigeren naar inlogpagina: %s/sign-in", RUNNA_BASE)
@@ -716,9 +753,10 @@ def fetch_runna_data(
                 except Exception as exc:
                     log.warning("[browser] Navigatie naar %s mislukt: %s", label, exc)
 
-            # ── 8. Browser-gebaseerde GraphQL-queries (cookies automatisch) ──
-            log.info("[browser-gql] Directe queries uitvoeren in browsercontext")
-            _run_graphql_in_browser(page, all_captured)
+            # ── 8. Browser-gebaseerde GraphQL-queries (app-headers kopiëren) ──
+            log.info("[browser-gql] Directe queries uitvoeren (app-headers: %s)",
+                     list(graphql_req_headers.keys())[:8])
+            _run_graphql_in_browser(page, all_captured, app_headers=graphql_req_headers or None)
 
             browser.close()
 
