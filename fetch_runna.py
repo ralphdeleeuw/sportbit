@@ -1,9 +1,9 @@
 """
-fetch_runna.py — Haalt trainingsdata op uit de Runna web-app via Playwright.
+fetch_runna.py — Haalt trainingsdata op uit Runna via iCal-feed en Playwright.
 
-Runna heeft geen publieke API. Dit script logt in op web.runna.com/sign-in,
-onderschept GraphQL-responses van hydra.platform.runna.com/graphql en maakt
-daarna ook directe GraphQL-queries met het JWT-token uit localStorage.
+Primaire methode: iCal-feed (RUNNA_ICAL_URL secret) — snel, betrouwbaar,
+geen browser nodig voor sessiedata.
+Fallback: Playwright web scraping voor planinfo (naam, weken).
 
 Opgeslagen in de GitHub Gist als: runna_data.json
 """
@@ -25,6 +25,7 @@ import requests
 RUNNA_BASE    = "https://web.runna.com"
 GRAPHQL_URL   = "https://hydra.platform.runna.com/graphql"
 GIST_FILENAME = "runna_data.json"
+RUNNA_ICAL_URL = os.getenv("RUNNA_ICAL_URL", "").strip()
 
 # Pagina's om na login te bezoeken (triggert GraphQL-calls)
 # Gebruik "load" + wacht — niet "networkidle" (app blijft pollen)
@@ -56,18 +57,6 @@ GRAPHQL_QUERIES = [
       }
     }"""),
     ("userProfile_basic", """query { userProfile { id name email unitOfMeasurementV2 subscriptionStatusV2 } }"""),
-    # Introspection: alle velden op de root Query
-    ("introspect_query_type", """query {
-      __type(name: "Query") {
-        fields { name type { name kind ofType { name kind } } }
-      }
-    }"""),
-    # Introspection: alle velden op OrderDetails type
-    ("introspect_order_details", """query {
-      __type(name: "OrderDetails") {
-        fields { name type { name kind ofType { name kind } } }
-      }
-    }"""),
 ]
 
 # Sessie-queries voor het mobile schema (rb-ios / rb-android).
@@ -372,6 +361,102 @@ def _extract_sessions_from_captures(
     upcoming.sort(key=lambda s: s["date"])
     completed.sort(key=lambda s: s["date"], reverse=True)
     return upcoming, completed
+
+
+# ── iCal-feed ────────────────────────────────────────────────────────────────
+
+def _fetch_ical_sessions(
+    ical_url: str,
+    window_days_future: int = 56,
+    window_days_past: int = 90,
+) -> tuple[list[dict], list[dict]]:
+    """
+    Haal trainingen op via de Runna iCal-feed (.ics URL).
+    Geeft (upcoming_sessions, recent_completed) terug.
+    """
+    try:
+        from icalendar import Calendar  # type: ignore
+    except ImportError:
+        log.error("icalendar niet geïnstalleerd — voeg toe aan pip install")
+        return [], []
+
+    log.info("[ical] Feed ophalen …")
+    resp = requests.get(ical_url, timeout=30, headers={
+        "User-Agent": "Mozilla/5.0 (compatible; fetch_runna/1.0)"
+    })
+    resp.raise_for_status()
+
+    cal = Calendar.from_ical(resp.content)
+    cal_name = str(cal.get("X-WR-CALNAME", "Runna"))
+    log.info("[ical] Kalender: %s", cal_name)
+
+    today = datetime.now(timezone.utc).date()
+    cutoff_future = today + timedelta(days=window_days_future)
+    cutoff_past   = today - timedelta(days=window_days_past)
+
+    upcoming:  list[dict] = []
+    completed: list[dict] = []
+
+    for component in cal.walk():
+        if component.name != "VEVENT":
+            continue
+
+        dtstart = component.get("DTSTART")
+        if dtstart is None:
+            continue
+        dt = dtstart.dt
+        session_date = dt.date() if hasattr(dt, "date") else dt
+
+        if session_date < cutoff_past or session_date > cutoff_future:
+            continue
+
+        summary     = str(component.get("SUMMARY", "Training")).strip()
+        description = str(component.get("DESCRIPTION", "")).strip()
+
+        # Extraheer afstand en duur uit de beschrijving (Runna-formaat)
+        distance_km: float | None = None
+        duration_min: int | None  = None
+
+        m = re.search(r"(\d+(?:[.,]\d+)?)\s*km", description, re.IGNORECASE)
+        if m:
+            distance_km = float(m.group(1).replace(",", "."))
+
+        m = re.search(r"(\d+)\s*(?:min|minutes?)", description, re.IGNORECASE)
+        if m:
+            duration_min = int(m.group(1))
+
+        # Bepaal of de sessie voltooid is
+        # Runna markeert voltooide sessies soms via STATUS of DESCRIPTION
+        status_val   = str(component.get("STATUS", "")).upper()
+        is_completed = (
+            session_date < today
+            or status_val == "COMPLETED"
+            or "completed" in description.lower()
+        )
+
+        session: dict = {
+            "date":         session_date.isoformat(),
+            "title":        summary,
+            "session_type": _normalize_session_type(summary),
+            "completed":    is_completed,
+        }
+        if distance_km is not None:
+            session["distance_km"] = round(distance_km, 2)
+        if duration_min is not None:
+            session["duration_min"] = duration_min
+        if description:
+            session["description"] = description[:400]
+
+        if session_date >= today:
+            upcoming.append(session)
+        else:
+            completed.append(session)
+
+    upcoming.sort(key=lambda s: s["date"])
+    completed.sort(key=lambda s: s["date"], reverse=True)
+
+    log.info("[ical] %d aankomend, %d voltooid gevonden", len(upcoming), len(completed))
+    return upcoming[:14], completed[:14]
 
 
 # ── Directe GraphQL-queries ───────────────────────────────────────────────────
@@ -928,7 +1013,16 @@ def fetch_runna_data(
 
             # ── 9. Extraheer data ─────────────────────────────────────────
             plan = _extract_plan_from_captures(all_captured)
-            upcoming, completed_runs = _extract_sessions_from_captures(all_captured)
+
+            # iCal-feed heeft prioriteit boven XHR-extractie voor sessies
+            if RUNNA_ICAL_URL:
+                try:
+                    upcoming, completed_runs = _fetch_ical_sessions(RUNNA_ICAL_URL)
+                except Exception as exc:
+                    log.warning("[ical] Mislukt, val terug op XHR: %s", exc)
+                    upcoming, completed_runs = _extract_sessions_from_captures(all_captured)
+            else:
+                upcoming, completed_runs = _extract_sessions_from_captures(all_captured)
 
             # ── 10. Verzamel debug-informatie ─────────────────────────────
             # Sla de volledige getActiveOrderDetails op (niet afgekapt)

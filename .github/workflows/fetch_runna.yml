@@ -18,7 +18,7 @@ jobs:
           python-version: '3.12'
 
       - name: Install dependencies
-        run: pip install requests playwright
+        run: pip install requests icalendar playwright
 
       - name: Install Playwright browsers
         run: playwright install chromium --with-deps
@@ -29,7 +29,8 @@ jobs:
           RUNNA_PASSWORD: ${{ secrets.RUNNA_PASSWORD }}
           GIST_ID: ${{ secrets.GIST_ID }}
           GITHUB_TOKEN: ${{ secrets.GIST_TOKEN }}
+          # iCal-feed URL voor trainingsschema (aanbevolen — sneller dan API)
+          RUNNA_ICAL_URL: ${{ secrets.RUNNA_ICAL_URL }}
           # Optioneel: mobile API-key uit APK-analyse (zie find_runna_mobile_key.py)
-          # Voeg toe als GitHub Secret RUNNA_MOBILE_API_KEY om sessiedata op te halen
           RUNNA_MOBILE_API_KEY: ${{ secrets.RUNNA_MOBILE_API_KEY }}
         run: python3 fetch_runna.py
