@@ -1880,7 +1880,10 @@
       let planHtml = '';
       if (plan.name) {
         const weekBadge = plan.current_week && plan.total_weeks
-          ? `<span class="runna-plan-badge">Week ${plan.current_week}/${plan.total_weeks}</span>` : '';
+          ? `<span class="runna-plan-badge">Week ${plan.current_week}/${plan.total_weeks}</span>`
+          : plan.total_weeks
+          ? `<span class="runna-plan-badge">${plan.total_weeks} weken</span>`
+          : '';
         planHtml = `<div class="runna-block">
           <div class="runna-block-label">Runna — Trainingsplan${weekBadge}</div>
           <div style="font-size:0.88rem;color:#c8e8d0;font-weight:500">${escapeHtml(plan.name)}</div>

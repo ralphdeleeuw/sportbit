@@ -44,10 +44,9 @@ RACE_EVENT_INDICATORS = frozenset({
 })
 
 # GraphQL-queries via browser-fetch (met app-headers incl. JWT na login).
-# Alleen queries die bevestigd bestaan op het web-schema, plus speculatieve
-# sessie-queries. Queries die niet bestaan geven een GraphQL-fout (veilig te negeren).
+# Bevestigd werkend op het Runna web-schema (hydra.platform.runna.com/graphql).
+# Sessiedata is alleen beschikbaar in de mobile-app API; niet via web-schema.
 GRAPHQL_QUERIES = [
-    # ── Bevestigd werkend op het web-schema ───────────────────────────────
     ("getActiveOrderDetails_full", """query {
       getActiveOrderDetails {
         customPlanName
@@ -57,35 +56,6 @@ GRAPHQL_QUERIES = [
       }
     }"""),
     ("userProfile_basic", """query { userProfile { id name email unitOfMeasurementV2 subscriptionStatusV2 } }"""),
-    # ── Speculatief: sessies via OrderDetails-uitbreidingen ───────────────
-    # (worden genegeerd als het veld niet bestaat op het web-schema)
-    ("getActiveOrderDetails_sessions", """query {
-      getActiveOrderDetails {
-        currentWeekNumber totalWeeks startDate endDate
-        sessions {
-          id scheduledDate title sessionType status
-          targetDistance targetDuration description isRestDay
-        }
-      }
-    }"""),
-    ("getActiveOrderDetails_plan", """query {
-      getActiveOrderDetails {
-        planStartDate currentWeekNumber totalWeeks
-        weekSessions { id scheduledDate title sessionType status targetDistance targetDuration isRestDay }
-        completedSessions { id completedDate title sessionType actualDistance actualDuration }
-      }
-    }"""),
-    # ── Speculatief: aparte sessie-queries ────────────────────────────────
-    ("getActivePlanSessions", """query { getActivePlanSessions { id scheduledDate title sessionType status targetDistance targetDuration isRestDay } }"""),
-    ("getActivePlan",         """query { getActivePlan { id name currentWeek totalWeeks sessions { id scheduledDate title sessionType status targetDistance targetDuration isRestDay } } }"""),
-    ("getMyTrainingPlan",     """query { getMyTrainingPlan { id name currentWeekNumber totalWeeks weekSessions { id scheduledDate title sessionType status targetDistance targetDuration isRestDay } } }"""),
-    ("getUserTrainingPlan",   """query { getUserTrainingPlan { id planName currentWeek totalWeeks sessions { id scheduledDate title sessionType status targetDistance targetDuration description isRestDay } } }"""),
-    ("getNextSession",        """query { getNextSession { id scheduledDate title sessionType status targetDistance targetDuration description } }"""),
-    ("getUpcomingRuns",       """query { getUpcomingRuns { id scheduledDate title sessionType status targetDistance targetDuration isRestDay } }"""),
-    # ── Speculatief: voltooide runs ───────────────────────────────────────
-    ("getCompletedRuns",      """query { getCompletedRuns { id completedDate title sessionType actualDistance actualDuration } }"""),
-    ("getUserRunHistory",     """query { getUserRunHistory { id completedDate title sessionType actualDistance actualDuration } }"""),
-    ("getRunLog",             """query { getRunLog { id date title type distance duration } }"""),
 ]
 
 # ── Logging ───────────────────────────────────────────────────────────────────
@@ -157,6 +127,25 @@ def _extract_plan_from_captures(captured: list[dict]) -> dict | None:
             p["total_weeks"] = order.get("totalWeeks")
         return {k: v for k, v in p.items() if v is not None}
 
+    # ── Stap 1: merge ALLE getActiveOrderDetails-responses ───────────────────
+    # (app stuurt minimale velden, browser-gql stuurt planLength — beide nodig)
+    merged_plan: dict = {}
+    for item in captured:
+        data = item["data"]
+        if not isinstance(data, dict):
+            continue
+        gql = data.get("data") or {}
+        order = gql.get("getActiveOrderDetails") if isinstance(gql, dict) else None
+        if isinstance(order, dict):
+            plan_v2 = order.get("planV2") if isinstance(order.get("planV2"), dict) else None
+            plan = _build_plan(order, plan_v2)
+            for k, v in plan.items():
+                if v is not None and k not in merged_plan:
+                    merged_plan[k] = v
+    if merged_plan.get("name"):
+        log.info("[extract] Plan via getActiveOrderDetails (merged): %s", merged_plan)
+        return merged_plan
+
     plan_keys = {"plan_name", "planName", "name", "goal", "currentWeek", "current_week",
                  "totalWeeks", "total_weeks", "phase", "weeks", "target", "title",
                  "numWeeks", "durationWeeks", "weekNumber", "shortPlanName"}
@@ -166,16 +155,7 @@ def _extract_plan_from_captures(captured: list[dict]) -> dict | None:
         data = item["data"]
         if not isinstance(data, dict):
             continue
-
-        # ── Specifieke Runna-structuur: data.getActiveOrderDetails ─────────
         gql = data.get("data") or {}
-        order = gql.get("getActiveOrderDetails") if isinstance(gql, dict) else None
-        if isinstance(order, dict):
-            plan_v2 = order.get("planV2") if isinstance(order.get("planV2"), dict) else None
-            plan = _build_plan(order, plan_v2)
-            if plan.get("name"):
-                log.info("[extract] Plan via getActiveOrderDetails: %s", plan)
-                return plan
 
         # ── Generieke search: kandidaat-objecten recursief doorzoeken ──────
         inner = gql if isinstance(gql, dict) else {}
