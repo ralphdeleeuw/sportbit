@@ -58,6 +58,45 @@ GRAPHQL_QUERIES = [
     ("userProfile_basic", """query { userProfile { id name email unitOfMeasurementV2 subscriptionStatusV2 } }"""),
 ]
 
+# Sessie-queries voor het mobile schema (rb-ios / rb-android).
+# Werkt als:
+#   a) Runna de schemadifferentiatie via de x-rb-platform-source header doet, of
+#   b) RUNNA_MOBILE_API_KEY is ingesteld (uit APK-analyse — zie find_runna_mobile_key.py)
+MOBILE_SESSION_QUERIES = [
+    ("mobile_getActiveOrderDetails_sessions", """query {
+      getActiveOrderDetails {
+        currentWeekNumber totalWeeks
+        weekSessions {
+          id scheduledDate title sessionType status
+          targetDistance targetDuration description isRestDay completedDate
+        }
+      }
+    }"""),
+    ("mobile_getActiveOrderDetails_completed", """query {
+      getActiveOrderDetails {
+        completedSessions {
+          id completedDate title sessionType actualDistance actualDuration
+        }
+      }
+    }"""),
+    ("mobile_getActiveOrderDetails_planweeks", """query {
+      getActiveOrderDetails {
+        currentWeekNumber totalWeeks
+        planWeeks {
+          weekNumber isCurrentWeek
+          sessions {
+            id scheduledDate title sessionType status
+            targetDistance targetDuration description isRestDay
+          }
+        }
+      }
+    }"""),
+]
+
+# Optionele mobile API-key (uit APK-analyse — zie find_runna_mobile_key.py).
+# Stel in als GitHub Secret: RUNNA_MOBILE_API_KEY
+RUNNA_MOBILE_API_KEY = os.getenv("RUNNA_MOBILE_API_KEY", "")
+
 # ── Logging ───────────────────────────────────────────────────────────────────
 
 logging.basicConfig(
@@ -442,6 +481,82 @@ def _run_graphql_in_browser(
             captured.append({"url": f"{GRAPHQL_URL}#{query_name}", "data": data})
         except Exception as exc:
             log.info("[browser-gql] %s → Python-uitzondering: %s", query_name, exc)
+
+    # ── Mobile schema — extra pass met rb-ios headers ─────────────────────────
+    # Fase 1: probeer met dezelfde JWT maar x-rb-platform-source: rb-ios
+    #   → werkt als Runna de schemadifferentiatie via die header doet
+    # Fase 2: als RUNNA_MOBILE_API_KEY is ingesteld, probeer ook zonder JWT
+    #   → werkt als de mobile AppSync-API een eigen API-key heeft
+    mobile_header_sets: list[tuple[str, dict]] = []
+
+    # Altijd proberen: zelfde JWT, ios platform source
+    ios_headers: dict = {"Content-Type": "application/json", "x-rb-platform-source": "rb-ios"}
+    for k, v in (app_headers or {}).items():
+        if k.lower() == "authorization":
+            ios_headers[k] = v
+    mobile_header_sets.append(("ios-jwt", ios_headers))
+
+    # Extra: als mobile API-key beschikbaar, ook zonder JWT (pure mobile-key auth)
+    if RUNNA_MOBILE_API_KEY:
+        key_headers: dict = {
+            "Content-Type": "application/json",
+            "x-api-key": RUNNA_MOBILE_API_KEY,
+            "x-rb-platform-source": "rb-ios",
+        }
+        mobile_header_sets.append(("ios-apikey", key_headers))
+
+    for pass_name, mheaders in mobile_header_sets:
+        mheaders_json = json.dumps(mheaders)
+        log.info("[mobile-gql] Pass '%s' starten (headers: %s)",
+                 pass_name, [k for k in mheaders if k != "Content-Type"])
+        found_any = False
+        for query_name, query in MOBILE_SESSION_QUERIES:
+            try:
+                query_json = json.dumps(query)
+                data = page.evaluate(f"""
+                    async () => {{
+                        try {{
+                            const resp = await fetch('{GRAPHQL_URL}', {{
+                                method: 'POST',
+                                headers: {mheaders_json},
+                                body: JSON.stringify({{ query: {query_json} }})
+                            }});
+                            let body;
+                            try {{ body = await resp.json(); }} catch(_) {{ body = null; }}
+                            if (!resp.ok) return {{ _httpError: resp.status, _body: body }};
+                            return body;
+                        }} catch (e) {{
+                            return {{ _fetchError: e.toString() }};
+                        }}
+                    }}
+                """)
+                if not isinstance(data, dict):
+                    continue
+                if data.get("_httpError"):
+                    body = data.get("_body") or {}
+                    errs = [e.get("message", "") for e in (body.get("errors") or [])]
+                    log.info("[mobile-gql] %s/%s → HTTP %s: %s",
+                             pass_name, query_name, data["_httpError"], errs[:2])
+                    continue
+                if data.get("_fetchError"):
+                    log.info("[mobile-gql] %s/%s → fetch-fout: %s",
+                             pass_name, query_name, data["_fetchError"])
+                    continue
+                if data.get("errors") and not data.get("data"):
+                    errs = [e.get("message", "") for e in data.get("errors", [])]
+                    log.info("[mobile-gql] %s/%s → GraphQL errors: %s",
+                             pass_name, query_name, errs[:2])
+                    continue
+                log.info("[mobile-gql] %s/%s → %s", pass_name, query_name, str(data)[:800])
+                captured.append({"url": f"{GRAPHQL_URL}#{query_name}", "data": data})
+                found_any = True
+            except Exception as exc:
+                log.info("[mobile-gql] %s/%s → uitzondering: %s",
+                         pass_name, query_name, exc)
+        if found_any:
+            log.info("[mobile-gql] Pass '%s': sessiedata gevonden — overige passes overgeslagen",
+                     pass_name)
+            break
 
 
 # ── Gist opslaan ─────────────────────────────────────────────────────────────
