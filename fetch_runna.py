@@ -672,83 +672,6 @@ def save_to_gist(gist_id: str, token: str, data: dict) -> None:
     log.info("Opgeslagen in Gist als %s", GIST_FILENAME)
 
 
-# ── Web JS-bundle scanner ─────────────────────────────────────────────────────
-
-_API_KEY_RE = re.compile(rb"da2-[a-zA-Z0-9]{26}")
-_KNOWN_WEB_KEY = "da2-p6hunb5zafhn7ngpf6jtotnjvm"
-
-
-def _scan_web_bundles() -> dict:
-    """
-    Haal de Runna web-app HTML op en scan alle JS-bundles op AppSync API-keys.
-    Geeft {'extra_api_keys': [...], 'bundles_scanned': N} terug.
-    Loopt nooit langer dan ~15 seconden.
-    """
-    import html.parser
-
-    class ScriptParser(html.parser.HTMLParser):
-        def __init__(self):
-            super().__init__()
-            self.scripts: list[str] = []
-        def handle_starttag(self, tag, attrs):
-            if tag == "script":
-                d = dict(attrs)
-                src = d.get("src", "")
-                if src:
-                    self.scripts.append(src)
-
-    try:
-        log.info("[bundle-scan] Ophalen web.runna.com HTML …")
-        html_resp = requests.get(RUNNA_BASE, timeout=10, headers={
-            "User-Agent": "Mozilla/5.0 (compatible; fetch_runna/1.0)"
-        })
-        html_resp.raise_for_status()
-        parser = ScriptParser()
-        parser.feed(html_resp.text)
-
-        script_urls = []
-        for src in parser.scripts:
-            if src.startswith("//"):
-                src = "https:" + src
-            elif src.startswith("/"):
-                src = RUNNA_BASE + src
-            # Scan ALLE script-URLs (app kan op CDN staan zoals Vercel/_next/static/...)
-            if src.startswith("http"):
-                script_urls.append(src)
-
-        log.info("[bundle-scan] %d JS-bundles gevonden (alle domeinen)", len(script_urls))
-
-        found_keys: set[str] = set()
-        scanned = 0
-        for url in script_urls[:15]:           # max 15 bundles
-            try:
-                r = requests.get(url, timeout=8, stream=True, headers={
-                    "User-Agent": "Mozilla/5.0 (compatible; fetch_runna/1.0)"
-                })
-                r.raise_for_status()
-                chunk = b""
-                for blk in r.iter_content(chunk_size=65536):
-                    chunk += blk
-                    if len(chunk) >= 200_000:   # max 200 KB per bundle
-                        break
-                for m in _API_KEY_RE.finditer(chunk):
-                    key = m.group(0).decode()
-                    if key != _KNOWN_WEB_KEY:
-                        found_keys.add(key)
-                        log.info("[bundle-scan] Extra API-key gevonden in %s: %s", url, key)
-                scanned += 1
-            except Exception as exc:
-                log.debug("[bundle-scan] %s overgeslagen: %s", url, exc)
-
-        log.info("[bundle-scan] Klaar: %d bundles gescand, %d extra keys gevonden",
-                 scanned, len(found_keys))
-        return {"extra_api_keys": sorted(found_keys), "bundles_scanned": scanned}
-
-    except Exception as exc:
-        log.warning("[bundle-scan] Mislukt: %s", exc)
-        return {"extra_api_keys": [], "bundles_scanned": 0}
-
-
 # ── Hoofdfunctie ──────────────────────────────────────────────────────────────
 
 def fetch_runna_data(
@@ -758,18 +681,38 @@ def fetch_runna_data(
     token: str = "",
 ) -> dict:
     """
-    Login op web.runna.com/sign-in, onderschep GraphQL-calls en extraheer
-    trainingsdata. Geeft altijd een dict terug (minimaal met 'fetched_at').
+    Haalt Runna-trainingsdata op. Als RUNNA_ICAL_URL is ingesteld wordt de
+    iCal-feed gebruikt (snel, geen browser). Anders: Playwright login-scraping
+    voor planinfo. Geeft altijd een dict terug (minimaal met 'fetched_at').
     """
+    # ── iCal-pad: geen browser nodig ─────────────────────────────────────────
+    if RUNNA_ICAL_URL:
+        log.info("iCal-modus: Playwright overgeslagen")
+        try:
+            upcoming, completed_runs = _fetch_ical_sessions(RUNNA_ICAL_URL)
+        except Exception as exc:
+            log.exception("iCal ophalen mislukt: %s", exc)
+            return {
+                "error": str(exc),
+                "fetched_at": datetime.now(timezone.utc).isoformat(),
+            }
+        result: dict = {"fetched_at": datetime.now(timezone.utc).isoformat()}
+        if upcoming:
+            result["upcoming_sessions"] = upcoming
+        if completed_runs:
+            result["recent_completed"] = completed_runs
+        log.info("Klaar via iCal: aankomend=%d, voltooid=%d",
+                 len(upcoming), len(completed_runs))
+        return result
+
+    # ── Playwright-pad: fallback als geen iCal-URL ────────────────────────────
+    log.info("Geen RUNNA_ICAL_URL — Playwright fallback starten")
     try:
         from playwright.sync_api import sync_playwright  # type: ignore
     except ImportError:
         log.error("playwright niet geïnstalleerd")
         return {"error": "playwright niet geïnstalleerd",
                 "fetched_at": datetime.now(timezone.utc).isoformat()}
-
-    # Scan web JS-bundles op extra API-keys (vóór browser start; geen auth nodig)
-    bundle_scan = _scan_web_bundles()
 
     log.info("Playwright headless browser starten (mobiele emulatie)")
     captured: list[dict] = []
@@ -971,7 +914,6 @@ def fetch_runna_data(
                 browser.close()
                 return {
                     "error": "Login mislukt",
-                    "debug_urls": debug_urls,
                     "fetched_at": datetime.now(timezone.utc).isoformat(),
                 }
 
@@ -1024,112 +966,8 @@ def fetch_runna_data(
             else:
                 upcoming, completed_runs = _extract_sessions_from_captures(all_captured)
 
-            # ── 10. Verzamel debug-informatie ─────────────────────────────
-            # Sla de volledige getActiveOrderDetails op (niet afgekapt)
-            raw_active_order: dict | None = None
-            for cap in all_captured:
-                gql_data = (cap.get("data") or {}).get("data") or {}
-                if isinstance(gql_data, dict) and "getActiveOrderDetails" in gql_data:
-                    raw_active_order = gql_data["getActiveOrderDetails"]
-                    break
-            if raw_active_order:
-                log.info("[debug] getActiveOrderDetails (volledig): %s", raw_active_order)
-
-            # Sla de volledige getPlanMetadata op (niet afgekapt) — nieuw schema-veld
-            raw_plan_metadata: dict | None = None
-            for cap in all_captured:
-                gql_data = (cap.get("data") or {}).get("data") or {}
-                if isinstance(gql_data, dict) and "getPlanMetadata" in gql_data:
-                    raw_plan_metadata = gql_data["getPlanMetadata"]
-                    break
-            if raw_plan_metadata:
-                log.info("[debug] getPlanMetadata (volledig): %s", raw_plan_metadata)
-
-            # Sla de volledige getRace op (niet afgekapt)
-            raw_race: dict | None = None
-            for cap in all_captured:
-                gql_data = (cap.get("data") or {}).get("data") or {}
-                if isinstance(gql_data, dict) and "getRace" in gql_data:
-                    raw_race = gql_data["getRace"]
-                    break
-            if raw_race:
-                log.info("[debug] getRace (volledig): %s", raw_race)
-
-            # Introspection-resultaten vastleggen (schema-velden)
-            introspect_query: list | None = None
-            introspect_order: list | None = None
-            for cap in all_captured:
-                if "introspect_query_type" not in cap["url"] and "introspect_order_details" not in cap["url"]:
-                    continue
-                gql_data = (cap.get("data") or {}).get("data") or {}
-                if not isinstance(gql_data, dict):
-                    continue
-                type_info = gql_data.get("__type") or {}
-                fields = type_info.get("fields") or []
-                if "introspect_query_type" in cap["url"]:
-                    introspect_query = [f["name"] for f in fields if isinstance(f, dict)]
-                    log.info("[introspect] Query root-velden: %s", introspect_query)
-                elif "introspect_order_details" in cap["url"]:
-                    introspect_order = [f["name"] for f in fields if isinstance(f, dict)]
-                    log.info("[introspect] OrderDetails-velden: %s", introspect_order)
-
-            # Als geen sessies: sla eerste niet-race array op voor diagnose
-            debug_extra: dict = {}
-            if not upcoming and not completed_runs:
-                for cap in all_captured:
-                    arrays = _deep_find_arrays(cap["data"])
-                    for arr in arrays:
-                        s = arr[0] if arr else None
-                        if isinstance(s, dict) and len(arr) >= 3:
-                            # Sla race-arrays over in debug ook
-                            if not (RACE_EVENT_INDICATORS & set(s.keys())):
-                                debug_extra = {
-                                    "debug_sample": s,
-                                    "debug_array_len": len(arr),
-                                    "debug_array_source": cap["url"],
-                                }
-                                log.info("[debug] Sample array: %s", str(s)[:500])
-                                break
-                    else:
-                        continue
-                    break
-
-            # ── 11. Stel resultaat samen ──────────────────────────────────
-            # debug_captures: compacte samenvatting van elke onderschepte response
-            # zodat we kunnen zien welke GraphQL-operaties data retourneren.
-            debug_captures = []
-            for cap in all_captured:
-                op = cap["url"].split("#")[-1] if "#" in cap["url"] else ""
-                data_node = cap.get("data") or {}
-                top_keys = list(data_node.keys()) if isinstance(data_node, dict) else []
-                gql_keys: list[str] = []
-                gql_data = data_node.get("data") if isinstance(data_node, dict) else None
-                if isinstance(gql_data, dict):
-                    gql_keys = list(gql_data.keys())
-                debug_captures.append({
-                    "op": op,
-                    "url": cap["url"].split("?")[0],
-                    "top_keys": top_keys,
-                    "gql_keys": gql_keys,
-                })
-
-            result: dict = {
-                "fetched_at": datetime.now(timezone.utc).isoformat(),
-                "debug_urls": debug_urls,
-                "debug_captures": debug_captures,
-                "bundle_scan": bundle_scan,
-                **debug_extra,
-            }
-            if raw_active_order is not None:
-                result["debug_active_order"] = raw_active_order
-            if raw_plan_metadata is not None:
-                result["debug_plan_metadata"] = raw_plan_metadata
-            if raw_race is not None:
-                result["debug_race"] = raw_race
-            if introspect_query is not None:
-                result["schema_query_fields"] = introspect_query
-            if introspect_order is not None:
-                result["schema_order_details_fields"] = introspect_order
+            # ── 10. Stel resultaat samen ──────────────────────────────────
+            result: dict = {"fetched_at": datetime.now(timezone.utc).isoformat()}
             if plan:
                 result["training_plan"] = plan
             if upcoming:
@@ -1137,17 +975,14 @@ def fetch_runna_data(
             if completed_runs:
                 result["recent_completed"] = completed_runs
 
-            log.info(
-                "Klaar: plan=%s, aankomend=%d, voltooid=%d, debug_urls=%d",
-                bool(plan), len(upcoming), len(completed_runs), len(debug_urls),
-            )
+            log.info("Klaar: plan=%s, aankomend=%d, voltooid=%d",
+                     bool(plan), len(upcoming), len(completed_runs))
             return result
 
     except Exception as exc:
         log.exception("Onverwachte fout in fetch_runna_data: %s", exc)
         return {
             "error": str(exc),
-            "debug_urls": debug_urls,
             "fetched_at": datetime.now(timezone.utc).isoformat(),
         }
 
