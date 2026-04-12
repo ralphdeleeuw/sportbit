@@ -37,17 +37,44 @@ PAGES_TO_VISIT = [
 # GraphQL-queries om te proberen (schema is ongedocumenteerd — breed zoeken)
 # Elke query wordt geprobeerd; fouten worden genegeerd
 GRAPHQL_QUERIES = [
-    ("trainingPlan", """query { trainingPlan { id name goal currentWeek totalWeeks phase status } }"""),
-    ("activePlan",   """query { activePlan { id name goal currentWeek totalWeeks phase } }"""),
-    ("currentPlan",  """query { currentPlan { id name goal currentWeek totalWeeks phase } }"""),
-    ("plan",         """query { plan { id name goal currentWeek totalWeeks } }"""),
-    ("getSchedule",  """query { schedule { id sessions { id date title type status targetDistance targetDuration completed description } } }"""),
-    ("sessions",     """query { sessions { id date title type status targetDistance targetDuration completed description notes } }"""),
-    ("upcomingSessions", """query { upcomingSessions { id date title type targetDistance targetDuration completed description } }"""),
-    ("getWeekSessions",  """query { weekSessions { id date title type status targetDistance targetDuration completed } }"""),
-    ("completedRuns",    """query { completedRuns { id date title type distance duration pace completed } }"""),
-    ("runs",             """query { runs { id date title type distance duration completed } }"""),
-    ("userProfile",      """query { userProfile { id email firstName lastName } }"""),
+    # ── Trainingsplan via getActiveOrderDetails (bewezen werkend) ──────────
+    ("getActiveOrderDetails", """query {
+      getActiveOrderDetails {
+        customPlanName
+        currentWeekNumber
+        totalWeeks
+        planV2 { id shortPlanName planLength raceDistance }
+        weekSessions {
+          id scheduledDate title sessionType status
+          targetDistance targetDuration completedDate
+          description isRestDay
+        }
+      }
+    }"""),
+    # ── Alternatieve namen voor hetzelfde endpoint ─────────────────────────
+    ("getActivePlanWeeks", """query {
+      getActiveOrderDetails {
+        planV2 { id shortPlanName planLength }
+        currentWeekNumber
+        planWeeks {
+          weekNumber isCurrentWeek
+          sessions {
+            id scheduledDate title sessionType status
+            targetDistance targetDuration completed
+          }
+        }
+      }
+    }"""),
+    # ── Schema / geplande sessies ──────────────────────────────────────────
+    ("sessions",     """query { sessions { id scheduledDate date title sessionType type status targetDistance targetDuration completed description isRestDay } }"""),
+    ("weekSessions", """query { weekSessions { id scheduledDate date title sessionType type status targetDistance targetDuration completed isRestDay } }"""),
+    ("schedule",     """query { schedule { sessions { id scheduledDate date title sessionType type status targetDistance targetDuration completed } } }"""),
+    # ── Voltooide runs ─────────────────────────────────────────────────────
+    ("completedSessions", """query { completedSessions { id completedDate date title sessionType type actualDistance actualDuration } }"""),
+    ("completedRuns",     """query { completedRuns { id date completedDate title type distance duration completed } }"""),
+    ("activityHistory",   """query { activityHistory { id date completedDate title type distance duration } }"""),
+    # ── Overig ────────────────────────────────────────────────────────────
+    ("userProfile",   """query { userProfile { id email firstName lastName } }"""),
 ]
 
 # ── Logging ───────────────────────────────────────────────────────────────────
@@ -98,27 +125,58 @@ def _deep_find_arrays(data: object, max_depth: int = 4) -> list[list]:
 
 def _extract_plan_from_captures(captured: list[dict]) -> dict | None:
     """Scan XHR/GraphQL-captures op trainingsplan-metadata."""
+
+    def _build_plan(order: dict, plan_v2: dict | None) -> dict:
+        """Bouw plan-dict op uit getActiveOrderDetails-structuur."""
+        p: dict = {}
+        if plan_v2:
+            p["name"] = (
+                order.get("customPlanName")
+                or plan_v2.get("shortPlanName")
+                or plan_v2.get("id", "").replace("_V2", "").replace("_", " ").title()
+            )
+            p["total_weeks"] = plan_v2.get("planLength") or order.get("totalWeeks")
+        else:
+            p["name"] = order.get("customPlanName")
+        p["current_week"] = (
+            order.get("currentWeekNumber") or order.get("currentWeek")
+            or order.get("weekNumber")
+        )
+        if not p.get("total_weeks"):
+            p["total_weeks"] = order.get("totalWeeks")
+        return {k: v for k, v in p.items() if v is not None}
+
     plan_keys = {"plan_name", "planName", "name", "goal", "currentWeek", "current_week",
                  "totalWeeks", "total_weeks", "phase", "weeks", "target", "title",
-                 "numWeeks", "durationWeeks", "weekNumber"}
+                 "numWeeks", "durationWeeks", "weekNumber", "shortPlanName"}
+
     for item in captured:
         url = item["url"]
         data = item["data"]
         if not isinstance(data, dict):
             continue
 
-        # GraphQL response: unwrap data.<queryName>
-        inner = data.get("data") or {}
+        # ── Specifieke Runna-structuur: data.getActiveOrderDetails ─────────
+        gql = data.get("data") or {}
+        order = gql.get("getActiveOrderDetails") if isinstance(gql, dict) else None
+        if isinstance(order, dict):
+            plan_v2 = order.get("planV2") if isinstance(order.get("planV2"), dict) else None
+            plan = _build_plan(order, plan_v2)
+            if plan.get("name"):
+                log.info("[extract] Plan via getActiveOrderDetails: %s", plan)
+                return plan
+
+        # ── Generieke search: kandidaat-objecten recursief doorzoeken ──────
+        inner = gql if isinstance(gql, dict) else {}
         candidates = [data, inner]
         for v in inner.values() if isinstance(inner, dict) else []:
             if isinstance(v, dict):
                 candidates.append(v)
-        # Ook directe geneste plan-sleutels
-        for k in ("plan", "trainingPlan", "activePlan", "currentPlan", "training_plan"):
-            if isinstance(data.get(k), dict):
-                candidates.append(data[k])
-            if isinstance(inner.get(k), dict):
-                candidates.append(inner[k])
+        for k in ("plan", "trainingPlan", "activePlan", "currentPlan",
+                  "training_plan", "planV2"):
+            for src in (data, inner):
+                if isinstance(src.get(k), dict):
+                    candidates.append(src[k])
 
         for obj in candidates:
             if not isinstance(obj, dict):
@@ -126,32 +184,27 @@ def _extract_plan_from_captures(captured: list[dict]) -> dict | None:
             matches = plan_keys & set(obj.keys())
             if len(matches) >= 2:
                 log.info("[extract] Trainingsplan gevonden via %s: keys=%s", url, list(matches))
-                plan: dict = {}
-                plan["name"] = (
-                    obj.get("plan_name") or obj.get("planName")
-                    or obj.get("name") or obj.get("title")
-                )
-                plan["goal"] = obj.get("goal") or obj.get("target")
-                plan["current_week"] = (
-                    obj.get("current_week") or obj.get("currentWeek")
-                    or obj.get("week_number") or obj.get("weekNumber")
-                )
-                plan["total_weeks"] = (
-                    obj.get("total_weeks") or obj.get("totalWeeks")
-                    or obj.get("num_weeks") or obj.get("numWeeks")
-                    or obj.get("duration_weeks") or obj.get("durationWeeks")
-                )
-                plan["phase"] = obj.get("phase") or obj.get("phase_name") or obj.get("phaseName")
+                plan = {
+                    "name": (obj.get("plan_name") or obj.get("planName")
+                             or obj.get("shortPlanName") or obj.get("name") or obj.get("title")),
+                    "goal": obj.get("goal") or obj.get("target"),
+                    "current_week": (obj.get("current_week") or obj.get("currentWeek")
+                                     or obj.get("currentWeekNumber") or obj.get("weekNumber")),
+                    "total_weeks": (obj.get("total_weeks") or obj.get("totalWeeks")
+                                    or obj.get("num_weeks") or obj.get("numWeeks")
+                                    or obj.get("planLength") or obj.get("durationWeeks")),
+                    "phase": obj.get("phase") or obj.get("phase_name") or obj.get("phaseName"),
+                }
                 plan = {k: v for k, v in plan.items() if v is not None}
-                if plan:
+                if plan.get("name"):
                     return plan
     return None
 
 
 def _extract_sessions_from_captures(
     captured: list[dict],
-    window_days_future: int = 7,
-    window_days_past: int = 14,
+    window_days_future: int = 28,
+    window_days_past: int = 90,
 ) -> tuple[list[dict], list[dict]]:
     """
     Scant alle XHR/GraphQL-captures op sessie-achtige objecten.
@@ -183,7 +236,10 @@ def _extract_sessions_from_captures(
             if not (has_date and has_title):
                 continue
 
-            log.info("[extract] Sessie-array gevonden in %s (%d items)", item["url"], len(arr))
+            log.info(
+                "[extract] Sessie-array gevonden in %s (%d items) — sample keys: %s",
+                item["url"], len(arr), list(sample.keys())[:12]
+            )
 
             for obj in arr:
                 if not isinstance(obj, dict):
@@ -252,9 +308,15 @@ def _extract_sessions_from_captures(
                     continue
                 seen.add(key)
 
+                # Sla rust-dagen over
+                if obj.get("isRestDay") or obj.get("is_rest_day"):
+                    continue
+
                 if session_date >= today and session_date <= cutoff_future:
                     upcoming.append(session)
-                elif session_date < today and session_date >= cutoff_past and is_completed:
+                elif session_date < today and session_date >= cutoff_past:
+                    # Verleden sessies tonen ook als niet expliciet 'completed'
+                    # (Runna markeert gemiste sessions mogelijk anders)
                     completed.append(session)
 
     upcoming.sort(key=lambda s: s["date"])
@@ -585,10 +647,35 @@ def fetch_runna_data(
             plan = _extract_plan_from_captures(all_captured)
             upcoming, completed_runs = _extract_sessions_from_captures(all_captured)
 
-            # ── 10. Stel resultaat samen ──────────────────────────────────
+            # ── 10. Debug: voeg raw sample toe als sessies leeg zijn ─────
+            if not upcoming and not completed:
+                # Sla de eerste gevonden sessie-array op voor diagnose
+                for cap in all_captured:
+                    arrays = _deep_find_arrays(cap["data"])
+                    for arr in arrays:
+                        s = arr[0] if arr else None
+                        if isinstance(s, dict) and len(arr) >= 5:
+                            result_extra = {
+                                "debug_sample_session": s,
+                                "debug_array_len": len(arr),
+                                "debug_array_source": cap["url"],
+                            }
+                            log.info("[debug] Sample sessie: %s", str(s)[:300])
+                            break
+                    else:
+                        continue
+                    break
+
+            # ── 11. Stel resultaat samen ──────────────────────────────────
+            try:
+                extra_debug = result_extra  # type: ignore[name-defined]
+            except NameError:
+                extra_debug = {}
+
             result: dict = {
                 "fetched_at": datetime.now(timezone.utc).isoformat(),
                 "debug_urls": debug_urls,
+                **extra_debug,
             }
             if plan:
                 result["training_plan"] = plan
