@@ -482,21 +482,13 @@ def _run_graphql_in_browser(
         except Exception as exc:
             log.info("[browser-gql] %s → Python-uitzondering: %s", query_name, exc)
 
-    # ── Mobile schema — extra pass met rb-ios headers ─────────────────────────
-    # Fase 1: probeer met dezelfde JWT maar x-rb-platform-source: rb-ios
-    #   → werkt als Runna de schemadifferentiatie via die header doet
-    # Fase 2: als RUNNA_MOBILE_API_KEY is ingesteld, probeer ook zonder JWT
-    #   → werkt als de mobile AppSync-API een eigen API-key heeft
+    # ── Mobile schema — extra pass met mobile API-key ────────────────────────
+    # Alleen uitvoeren als RUNNA_MOBILE_API_KEY is ingesteld.
+    # De web API-key (rb-web) blokkeert sessievelden zoals weekSessions/currentWeekNumber.
+    # De x-rb-platform-source header verandert het schema NIET — dat is API-key afhankelijk.
+    # Gebruik find_runna_mobile_key.py om de mobile API-key uit de APK te extraheren.
     mobile_header_sets: list[tuple[str, dict]] = []
 
-    # Altijd proberen: zelfde JWT, ios platform source
-    ios_headers: dict = {"Content-Type": "application/json", "x-rb-platform-source": "rb-ios"}
-    for k, v in (app_headers or {}).items():
-        if k.lower() == "authorization":
-            ios_headers[k] = v
-    mobile_header_sets.append(("ios-jwt", ios_headers))
-
-    # Extra: als mobile API-key beschikbaar, ook zonder JWT (pure mobile-key auth)
     if RUNNA_MOBILE_API_KEY:
         key_headers: dict = {
             "Content-Type": "application/json",
