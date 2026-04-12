@@ -441,7 +441,6 @@ def _run_graphql_in_browser(
     for query_name, query in GRAPHQL_QUERIES:
         try:
             query_json = json.dumps(query)   # veilig escapen voor JS-inlining
-            op_name_json = json.dumps(query_name.lstrip("_"))
             data = page.evaluate(f"""
                 async () => {{
                     try {{
