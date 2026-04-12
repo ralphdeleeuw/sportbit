@@ -634,10 +634,11 @@ def _scan_web_bundles() -> dict:
                 src = "https:" + src
             elif src.startswith("/"):
                 src = RUNNA_BASE + src
-            if "runna" in src or src.startswith(RUNNA_BASE):
+            # Scan ALLE script-URLs (app kan op CDN staan zoals Vercel/_next/static/...)
+            if src.startswith("http"):
                 script_urls.append(src)
 
-        log.info("[bundle-scan] %d Runna JS-bundles gevonden", len(script_urls))
+        log.info("[bundle-scan] %d JS-bundles gevonden (alle domeinen)", len(script_urls))
 
         found_keys: set[str] = set()
         scanned = 0
@@ -947,6 +948,26 @@ def fetch_runna_data(
             if raw_active_order:
                 log.info("[debug] getActiveOrderDetails (volledig): %s", raw_active_order)
 
+            # Sla de volledige getPlanMetadata op (niet afgekapt) — nieuw schema-veld
+            raw_plan_metadata: dict | None = None
+            for cap in all_captured:
+                gql_data = (cap.get("data") or {}).get("data") or {}
+                if isinstance(gql_data, dict) and "getPlanMetadata" in gql_data:
+                    raw_plan_metadata = gql_data["getPlanMetadata"]
+                    break
+            if raw_plan_metadata:
+                log.info("[debug] getPlanMetadata (volledig): %s", raw_plan_metadata)
+
+            # Sla de volledige getRace op (niet afgekapt)
+            raw_race: dict | None = None
+            for cap in all_captured:
+                gql_data = (cap.get("data") or {}).get("data") or {}
+                if isinstance(gql_data, dict) and "getRace" in gql_data:
+                    raw_race = gql_data["getRace"]
+                    break
+            if raw_race:
+                log.info("[debug] getRace (volledig): %s", raw_race)
+
             # Als geen sessies: sla eerste niet-race array op voor diagnose
             debug_extra: dict = {}
             if not upcoming and not completed_runs:
@@ -996,6 +1017,10 @@ def fetch_runna_data(
             }
             if raw_active_order is not None:
                 result["debug_active_order"] = raw_active_order
+            if raw_plan_metadata is not None:
+                result["debug_plan_metadata"] = raw_plan_metadata
+            if raw_race is not None:
+                result["debug_race"] = raw_race
             if plan:
                 result["training_plan"] = plan
             if upcoming:
