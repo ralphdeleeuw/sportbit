@@ -2062,7 +2062,13 @@
         const cutoffRunna = (() => { const d = new Date(); d.setDate(d.getDate() + 7); return d.toISOString().slice(0, 10); })();
         const upcomingPersonal = personalEvents.filter(e => isUpcoming(e.date, e.time || null));
         const upcomingRunna = runnaData
-          ? (runnaData.upcoming_sessions || []).filter(s => s.date >= todayForRunna && s.date <= cutoffRunna)
+          ? (runnaData.upcoming_sessions || [])
+              .filter(s => s.date >= todayForRunna && s.date <= cutoffRunna)
+              .map(s => {
+                const ne = runnaNotesData[runnaSessionKey(s)];
+                const t = ne && typeof ne === 'object' ? (ne.time || '') : '';
+                return { ...s, _src: 'runna', time: t };
+              })
           : [];
         const allUpcoming = [
           ...upcoming.map(e => ({ ...e, _src: 'crossfit' })),
@@ -2934,16 +2940,28 @@
 
     function renderRunnaEventCard(session, delay) {
       const key      = runnaSessionKey(session);
-      const notes    = runnaNotesData[key] || '';
+      const ne       = runnaNotesData[key];
+      const notes    = ne && typeof ne === 'object' ? (ne.notes || '') : (ne || '');
+      const savedTime = ne && typeof ne === 'object' ? (ne.time  || '') : '';
+      const displayTime = session.time || savedTime;
+
       const dist     = session.distance_km ? `${session.distance_km}km` : '';
-      const metaHtml = dist ? `<div class="card-meta"><span>${dist}</span></div>` : '';
+      const timeSpan = displayTime ? `<span class="card-time" style="color:#00c853">${displayTime}</span>` : '';
+      const metaParts = [timeSpan, dist ? `<span>${dist}</span>` : ''].filter(Boolean).join('');
+      const metaHtml = metaParts ? `<div class="card-meta">${metaParts}</div>` : '';
       const chevron  = `<div class="wod-chevron" style="color:#00c853">▾</div>`;
 
       const wodContent = notes
         ? `<div style="font-size:0.82rem;color:#a0e8b0;white-space:pre-wrap;line-height:1.6;margin-bottom:0.5rem">${escapeHtml(notes)}</div>
            <button class="personal-delete-btn" style="background:#0d3a1a;color:#00c853;border:1px solid #00c853"
              onclick="event.stopPropagation();startEditRunnaNote('${key}',this)">Bewerk</button>`
-        : `<textarea id="runna-ta-${key}" rows="3" placeholder="Plak hier de oefening of notitie…"
+        : `<div style="display:flex;gap:0.5rem;align-items:center;margin-bottom:0.4rem">
+             <span style="font-size:0.78rem;color:#5a8a62">Tijdstip:</span>
+             <input type="time" id="runna-time-${key}" value="${savedTime}"
+               style="background:#0a2010;color:#c8e8d0;border:1px solid #1a5a2a;border-radius:5px;padding:0.2rem 0.4rem;font-size:0.8rem"
+               onclick="event.stopPropagation()" />
+           </div>
+           <textarea id="runna-ta-${key}" rows="3" placeholder="Plak hier de oefening of notitie…"
              style="width:100%;background:#0a2010;color:#c8e8d0;border:1px solid #1a5a2a;border-radius:6px;padding:0.5rem;font-size:0.82rem;resize:vertical;box-sizing:border-box"
              onclick="event.stopPropagation()"></textarea>
            <button style="margin-top:0.4rem;padding:0.3rem 0.9rem;background:#00c853;color:#000;border:none;border-radius:5px;font-size:0.8rem;cursor:pointer"
@@ -2970,9 +2988,17 @@
     }
 
     function startEditRunnaNote(key, btn) {
-      const notes = runnaNotesData[key] || '';
+      const ne    = runnaNotesData[key];
+      const notes = ne && typeof ne === 'object' ? (ne.notes || '') : (ne || '');
+      const time  = ne && typeof ne === 'object' ? (ne.time  || '') : '';
       const wod   = btn.closest('.card-wod');
       wod.innerHTML = `
+        <div style="display:flex;gap:0.5rem;align-items:center;margin-bottom:0.4rem">
+          <span style="font-size:0.78rem;color:#5a8a62">Tijdstip:</span>
+          <input type="time" id="runna-time-${key}" value="${time}"
+            style="background:#0a2010;color:#c8e8d0;border:1px solid #1a5a2a;border-radius:5px;padding:0.2rem 0.4rem;font-size:0.8rem"
+            onclick="event.stopPropagation()" />
+        </div>
         <textarea id="runna-ta-${key}" rows="3"
           style="width:100%;background:#0a2010;color:#c8e8d0;border:1px solid #1a5a2a;border-radius:6px;padding:0.5rem;font-size:0.82rem;resize:vertical;box-sizing:border-box"
           onclick="event.stopPropagation()">${escapeHtml(notes)}</textarea>
@@ -2985,13 +3011,18 @@
       if (!token) { btn.textContent = '⚠ Token nodig'; return; }
 
       const ta    = document.getElementById(`runna-ta-${key}`);
+      const ti    = document.getElementById(`runna-time-${key}`);
       const notes = (ta?.value || '').trim();
+      const time  = (ti?.value || '').trim();
       btn.disabled = true;
       btn.textContent = '…';
 
       try {
-        runnaNotesData[key] = notes;
-        if (!notes) delete runnaNotesData[key];
+        if (notes || time) {
+          runnaNotesData[key] = { notes, time };
+        } else {
+          delete runnaNotesData[key];
+        }
 
         const patch = await fetch(`https://api.github.com/gists/${currentGistId}`, {
           method: 'PATCH',
@@ -3000,14 +3031,29 @@
         });
         if (!patch.ok) throw new Error(`${patch.status}`);
 
-        // Vervang textarea door de opgeslagen tekst
+        // Vervang textarea door de opgeslagen tekst; update ook tijdstip in card-header
+        const card = btn.closest('.card');
+        if (time) {
+          let timeEl = card?.querySelector('.card-time');
+          if (timeEl) { timeEl.textContent = time; }
+          else {
+            const meta = card?.querySelector('.card-meta');
+            if (meta) meta.insertAdjacentHTML('afterbegin', `<span class="card-time" style="color:#00c853">${time}</span>`);
+          }
+        }
         const wod = btn.closest('.card-wod');
-        if (notes) {
-          wod.innerHTML = `<div style="font-size:0.82rem;color:#a0e8b0;white-space:pre-wrap;line-height:1.6;margin-bottom:0.5rem">${escapeHtml(notes)}</div>
+        if (notes || time) {
+          wod.innerHTML = `${notes ? `<div style="font-size:0.82rem;color:#a0e8b0;white-space:pre-wrap;line-height:1.6;margin-bottom:0.5rem">${escapeHtml(notes)}</div>` : ''}
             <button class="personal-delete-btn" style="background:#0d3a1a;color:#00c853;border:1px solid #00c853"
               onclick="event.stopPropagation();startEditRunnaNote('${key}',this)">Bewerk</button>`;
         } else {
-          wod.innerHTML = `<textarea id="runna-ta-${key}" rows="3" placeholder="Plak hier de oefening of notitie…"
+          wod.innerHTML = `<div style="display:flex;gap:0.5rem;align-items:center;margin-bottom:0.4rem">
+              <span style="font-size:0.78rem;color:#5a8a62">Tijdstip:</span>
+              <input type="time" id="runna-time-${key}"
+                style="background:#0a2010;color:#c8e8d0;border:1px solid #1a5a2a;border-radius:5px;padding:0.2rem 0.4rem;font-size:0.8rem"
+                onclick="event.stopPropagation()" />
+            </div>
+            <textarea id="runna-ta-${key}" rows="3" placeholder="Plak hier de oefening of notitie…"
               style="width:100%;background:#0a2010;color:#c8e8d0;border:1px solid #1a5a2a;border-radius:6px;padding:0.5rem;font-size:0.82rem;resize:vertical;box-sizing:border-box"
               onclick="event.stopPropagation()"></textarea>
             <button style="margin-top:0.4rem;padding:0.3rem 0.9rem;background:#00c853;color:#000;border:none;border-radius:5px;font-size:0.8rem;cursor:pointer"
