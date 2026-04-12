@@ -55,6 +55,25 @@ GRAPHQL_QUERIES = [
         }
       }
     }"""),
+    ("getPlanMetadata_full", """query {
+      getPlanMetadata {
+        id name shortName description
+        totalWeeks currentWeek weekNumber
+        phase goal raceDate raceDistance
+        weeks {
+          weekNumber isCurrentWeek label
+          sessions { id scheduledDate title sessionType status targetDistance targetDuration }
+        }
+        currentWeekSessions { id scheduledDate title sessionType status targetDistance targetDuration }
+        upcomingSessions { id scheduledDate title sessionType status targetDistance targetDuration }
+        completedSessions { id completedDate title sessionType actualDistance actualDuration }
+      }
+    }"""),
+    ("getRace_current", """query {
+      getRace {
+        id name date distance type goal
+      }
+    }"""),
     ("userProfile_basic", """query { userProfile { id name email unitOfMeasurementV2 subscriptionStatusV2 } }"""),
 ]
 
@@ -575,6 +594,82 @@ def save_to_gist(gist_id: str, token: str, data: dict) -> None:
     log.info("Opgeslagen in Gist als %s", GIST_FILENAME)
 
 
+# ── Web JS-bundle scanner ─────────────────────────────────────────────────────
+
+_API_KEY_RE = re.compile(rb"da2-[a-zA-Z0-9]{26}")
+_KNOWN_WEB_KEY = "da2-p6hunb5zafhn7ngpf6jtotnjvm"
+
+
+def _scan_web_bundles() -> dict:
+    """
+    Haal de Runna web-app HTML op en scan alle JS-bundles op AppSync API-keys.
+    Geeft {'extra_api_keys': [...], 'bundles_scanned': N} terug.
+    Loopt nooit langer dan ~15 seconden.
+    """
+    import html.parser
+
+    class ScriptParser(html.parser.HTMLParser):
+        def __init__(self):
+            super().__init__()
+            self.scripts: list[str] = []
+        def handle_starttag(self, tag, attrs):
+            if tag == "script":
+                d = dict(attrs)
+                src = d.get("src", "")
+                if src:
+                    self.scripts.append(src)
+
+    try:
+        log.info("[bundle-scan] Ophalen web.runna.com HTML …")
+        html_resp = requests.get(RUNNA_BASE, timeout=10, headers={
+            "User-Agent": "Mozilla/5.0 (compatible; fetch_runna/1.0)"
+        })
+        html_resp.raise_for_status()
+        parser = ScriptParser()
+        parser.feed(html_resp.text)
+
+        script_urls = []
+        for src in parser.scripts:
+            if src.startswith("//"):
+                src = "https:" + src
+            elif src.startswith("/"):
+                src = RUNNA_BASE + src
+            if "runna" in src or src.startswith(RUNNA_BASE):
+                script_urls.append(src)
+
+        log.info("[bundle-scan] %d Runna JS-bundles gevonden", len(script_urls))
+
+        found_keys: set[str] = set()
+        scanned = 0
+        for url in script_urls[:15]:           # max 15 bundles
+            try:
+                r = requests.get(url, timeout=8, stream=True, headers={
+                    "User-Agent": "Mozilla/5.0 (compatible; fetch_runna/1.0)"
+                })
+                r.raise_for_status()
+                chunk = b""
+                for blk in r.iter_content(chunk_size=65536):
+                    chunk += blk
+                    if len(chunk) >= 200_000:   # max 200 KB per bundle
+                        break
+                for m in _API_KEY_RE.finditer(chunk):
+                    key = m.group(0).decode()
+                    if key != _KNOWN_WEB_KEY:
+                        found_keys.add(key)
+                        log.info("[bundle-scan] Extra API-key gevonden in %s: %s", url, key)
+                scanned += 1
+            except Exception as exc:
+                log.debug("[bundle-scan] %s overgeslagen: %s", url, exc)
+
+        log.info("[bundle-scan] Klaar: %d bundles gescand, %d extra keys gevonden",
+                 scanned, len(found_keys))
+        return {"extra_api_keys": sorted(found_keys), "bundles_scanned": scanned}
+
+    except Exception as exc:
+        log.warning("[bundle-scan] Mislukt: %s", exc)
+        return {"extra_api_keys": [], "bundles_scanned": 0}
+
+
 # ── Hoofdfunctie ──────────────────────────────────────────────────────────────
 
 def fetch_runna_data(
@@ -593,6 +688,9 @@ def fetch_runna_data(
         log.error("playwright niet geïnstalleerd")
         return {"error": "playwright niet geïnstalleerd",
                 "fetched_at": datetime.now(timezone.utc).isoformat()}
+
+    # Scan web JS-bundles op extra API-keys (vóór browser start; geen auth nodig)
+    bundle_scan = _scan_web_bundles()
 
     log.info("Playwright headless browser starten (mobiele emulatie)")
     captured: list[dict] = []
@@ -893,6 +991,7 @@ def fetch_runna_data(
                 "fetched_at": datetime.now(timezone.utc).isoformat(),
                 "debug_urls": debug_urls,
                 "debug_captures": debug_captures,
+                "bundle_scan": bundle_scan,
                 **debug_extra,
             }
             if raw_active_order is not None:
