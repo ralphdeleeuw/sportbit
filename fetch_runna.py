@@ -43,71 +43,49 @@ RACE_EVENT_INDICATORS = frozenset({
     "keywords", "weather", "bio", "endDate",
 })
 
-# GraphQL-queries om te proberen (schema is ongedocumenteerd — breed zoeken)
-# Elke query wordt geprobeerd; fouten worden genegeerd
+# GraphQL-queries via browser-fetch (met app-headers incl. JWT na login).
+# Alleen queries die bevestigd bestaan op het web-schema, plus speculatieve
+# sessie-queries. Queries die niet bestaan geven een GraphQL-fout (veilig te negeren).
 GRAPHQL_QUERIES = [
-    # ── Schema-introspectie (ontdek ALLE beschikbare queries) ─────────────
-    ("__schema_types",    """{ __schema { types { name } } }"""),
-    ("__fields_Query",    """{ __type(name: "Query") { fields { name type { name kind ofType { name kind } } } } }"""),
-    # ── Veld-introspectie voor sessie-gerelateerde types ───────────────────
-    ("__fields_ActiveOrderDetails", """{ __type(name: "ActiveOrderDetails") { fields { name type { name kind ofType { name kind } } } } }"""),
-    ("__fields_PlanSession",        """{ __type(name: "PlanSession") { fields { name type { name kind } } } }"""),
-    ("__fields_Session",            """{ __type(name: "Session") { fields { name type { name kind } } } }"""),
-    ("__fields_WeekSession",        """{ __type(name: "WeekSession") { fields { name type { name kind } } } }"""),
-    ("__fields_TrainingSession",    """{ __type(name: "TrainingSession") { fields { name type { name kind } } } }"""),
-    ("__fields_WorkoutSession",     """{ __type(name: "WorkoutSession") { fields { name type { name kind } } } }"""),
-    # ── Trainingsplan — alleen bekende velden (uit debug_active_order) ────────
-    ("getActiveOrderDetails_minimal", """query {
+    # ── Bevestigd werkend op het web-schema ───────────────────────────────
+    ("getActiveOrderDetails_full", """query {
       getActiveOrderDetails {
         customPlanName
-        planV2 { shortPlanName planLength raceDistance }
+        planV2 {
+          shortPlanName planLength raceDistance raceDistName color iconText
+        }
       }
     }"""),
-    # ── Probeer aanvullende velden op OrderDetails ─────────────────────────
-    ("getActiveOrderDetails_weeks", """query {
+    ("userProfile_basic", """query { userProfile { id name email unitOfMeasurementV2 subscriptionStatusV2 } }"""),
+    # ── Speculatief: sessies via OrderDetails-uitbreidingen ───────────────
+    # (worden genegeerd als het veld niet bestaat op het web-schema)
+    ("getActiveOrderDetails_sessions", """query {
       getActiveOrderDetails {
-        currentWeekNumber
-        totalWeeks
-        weekSessions {
+        currentWeekNumber totalWeeks startDate endDate
+        sessions {
           id scheduledDate title sessionType status
-          targetDistance targetDuration completedDate
-          description isRestDay
+          targetDistance targetDuration description isRestDay
         }
       }
     }"""),
-    # ── Variant: planWeeks met sessies per week ────────────────────────────
-    ("getActiveOrderDetails_planWeeks", """query {
+    ("getActiveOrderDetails_plan", """query {
       getActiveOrderDetails {
-        currentWeekNumber totalWeeks
-        planWeeks {
-          weekNumber isCurrentWeek
-          sessions {
-            id scheduledDate title sessionType status
-            targetDistance targetDuration completed description isRestDay
-          }
-        }
+        planStartDate currentWeekNumber totalWeeks
+        weekSessions { id scheduledDate title sessionType status targetDistance targetDuration isRestDay }
+        completedSessions { id completedDate title sessionType actualDistance actualDuration }
       }
     }"""),
-    # ── Huidig week-schema ─────────────────────────────────────────────────
-    ("getWeekSchedule",      """query { getWeekSchedule { id scheduledDate title sessionType status targetDistance targetDuration description isRestDay } }"""),
-    ("getCurrentWeekPlan",   """query { getCurrentWeekPlan { sessions { id scheduledDate title sessionType status targetDistance targetDuration description isRestDay } } }"""),
-    ("getSchedule",          """query { getSchedule { id scheduledDate title sessionType status targetDistance targetDuration isRestDay } }"""),
-    ("getPlanSchedule",      """query { getPlanSchedule { sessions { id scheduledDate title sessionType status targetDistance targetDuration description isRestDay } } }"""),
-    ("getUpcomingSessions",  """query { getUpcomingSessions { id scheduledDate title sessionType status targetDistance targetDuration description isRestDay } }"""),
-    ("getTodaySession",      """query { getTodaySession { id scheduledDate title sessionType status targetDistance targetDuration description } }"""),
-    ("getUserSessions",      """query { getUserSessions { id scheduledDate title sessionType status targetDistance targetDuration description isRestDay } }"""),
-    # ── Generieke schema / geplande sessies ───────────────────────────────
-    ("sessions",     """query { sessions { id scheduledDate date title sessionType type status targetDistance targetDuration completed description isRestDay } }"""),
-    ("weekSessions", """query { weekSessions { id scheduledDate date title sessionType type status targetDistance targetDuration completed isRestDay } }"""),
-    ("schedule",     """query { schedule { sessions { id scheduledDate date title sessionType type status targetDistance targetDuration completed } } }"""),
-    # ── Voltooide runs ─────────────────────────────────────────────────────
-    ("getWorkoutHistory",  """query { getWorkoutHistory { id completedDate date title sessionType type actualDistance actualDuration description } }"""),
-    ("completedSessions",  """query { completedSessions { id completedDate date title sessionType type actualDistance actualDuration } }"""),
-    ("completedRuns",      """query { completedRuns { id date completedDate title type distance duration completed } }"""),
-    ("activityHistory",    """query { activityHistory { id date completedDate title type distance duration } }"""),
-    ("getRunHistory",      """query { getRunHistory { id completedDate title sessionType actualDistance actualDuration } }"""),
-    # ── Overig ────────────────────────────────────────────────────────────
-    ("userProfile",   """query { userProfile { id email firstName lastName } }"""),
+    # ── Speculatief: aparte sessie-queries ────────────────────────────────
+    ("getActivePlanSessions", """query { getActivePlanSessions { id scheduledDate title sessionType status targetDistance targetDuration isRestDay } }"""),
+    ("getActivePlan",         """query { getActivePlan { id name currentWeek totalWeeks sessions { id scheduledDate title sessionType status targetDistance targetDuration isRestDay } } }"""),
+    ("getMyTrainingPlan",     """query { getMyTrainingPlan { id name currentWeekNumber totalWeeks weekSessions { id scheduledDate title sessionType status targetDistance targetDuration isRestDay } } }"""),
+    ("getUserTrainingPlan",   """query { getUserTrainingPlan { id planName currentWeek totalWeeks sessions { id scheduledDate title sessionType status targetDistance targetDuration description isRestDay } } }"""),
+    ("getNextSession",        """query { getNextSession { id scheduledDate title sessionType status targetDistance targetDuration description } }"""),
+    ("getUpcomingRuns",       """query { getUpcomingRuns { id scheduledDate title sessionType status targetDistance targetDuration isRestDay } }"""),
+    # ── Speculatief: voltooide runs ───────────────────────────────────────
+    ("getCompletedRuns",      """query { getCompletedRuns { id completedDate title sessionType actualDistance actualDuration } }"""),
+    ("getUserRunHistory",     """query { getUserRunHistory { id completedDate title sessionType actualDistance actualDuration } }"""),
+    ("getRunLog",             """query { getRunLog { id date title type distance duration } }"""),
 ]
 
 # ── Logging ───────────────────────────────────────────────────────────────────
@@ -441,7 +419,6 @@ def _run_graphql_in_browser(
     for query_name, query in GRAPHQL_QUERIES:
         try:
             query_json = json.dumps(query)   # veilig escapen voor JS-inlining
-            op_name_json = json.dumps(query_name.lstrip("_"))
             data = page.evaluate(f"""
                 async () => {{
                     try {{
@@ -450,11 +427,11 @@ def _run_graphql_in_browser(
                             headers: {headers_json},
                             body: JSON.stringify({{ query: {query_json} }})
                         }});
-                        // Lees altijd de body — AppSync geeft bij 400 JSON-errors terug
+                        // Lees body eenmalig — AppSync geeft bij 400 JSON-errors terug
                         let body;
                         try {{ body = await resp.json(); }} catch(_) {{ body = null; }}
                         if (!resp.ok) return {{ _httpError: resp.status, _body: body }};
-                        return await resp.json();
+                        return body;
                     }} catch (e) {{
                         return {{ _fetchError: e.toString() }};
                     }}
@@ -480,28 +457,7 @@ def _run_graphql_in_browser(
                 log.info("[browser-gql] %s → GraphQL errors: %s", query_name, err_msgs[:3])
                 continue
 
-            # Speciale logging per type
-            if query_name == "__schema_types":
-                types_data = ((data.get("data") or {}).get("__schema") or {}).get("types", [])
-                type_names = sorted(
-                    t["name"] for t in types_data
-                    if isinstance(t, dict) and not t.get("name", "").startswith("__")
-                )
-                log.info("[browser-gql] Schema-types (%d): %s", len(type_names), type_names)
-            elif query_name == "__fields_Query":
-                fields = ((data.get("data") or {}).get("__type") or {}).get("fields", []) or []
-                names = [f["name"] for f in fields]
-                log.info("[browser-gql] Query-velden (%d): %s", len(names), names)
-            elif query_name.startswith("__fields_"):
-                type_info = (data.get("data") or {}).get("__type")
-                if type_info:
-                    fields = [f["name"] for f in (type_info.get("fields") or [])]
-                    log.info("[browser-gql] %s velden: %s", query_name[10:], fields)
-                else:
-                    log.info("[browser-gql] %s → type niet gevonden in schema", query_name)
-                    continue  # niet opslaan als type niet bestaat
-            else:
-                log.info("[browser-gql] %s → %s", query_name, str(data)[:800])
+            log.info("[browser-gql] %s → %s", query_name, str(data)[:800])
 
             captured.append({"url": f"{GRAPHQL_URL}#{query_name}", "data": data})
         except Exception as exc:
@@ -572,22 +528,25 @@ def fetch_runna_data(
             pass
 
     def _on_graphql_request(request) -> None:
-        """Leg de headers van het eerste geslaagde GraphQL-verzoek vast."""
+        """Leg GraphQL-request-headers vast; update altijd als Authorization aanwezig is."""
         try:
             if "hydra.platform.runna.com/graphql" not in request.url:
                 return
-            if graphql_req_headers:
-                return  # alleen eerste keer
             h = dict(request.headers)
-            graphql_req_headers.update(h)
-            interesting = {
-                k: v for k, v in h.items()
-                if k.lower() in (
-                    "authorization", "content-type", "x-api-key",
-                    "origin", "referer", "x-amz-user-agent",
-                )
-            }
-            log.info("[req] GraphQL-verzoek headers: %s", interesting)
+            has_auth = any(k.lower() == "authorization" for k in h)
+            # Altijd updaten als we Authorization (JWT) zien, anders alleen als nog leeg
+            if has_auth or not graphql_req_headers:
+                graphql_req_headers.clear()
+                graphql_req_headers.update(h)
+                interesting = {
+                    k: v[:40] + "…" if len(v) > 40 else v
+                    for k, v in h.items()
+                    if k.lower() in (
+                        "authorization", "content-type", "x-api-key",
+                        "origin", "referer", "x-amz-user-agent", "x-rb-platform-source",
+                    )
+                }
+                log.info("[req] GraphQL-headers bijgewerkt (auth=%s): %s", has_auth, interesting)
         except Exception:
             pass
 
