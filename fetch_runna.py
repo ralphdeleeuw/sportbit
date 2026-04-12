@@ -442,67 +442,80 @@ def fetch_runna_data(
             log.info("[browser] Navigeren naar inlogpagina: %s/sign-in", RUNNA_BASE)
             page.goto(f"{RUNNA_BASE}/sign-in", wait_until="domcontentloaded", timeout=30000)
 
-            # Wacht op zichtbaar worden van het formulier (max 10s)
+            # Wacht op het loginformulier
             try:
                 page.wait_for_selector(
-                    'input[type="email"], input[name="email"], input[type="text"]',
-                    state="visible", timeout=10000
+                    '[data-testid="sign-in-email"], input[name="email"]',
+                    state="visible", timeout=10000,
                 )
+                log.info("[browser] Loginformulier zichtbaar — URL: %s", page.url)
             except Exception:
-                log.warning("[browser] Inlogformulier nog niet zichtbaar na 10s")
+                log.warning("[browser] Loginformulier niet direct zichtbaar")
 
-            # Diagnose: log beschikbare inputs
+            # ── 2. CookieBot-banner wegklikken ────────────────────────────
+            # De banner onderschept alle pointer-events; klik via JavaScript.
             try:
-                inputs = page.evaluate(
-                    "() => [...document.querySelectorAll('input')].map(i => "
-                    "({type: i.type, name: i.name, id: i.id, placeholder: i.placeholder}))"
-                )
-                log.info("[browser] Inputs op pagina: %s", inputs)
-                buttons = page.evaluate(
-                    "() => [...document.querySelectorAll('button')].map(b => "
-                    "({id: b.id, type: b.type, text: b.textContent.trim().slice(0,50)}))"
-                )
-                log.info("[browser] Knoppen op pagina: %s", buttons)
-                log.info("[browser] Huidige URL: %s", page.url)
-            except Exception as dbg_exc:
-                log.warning("[browser] Kon formuliervelden niet loggen: %s", dbg_exc)
-
-            # ── 2. Formulier invullen ─────────────────────────────────────
-            try:
-                email_input = page.locator(
-                    'input[type="email"], input[name="email"]'
-                ).first
-                email_input.wait_for(state="visible", timeout=10000)
-                email_input.click()
-                email_input.type(email)
-                log.info("[browser] Email ingevuld")
+                clicked = page.evaluate("""
+                    () => {
+                        const btn = document.getElementById(
+                            'CybotCookiebotDialogBodyLevelButtonLevelOptinAllowAll'
+                        );
+                        if (btn) { btn.click(); return true; }
+                        return false;
+                    }
+                """)
+                if clicked:
+                    log.info("[browser] CookieBot-banner geaccepteerd")
+                    page.wait_for_timeout(1500)  # wacht op weganimatie
             except Exception as exc:
-                log.warning("[browser] Email-veld niet gevonden: %s", exc)
+                log.debug("[browser] CookieBot klik mislukt (misschien al weg): %s", exc)
 
-            try:
-                password_input = page.locator('input[type="password"]').first
-                password_input.wait_for(state="visible", timeout=10000)
-                password_input.click()
-                password_input.type(password)
-                log.info("[browser] Wachtwoord ingevuld")
-            except Exception as exc:
-                log.warning("[browser] Wachtwoord-veld niet gevonden: %s", exc)
+            # ── 3. Formulier invullen via JavaScript ──────────────────────
+            # Gebruik React's native input setter + bubbelende events, zodat
+            # pointer-event interceptie geen probleem is.
+            email_js   = json.dumps(email)
+            password_js = json.dumps(password)
 
-            # Klik submit
-            try:
-                submit = page.locator('button[type="submit"]').first
-                submit.wait_for(state="enabled", timeout=5000)
-                submit.click()
-                log.info("[browser] Submit-knop geklikt")
-            except Exception:
-                log.info("[browser] Submit-knop niet beschikbaar; Enter indrukken")
-                try:
-                    page.locator('input[type="password"]').first.press("Enter")
-                except Exception:
-                    pass
+            filled = page.evaluate(f"""
+                () => {{
+                    const setter = Object.getOwnPropertyDescriptor(
+                        HTMLInputElement.prototype, 'value'
+                    ).set;
+                    const trigger = (el, val) => {{
+                        setter.call(el, val);
+                        el.dispatchEvent(new Event('input',  {{bubbles: true}}));
+                        el.dispatchEvent(new Event('change', {{bubbles: true}}));
+                    }};
+                    const emailEl = document.querySelector(
+                        '[data-testid="sign-in-email"], input[name="email"]'
+                    );
+                    const passEl  = document.querySelector(
+                        '[data-testid="sign-in-password"], input[type="password"]'
+                    );
+                    if (!emailEl || !passEl) return false;
+                    trigger(emailEl, {email_js});
+                    trigger(passEl,  {password_js});
+                    return true;
+                }}
+            """)
+            if filled:
+                log.info("[browser] Email + wachtwoord ingevuld via JavaScript")
+            else:
+                log.warning("[browser] Formuliervelden niet gevonden via JavaScript")
 
-            # ── 3. Wacht op succesvolle login ─────────────────────────────
-            # Na inloggen redirect de app weg van /sign-in EN /welcome
+            # ── 4. Submit via JavaScript ──────────────────────────────────
+            page.evaluate("""
+                () => {
+                    // Klik de eerste submit-knop die NIET van CookieBot is
+                    const btns = [...document.querySelectorAll('button[type="submit"]')];
+                    const loginBtn = btns.find(b => !b.id.includes('Cybot'));
+                    if (loginBtn) { loginBtn.click(); return true; }
+                    return false;
+                }
+            """)
+            log.info("[browser] Login-submit geklikt via JavaScript")
+
+            # ── 5. Wacht op succesvolle redirect ─────────────────────────
             login_failed = False
             try:
                 page.wait_for_function(
@@ -518,7 +531,6 @@ def fetch_runna_data(
                 if any(p in page.url for p in ("/sign-in", "/login", "/auth", "/welcome")):
                     log.error("[browser] Inloggen mislukt — pagina: %s", page.url)
                     login_failed = True
-                    # Sla debug-HTML op
                     try:
                         html_content = page.content()
                         if gist_id and token:
@@ -542,10 +554,10 @@ def fetch_runna_data(
                     "fetched_at": datetime.now(timezone.utc).isoformat(),
                 }
 
-            # ── 4. JWT-token extraheren ───────────────────────────────────
+            # ── 6. JWT-token extraheren ───────────────────────────────────
             auth_headers = _get_auth_headers(page)
 
-            # ── 5. Bezoek pagina's om meer XHR/GraphQL te triggeren ───────
+            # ── 7. Bezoek pagina's om meer XHR/GraphQL te triggeren ───────
             all_captured: list[dict] = list(captured)
 
             for path, label in PAGES_TO_VISIT:
@@ -562,18 +574,18 @@ def fetch_runna_data(
 
             browser.close()
 
-            # ── 6. Directe GraphQL-queries (als JWT beschikbaar) ──────────
+            # ── 8. Directe GraphQL-queries (als JWT beschikbaar) ──────────
             if auth_headers:
                 log.info("[graphql] Directe queries uitvoeren met JWT-token")
                 _run_graphql_queries(auth_headers, all_captured)
             else:
                 log.info("[graphql] Geen JWT — alleen XHR-interceptie gebruikt")
 
-            # ── 7. Extraheer data ─────────────────────────────────────────
+            # ── 9. Extraheer data ─────────────────────────────────────────
             plan = _extract_plan_from_captures(all_captured)
             upcoming, completed_runs = _extract_sessions_from_captures(all_captured)
 
-            # ── 8. Stel resultaat samen ───────────────────────────────────
+            # ── 10. Stel resultaat samen ──────────────────────────────────
             result: dict = {
                 "fetched_at": datetime.now(timezone.utc).isoformat(),
                 "debug_urls": debug_urls,
