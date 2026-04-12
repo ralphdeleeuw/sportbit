@@ -1437,7 +1437,8 @@
     let intervalsData = null;   // {wellness: {by_date: {...}}, activities: {by_date: {...}}, fetched_at}
     let withingsData = null;    // {measurements: [...], fetched_at}
     let environmentalData = null; // {training_conditions: {...}, aqi: {...}, fetched_at}
-    let runnaData = null;   // {training_plan, upcoming_sessions, recent_completed, fetched_at}
+    let runnaData = null;      // {training_plan, upcoming_sessions, recent_completed, fetched_at}
+    let runnaNotesData = {};   // {noteKey: notesText} — opgeslagen in runna_notes.json in Gist
     let activeChartLift = null;
     let liftChart = null;
     let currentGistId = '';
@@ -1555,6 +1556,12 @@
       const runnaFile = files['runna_data.json'];
       if (runnaFile) {
         try { runnaData = JSON.parse(runnaFile.content); } catch(e) {}
+      }
+
+      // runna_notes.json — handmatig toegevoegde notities per Runna-sessie
+      const runnaNotesFile = files['runna_notes.json'];
+      if (runnaNotesFile) {
+        try { runnaNotesData = JSON.parse(runnaNotesFile.content).notes || {}; } catch(e) {}
       }
     }
 
@@ -2049,12 +2056,17 @@
         const mealsHtml = renderMealsBlock();
         if (mealsHtml) html += mealsHtml;
 
-        // Upcoming: CrossFit classes + personal events combined
+        // Upcoming: CrossFit classes + personal events + Runna runs combined
         _upcomingCrossfit = upcoming;
+        const todayForRunna = new Date().toISOString().slice(0, 10);
         const upcomingPersonal = personalEvents.filter(e => isUpcoming(e.date, e.time || null));
+        const upcomingRunna = runnaData
+          ? (runnaData.upcoming_sessions || []).filter(s => s.date >= todayForRunna)
+          : [];
         const allUpcoming = [
           ...upcoming.map(e => ({ ...e, _src: 'crossfit' })),
           ...upcomingPersonal.map(e => ({ ...e, _src: 'personal' })),
+          ...upcomingRunna.map(e => ({ ...e, _src: 'runna' })),
         ].sort((a, b) => a.date.localeCompare(b.date) || (a.time || '').localeCompare(b.time || ''));
 
         html += `<div class="section-title">Aankomend <button class="add-event-btn" onclick="showAddEventForm()">+ Toevoegen</button></div>`;
@@ -2065,6 +2077,7 @@
         } else {
           allUpcoming.forEach((e, i) => {
             if (e._src === 'crossfit') html += renderCard(e, 'active', i * 0.05, wodByDate[e.date]);
+            else if (e._src === 'runna') html += renderRunnaEventCard(e, i * 0.05);
             else html += renderPersonalEventCard(e, i * 0.05);
           });
         }
@@ -2095,9 +2108,13 @@
             .filter(d => !classDates.has(d) && d >= cutoffStr && d <= new Date().toISOString().slice(0, 10));
 
           // Bouw gecombineerde lijst: {type, date, item?}
+          const pastRunna = runnaData
+            ? (runnaData.recent_completed || []).filter(s => s.date >= cutoffStr && s.date < todayForRunna)
+            : [];
           const pastItems = [
             ...past.slice(-5).map(e => ({ type: 'class', date: e.date, item: e })),
             ...orphanDates.map(d => ({ type: 'activity', date: d })),
+            ...pastRunna.map(s => ({ type: 'runna', date: s.date, item: s })),
           ];
           pastItems.sort((a, b) => b.date.localeCompare(a.date));
           const pastSlice = pastItems.slice(0, 8); // max 8 kaarten
@@ -2107,6 +2124,8 @@
             pastSlice.forEach((entry, i) => {
               if (entry.type === 'class') {
                 html += renderPastCard(entry.item, i * 0.05);
+              } else if (entry.type === 'runna') {
+                html += renderRunnaEventCard(entry.item, i * 0.05);
               } else {
                 html += renderActivityCard(entry.date, i * 0.05);
               }
@@ -2903,6 +2922,100 @@
             ${deleteBtn}
           </div>
         </div>`;
+    }
+
+    // ── Runna event cards ─────────────────────────────────────────────────────
+
+    function runnaSessionKey(session) {
+      const slug = (session.title || '').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 40);
+      return `${session.date}_${slug}`;
+    }
+
+    function renderRunnaEventCard(session, delay) {
+      const key      = runnaSessionKey(session);
+      const notes    = runnaNotesData[key] || '';
+      const dist     = session.distance_km ? `${session.distance_km}km` : '';
+      const metaHtml = dist ? `<div class="card-meta"><span>${dist}</span></div>` : '';
+      const chevron  = `<div class="wod-chevron" style="color:#00c853">▾</div>`;
+
+      const wodContent = notes
+        ? `<div style="font-size:0.82rem;color:#a0e8b0;white-space:pre-wrap;line-height:1.6;margin-bottom:0.5rem">${escapeHtml(notes)}</div>
+           <button class="personal-delete-btn" style="background:#0d3a1a;color:#00c853;border:1px solid #00c853"
+             onclick="event.stopPropagation();startEditRunnaNote('${key}',this)">Bewerk</button>`
+        : `<textarea id="runna-ta-${key}" rows="3" placeholder="Plak hier de oefening of notitie…"
+             style="width:100%;background:#0a2010;color:#c8e8d0;border:1px solid #1a5a2a;border-radius:6px;padding:0.5rem;font-size:0.82rem;resize:vertical;box-sizing:border-box"
+             onclick="event.stopPropagation()"></textarea>
+           <button style="margin-top:0.4rem;padding:0.3rem 0.9rem;background:#00c853;color:#000;border:none;border-radius:5px;font-size:0.8rem;cursor:pointer"
+             onclick="event.stopPropagation();saveRunnaNote('${key}',this)">Opslaan</button>`;
+
+      return `
+        <div class="card has-wod" style="animation-delay:${delay}s" onclick="toggleWod(this)">
+          <div class="card-dot" style="background:#00c853"></div>
+          <div class="card-info">
+            <div class="card-header">
+              <div class="card-header-left">
+                <div class="card-title">🏃 ${escapeHtml(session.title || 'Run')}</div>
+                ${metaHtml}
+              </div>
+              <div class="card-right">
+                <div class="card-date" style="color:#00c853">${formatDate(session.date)}</div>
+                <div class="card-relative-day">${relativeDay(session.date)}</div>
+                ${chevron}
+              </div>
+            </div>
+            <div class="card-wod">${wodContent}</div>
+          </div>
+        </div>`;
+    }
+
+    function startEditRunnaNote(key, btn) {
+      const notes = runnaNotesData[key] || '';
+      const wod   = btn.closest('.card-wod');
+      wod.innerHTML = `
+        <textarea id="runna-ta-${key}" rows="3"
+          style="width:100%;background:#0a2010;color:#c8e8d0;border:1px solid #1a5a2a;border-radius:6px;padding:0.5rem;font-size:0.82rem;resize:vertical;box-sizing:border-box"
+          onclick="event.stopPropagation()">${escapeHtml(notes)}</textarea>
+        <button style="margin-top:0.4rem;padding:0.3rem 0.9rem;background:#00c853;color:#000;border:none;border-radius:5px;font-size:0.8rem;cursor:pointer"
+          onclick="event.stopPropagation();saveRunnaNote('${key}',this)">Opslaan</button>`;
+    }
+
+    async function saveRunnaNote(key, btn) {
+      const token = document.getElementById('githubToken').value.trim();
+      if (!token) { btn.textContent = '⚠ Token nodig'; return; }
+
+      const ta    = document.getElementById(`runna-ta-${key}`);
+      const notes = (ta?.value || '').trim();
+      btn.disabled = true;
+      btn.textContent = '…';
+
+      try {
+        runnaNotesData[key] = notes;
+        if (!notes) delete runnaNotesData[key];
+
+        const patch = await fetch(`https://api.github.com/gists/${currentGistId}`, {
+          method: 'PATCH',
+          headers: { Authorization: `token ${token}`, 'Content-Type': 'application/json' },
+          body: JSON.stringify({ files: { 'runna_notes.json': { content: JSON.stringify({ notes: runnaNotesData }, null, 2) } } }),
+        });
+        if (!patch.ok) throw new Error(`${patch.status}`);
+
+        // Vervang textarea door de opgeslagen tekst
+        const wod = btn.closest('.card-wod');
+        if (notes) {
+          wod.innerHTML = `<div style="font-size:0.82rem;color:#a0e8b0;white-space:pre-wrap;line-height:1.6;margin-bottom:0.5rem">${escapeHtml(notes)}</div>
+            <button class="personal-delete-btn" style="background:#0d3a1a;color:#00c853;border:1px solid #00c853"
+              onclick="event.stopPropagation();startEditRunnaNote('${key}',this)">Bewerk</button>`;
+        } else {
+          wod.innerHTML = `<textarea id="runna-ta-${key}" rows="3" placeholder="Plak hier de oefening of notitie…"
+              style="width:100%;background:#0a2010;color:#c8e8d0;border:1px solid #1a5a2a;border-radius:6px;padding:0.5rem;font-size:0.82rem;resize:vertical;box-sizing:border-box"
+              onclick="event.stopPropagation()"></textarea>
+            <button style="margin-top:0.4rem;padding:0.3rem 0.9rem;background:#00c853;color:#000;border:none;border-radius:5px;font-size:0.8rem;cursor:pointer"
+              onclick="event.stopPropagation();saveRunnaNote('${key}',this)">Opslaan</button>`;
+        }
+      } catch(e) {
+        btn.disabled = false;
+        btn.textContent = `❌ ${e.message}`;
+      }
     }
 
     function showAddEventForm() {
