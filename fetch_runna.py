@@ -55,26 +55,19 @@ GRAPHQL_QUERIES = [
         }
       }
     }"""),
-    ("getPlanMetadata_full", """query {
-      getPlanMetadata {
-        id name shortName description
-        totalWeeks currentWeek weekNumber
-        phase goal raceDate raceDistance
-        weeks {
-          weekNumber isCurrentWeek label
-          sessions { id scheduledDate title sessionType status targetDistance targetDuration }
-        }
-        currentWeekSessions { id scheduledDate title sessionType status targetDistance targetDuration }
-        upcomingSessions { id scheduledDate title sessionType status targetDistance targetDuration }
-        completedSessions { id completedDate title sessionType actualDistance actualDuration }
-      }
-    }"""),
-    ("getRace_current", """query {
-      getRace {
-        id name date distance type goal
-      }
-    }"""),
     ("userProfile_basic", """query { userProfile { id name email unitOfMeasurementV2 subscriptionStatusV2 } }"""),
+    # Introspection: alle velden op de root Query
+    ("introspect_query_type", """query {
+      __type(name: "Query") {
+        fields { name type { name kind ofType { name kind } } }
+      }
+    }"""),
+    # Introspection: alle velden op OrderDetails type
+    ("introspect_order_details", """query {
+      __type(name: "OrderDetails") {
+        fields { name type { name kind ofType { name kind } } }
+      }
+    }"""),
 ]
 
 # Sessie-queries voor het mobile schema (rb-ios / rb-android).
@@ -968,6 +961,24 @@ def fetch_runna_data(
             if raw_race:
                 log.info("[debug] getRace (volledig): %s", raw_race)
 
+            # Introspection-resultaten vastleggen (schema-velden)
+            introspect_query: list | None = None
+            introspect_order: list | None = None
+            for cap in all_captured:
+                if "introspect_query_type" not in cap["url"] and "introspect_order_details" not in cap["url"]:
+                    continue
+                gql_data = (cap.get("data") or {}).get("data") or {}
+                if not isinstance(gql_data, dict):
+                    continue
+                type_info = gql_data.get("__type") or {}
+                fields = type_info.get("fields") or []
+                if "introspect_query_type" in cap["url"]:
+                    introspect_query = [f["name"] for f in fields if isinstance(f, dict)]
+                    log.info("[introspect] Query root-velden: %s", introspect_query)
+                elif "introspect_order_details" in cap["url"]:
+                    introspect_order = [f["name"] for f in fields if isinstance(f, dict)]
+                    log.info("[introspect] OrderDetails-velden: %s", introspect_order)
+
             # Als geen sessies: sla eerste niet-race array op voor diagnose
             debug_extra: dict = {}
             if not upcoming and not completed_runs:
@@ -1021,6 +1032,10 @@ def fetch_runna_data(
                 result["debug_plan_metadata"] = raw_plan_metadata
             if raw_race is not None:
                 result["debug_race"] = raw_race
+            if introspect_query is not None:
+                result["schema_query_fields"] = introspect_query
+            if introspect_order is not None:
+                result["schema_order_details_fields"] = introspect_order
             if plan:
                 result["training_plan"] = plan
             if upcoming:
