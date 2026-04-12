@@ -448,10 +448,7 @@ def _run_graphql_in_browser(
                         const resp = await fetch('{GRAPHQL_URL}', {{
                             method: 'POST',
                             headers: {headers_json},
-                            body: JSON.stringify({{
-                                operationName: {op_name_json},
-                                query: {query_json}
-                            }})
+                            body: JSON.stringify({{ query: {query_json} }})
                         }});
                         // Lees altijd de body — AppSync geeft bij 400 JSON-errors terug
                         let body;
