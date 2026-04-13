@@ -3037,7 +3037,6 @@ def main() -> int:
             intervals_data=intervals_data,
             environmental_data=env_data,
             personal_events=personal_events,
-            runna_data=runna_data,
         )
     past_sportbit_dates = sorted(
         [d for d in sportbit_attended if d < today.isoformat()],
