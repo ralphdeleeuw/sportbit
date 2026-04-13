@@ -21,6 +21,7 @@ import hashlib
 import json
 import logging
 import os
+import re
 import time
 import urllib.parse
 from datetime import date as date_cls, datetime, timedelta, timezone
