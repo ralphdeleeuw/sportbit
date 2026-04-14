@@ -2000,12 +2000,36 @@ def generate_recovery_advice(
         yesterday_iso = (today - timedelta(days=1)).isoformat() if today else ""
         w_by_date = intervals_data["wellness"]["by_date"]
         garmin_entry = w_by_date.get(today_iso) or w_by_date.get(yesterday_iso)
+
+        # HRV baseline: 28-daags gemiddelde ± standaarddeviatie
+        _hrv_hist = [w_by_date[d]["hrv"] for d in sorted(w_by_date) if d < today_iso and w_by_date[d].get("hrv") is not None][-28:]
+        _hrv_baseline = sum(_hrv_hist) / len(_hrv_hist) if len(_hrv_hist) >= 5 else None
+        _hrv_baseline_low = _hrv_baseline_high = None
+        if _hrv_baseline and len(_hrv_hist) >= 5:
+            _hrv_std = (sum((x - _hrv_baseline) ** 2 for x in _hrv_hist) / len(_hrv_hist)) ** 0.5
+            _hrv_baseline_low  = round(_hrv_baseline - _hrv_std)
+            _hrv_baseline_high = round(_hrv_baseline + _hrv_std)
+
         if garmin_entry:
             g_lines = []
             if garmin_entry.get("resting_hr") is not None:
                 g_lines.append(f"- Rustpols: {garmin_entry['resting_hr']} bpm")
             if garmin_entry.get("hrv") is not None:
-                g_lines.append(f"- HRV (RMSSD): {garmin_entry['hrv']:.0f} ms")
+                _hrv_val = garmin_entry["hrv"]
+                _hrv_line = f"- HRV (RMSSD): {_hrv_val:.0f} ms"
+                if _hrv_baseline:
+                    _ratio = _hrv_val / _hrv_baseline
+                    if _hrv_baseline_low is not None and _hrv_val >= _hrv_baseline_low:
+                        _hrv_status = "Evenwichtig"
+                    elif _ratio >= 0.75:
+                        _hrv_status = "Ongebalanceerd"
+                    else:
+                        _hrv_status = "Laag"
+                    if _hrv_baseline_low is not None and _hrv_baseline_high is not None:
+                        _hrv_line += f" — basislijn {_hrv_baseline_low}–{_hrv_baseline_high} ms, status: {_hrv_status}"
+                    else:
+                        _hrv_line += f" — 28d gem: {_hrv_baseline:.0f} ms, status: {_hrv_status}"
+                g_lines.append(_hrv_line)
             if garmin_entry.get("sleep_hrs") is not None:
                 g_lines.append(f"- Slaap: {garmin_entry['sleep_hrs']:.1f} uur")
             if garmin_entry.get("sleep_score") is not None:

@@ -2642,12 +2642,27 @@
       const histHrv   = histDates.map(d => byDate[d].hrv).filter(v => v != null);
       const histSpo2  = histDates.slice(-7).map(d => byDate[d].spo2).filter(v => v != null);
 
-      // HRV baseline (28-daags gemiddelde) + kleur op basis van afwijking
+      // HRV baseline (28-daags gemiddelde + standaarddeviatie) → Garmin-stijl status + kleuren
       const hrvBaseline = histHrv.length >= 5
         ? histHrv.reduce((a, b) => a + b, 0) / histHrv.length : null;
-      const hrvColor = (hrvBaseline && w?.hrv != null)
-        ? (w.hrv / hrvBaseline >= 0.90 ? '#2ecc71' : w.hrv / hrvBaseline >= 0.75 ? '#f39c12' : '#e74c3c')
+      const hrvBaselineStd = (hrvBaseline && histHrv.length >= 5)
+        ? Math.sqrt(histHrv.reduce((s, v) => s + Math.pow(v - hrvBaseline, 2), 0) / histHrv.length)
         : null;
+      const hrvBaselineLow  = (hrvBaseline && hrvBaselineStd != null) ? Math.round(hrvBaseline - hrvBaselineStd) : null;
+      const hrvBaselineHigh = (hrvBaseline && hrvBaselineStd != null) ? Math.round(hrvBaseline + hrvBaselineStd) : null;
+
+      // Garmin HRV status: Evenwichtig (●), Ongebalanceerd (■), Laag (▲)
+      let hrvStatus = null, hrvColor = null, hrvIcon = null;
+      if (hrvBaseline && w?.hrv != null) {
+        const ratio = w.hrv / hrvBaseline;
+        if (w.hrv >= (hrvBaselineLow ?? hrvBaseline * 0.90)) {
+          hrvStatus = 'Evenwichtig'; hrvColor = '#57BB87'; hrvIcon = '●';
+        } else if (ratio >= 0.75) {
+          hrvStatus = 'Ongebalanceerd'; hrvColor = '#F5A623'; hrvIcon = '■';
+        } else {
+          hrvStatus = 'Laag'; hrvColor = '#E23B35'; hrvIcon = '▲';
+        }
+      }
 
       // SpO₂ 7-daags gemiddelde
       const spo2Avg = histSpo2.length >= 3
@@ -2666,9 +2681,14 @@
       if (w) {
         const p = [];
         if (w.hrv != null) {
-          const baselineTitle = hrvBaseline ? ` (28d gem: ${Math.round(hrvBaseline)}ms)` : '';
+          const baselineRange = (hrvBaselineLow != null && hrvBaselineHigh != null)
+            ? `${hrvBaselineLow}–${hrvBaselineHigh}ms`
+            : (hrvBaseline ? `${Math.round(hrvBaseline)}ms` : '');
+          const baselineTitle = baselineRange ? ` (basislijn ${baselineRange})` : '';
           const col = hrvColor ? ` style="color:${hrvColor}"` : '';
-          p.push(`HRV <strong${col} title="Vandaag${baselineTitle}">${Math.round(w.hrv)}ms</strong>`);
+          const statusBadge = (hrvIcon && hrvStatus)
+            ? ` <span style="color:${hrvColor};font-size:0.85em">${hrvIcon} ${hrvStatus}</span>` : '';
+          p.push(`HRV <strong${col} title="Vandaag${baselineTitle}">${Math.round(w.hrv)}ms</strong>${statusBadge}`);
         }
         if (w.resting_hr != null)  p.push(`RHR <strong>${w.resting_hr}bpm</strong>`);
         if (w.sleep_hrs != null) {
