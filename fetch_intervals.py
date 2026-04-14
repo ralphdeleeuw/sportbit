@@ -65,7 +65,7 @@ import requests
 log = logging.getLogger(__name__)
 
 BASE_URL = "https://intervals.icu/api/v1/athlete"
-DAYS_BACK = 14  # ophalen laatste 14 dagen wellness
+DAYS_BACK = 30  # ophalen laatste 30 dagen wellness (nodig voor stabiele HRV basislijn)
 ACTIVITY_DAYS_BACK = 21  # ophalen laatste 21 dagen activiteiten
 
 
