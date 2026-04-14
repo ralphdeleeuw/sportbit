@@ -2635,10 +2635,11 @@
 
       // ── Intervals.icu wellness ──────────────────────────────────────
       const byDate = intervalsData?.wellness?.by_date || {};
-      let w = byDate[today] || byDate[yesterday] || null;
+      const wDate = byDate[today] ? today : (byDate[yesterday] ? yesterday : null);
+      let w = wDate ? byDate[wDate] : null;
 
-      // Historische reeks voor baselines (laatste 28 dagen vóór vandaag, gesorteerd)
-      const histDates = Object.keys(byDate).filter(d => d < today).sort().slice(-28);
+      // Historische reeks voor baselines: laatste 28 dagen VÓÓR de meetdatum (nooit de meting zelf meetellen)
+      const histDates = Object.keys(byDate).filter(d => d < (wDate || today)).sort().slice(-28);
       const histHrv   = histDates.map(d => byDate[d].hrv).filter(v => v != null);
       const histSpo2  = histDates.slice(-7).map(d => byDate[d].spo2).filter(v => v != null);
 
