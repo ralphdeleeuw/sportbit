@@ -3001,20 +3001,24 @@ def main() -> int:
                 strava_data = None
 
         # Intervals.icu
+        skip_intervals = os.environ.get("SKIP_INTERVALS", "false").lower() in ("true", "1", "yes")
         intervals_data = None
-        try:
-            from fetch_intervals import fetch_intervals_data  # noqa: PLC0415
-            intervals_data = fetch_intervals_data()
-            if intervals_data:
-                n_days = len((intervals_data.get("wellness") or {}).get("by_date") or {})
-                n_acts = sum(
-                    len(v) for v in ((intervals_data.get("activities") or {}).get("by_date") or {}).values()
-                )
-                log.info("Intervals.icu data opgehaald: %d wellness-dagen, %d activiteiten", n_days, n_acts)
-            else:
-                log.info("Geen intervals.icu data beschikbaar (API key ontbreekt of geen data)")
-        except Exception as exc:
-            log.warning("Intervals.icu fetch mislukt: %s", exc)
+        if skip_intervals:
+            log.info("Intervals.icu fetch overgeslagen (SKIP_INTERVALS=true)")
+        else:
+            try:
+                from fetch_intervals import fetch_intervals_data  # noqa: PLC0415
+                intervals_data = fetch_intervals_data()
+                if intervals_data:
+                    n_days = len((intervals_data.get("wellness") or {}).get("by_date") or {})
+                    n_acts = sum(
+                        len(v) for v in ((intervals_data.get("activities") or {}).get("by_date") or {}).values()
+                    )
+                    log.info("Intervals.icu data opgehaald: %d wellness-dagen, %d activiteiten", n_days, n_acts)
+                else:
+                    log.info("Geen intervals.icu data beschikbaar (API key ontbreekt of geen data)")
+            except Exception as exc:
+                log.warning("Intervals.icu fetch mislukt: %s", exc)
 
         # Withings
         skip_withings = os.environ.get("SKIP_WITHINGS", "false").lower() in ("true", "1", "yes")

@@ -988,6 +988,63 @@
       cursor: pointer;
     }
 
+    .footer-updated {
+      color: var(--muted);
+      font-size: 0.75rem;
+      margin-bottom: 0.8rem;
+    }
+
+    .workflow-cards {
+      display: flex;
+      flex-direction: column;
+      gap: 0.6rem;
+    }
+
+    .workflow-card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 0.75rem 1rem;
+      display: flex;
+      flex-direction: column;
+      gap: 0.3rem;
+    }
+
+    .workflow-card-header {
+      font-size: 0.8rem;
+      font-weight: 600;
+      color: var(--text);
+      letter-spacing: 0.03em;
+    }
+
+    .workflow-card-desc {
+      font-size: 0.72rem;
+      color: var(--muted);
+    }
+
+    .workflow-card-options {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.5rem 1rem;
+      font-size: 0.72rem;
+      color: var(--muted);
+      margin-top: 0.1rem;
+    }
+
+    .workflow-card-options label {
+      display: flex;
+      align-items: center;
+      gap: 4px;
+      cursor: pointer;
+    }
+
+    .workflow-card-footer {
+      display: flex;
+      align-items: center;
+      gap: 0.6rem;
+      margin-top: 0.3rem;
+    }
+
     .sync-status {
       margin-top: 4px;
       min-height: 1em;
@@ -1303,20 +1360,54 @@
     </div>
 
     <footer>
-      <div class="footer-row">
-        <span>Bijgewerkt · <span id="lastUpdated">—</span></span>
-        <button id="signupBtn" class="sync-btn" onclick="triggerSignup()">⚡ Inschrijven</button>
-        <button id="healthBtn" class="sync-btn" onclick="triggerHealthRefresh()">♥ Health</button>
-        <button id="syncBtn" class="sync-btn" onclick="triggerSync()">↻ Sync</button>
+      <div class="footer-updated">Bijgewerkt · <span id="lastUpdated">—</span></div>
+      <div class="workflow-cards">
+
+        <div class="workflow-card">
+          <div class="workflow-card-header">⚡ Inschrijven</div>
+          <div class="workflow-card-desc">CrossFit auto-inschrijving &amp; Google Calendar sync</div>
+          <div class="workflow-card-footer">
+            <button id="signupBtn" class="sync-btn" onclick="triggerSignup()">⚡ Inschrijven</button>
+            <span id="signupStatus" class="sync-status"></span>
+          </div>
+        </div>
+
+        <div class="workflow-card">
+          <div class="workflow-card-header">↻ SugarWOD Sync</div>
+          <div class="workflow-card-desc">WOD, kracht, persoonlijke records, AI coaching</div>
+          <div class="workflow-card-options">
+            <label><input type="checkbox" id="skipAISync"> AI coaching overslaan</label>
+          </div>
+          <div class="workflow-card-footer">
+            <button id="syncBtn" class="sync-btn" onclick="triggerSync()">↻ Sync</button>
+            <span id="syncStatus" class="sync-status"></span>
+          </div>
+        </div>
+
+        <div class="workflow-card">
+          <div class="workflow-card-header">♥ Health Refresh</div>
+          <div class="workflow-card-desc">Strava, Intervals.icu, Withings, omgevingsdata</div>
+          <div class="workflow-card-options">
+            <label><input type="checkbox" id="skipStravaHealth"> Strava overslaan</label>
+            <label><input type="checkbox" id="skipIntervalsHealth"> Intervals.icu overslaan</label>
+            <label><input type="checkbox" id="skipWithingsHealth"> Withings overslaan</label>
+          </div>
+          <div class="workflow-card-footer">
+            <button id="healthBtn" class="sync-btn" onclick="triggerHealthRefresh()">♥ Health</button>
+            <span id="healthStatus" class="sync-status"></span>
+          </div>
+        </div>
+
+        <div class="workflow-card">
+          <div class="workflow-card-header">🏃 Runna Hardlopen</div>
+          <div class="workflow-card-desc">Hardloopschema &amp; sessies ophalen</div>
+          <div class="workflow-card-footer">
+            <button id="runnaBtn" class="sync-btn" onclick="triggerRunna()">🏃 Runna</button>
+            <span id="runnaStatus" class="sync-status"></span>
+          </div>
+        </div>
+
       </div>
-      <div class="sync-options">
-        <label><input type="checkbox" id="skipStrava"> Strava overslaan</label>
-        <label><input type="checkbox" id="skipAI"> AI coaching overslaan</label>
-        <label><input type="checkbox" id="skipWithings"> Withings overslaan</label>
-      </div>
-      <div id="signupStatus" class="sync-status"></div>
-      <div id="healthStatus" class="sync-status"></div>
-      <div id="syncStatus" class="sync-status"></div>
       <div id="barbellStatus" class="barbell-status"></div>
     </footer>
   </div>
@@ -2198,8 +2289,7 @@
       const token = document.getElementById('githubToken').value.trim();
       const statusEl = document.getElementById('syncStatus');
       const btn = document.getElementById('syncBtn');
-      const skipStrava = document.getElementById('skipStrava').checked;
-      const skipAI = document.getElementById('skipAI').checked;
+      const skipAI = document.getElementById('skipAISync').checked;
 
       if (!token) {
         statusEl.textContent = 'Vul eerst je GitHub Token in (nodig om workflow te starten)';
@@ -2216,7 +2306,6 @@
 
       try {
         const inputs = {};
-        if (skipStrava) inputs.skip_strava = true;
         if (skipAI) inputs.skip_ai = true;
 
         const resp = await fetch(
@@ -2257,8 +2346,9 @@
       const token = document.getElementById('githubToken').value.trim();
       const statusEl = document.getElementById('healthStatus');
       const btn = document.getElementById('healthBtn');
-      const skipStrava = document.getElementById('skipStrava').checked;
-      const skipWithings = document.getElementById('skipWithings').checked;
+      const skipStrava = document.getElementById('skipStravaHealth').checked;
+      const skipIntervals = document.getElementById('skipIntervalsHealth').checked;
+      const skipWithings = document.getElementById('skipWithingsHealth').checked;
 
       if (!token) {
         statusEl.textContent = 'Vul eerst je GitHub Token in (nodig om workflow te starten)';
@@ -2276,6 +2366,7 @@
       try {
         const inputs = {};
         if (skipStrava) inputs.skip_strava = true;
+        if (skipIntervals) inputs.skip_intervals = true;
         if (skipWithings) inputs.skip_withings = true;
 
         const resp = await fetch(
@@ -2309,6 +2400,59 @@
         statusEl.style.color = 'var(--accent2)';
         btn.disabled = false;
         btn.textContent = '♥ Health';
+      }
+    }
+
+    async function triggerRunna() {
+      const token = document.getElementById('githubToken').value.trim();
+      const statusEl = document.getElementById('runnaStatus');
+      const btn = document.getElementById('runnaBtn');
+
+      if (!token) {
+        statusEl.textContent = 'Vul eerst je GitHub Token in (nodig om workflow te starten)';
+        statusEl.style.color = 'var(--accent2)';
+        return;
+      }
+
+      btn.disabled = true;
+      btn.textContent = '🏃 Bezig…';
+      statusEl.textContent = 'Runna workflow starten…';
+      statusEl.style.color = 'var(--muted)';
+
+      const triggerTime = new Date();
+
+      try {
+        const resp = await fetch(
+          'https://api.github.com/repos/ralphdeleeuw/sportbit/actions/workflows/fetch_runna.yml/dispatches',
+          {
+            method: 'POST',
+            headers: {
+              Authorization: `token ${token}`,
+              Accept: 'application/vnd.github+json',
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({ ref: 'main', inputs: {} }),
+          }
+        );
+
+        if (resp.status !== 204) {
+          const body = await resp.json().catch(() => ({}));
+          statusEl.textContent = `Fout ${resp.status}: ${body.message || 'onbekend'}`;
+          statusEl.style.color = 'var(--accent2)';
+          btn.disabled = false;
+          btn.textContent = '🏃 Runna';
+          return;
+        }
+
+        statusEl.textContent = '⏳ In wachtrij…';
+        statusEl.style.color = 'var(--muted)';
+        await pollWorkflowRun(token, triggerTime, statusEl, btn, 'fetch_runna.yml', '🏃 Runna');
+
+      } catch (e) {
+        statusEl.textContent = `Netwerkfout: ${e.message}`;
+        statusEl.style.color = 'var(--accent2)';
+        btn.disabled = false;
+        btn.textContent = '🏃 Runna';
       }
     }
 

@@ -16,6 +16,11 @@ on:
         required: false
         default: 'false'
         type: boolean
+      skip_intervals:
+        description: 'Intervals.icu data overslaan'
+        required: false
+        default: 'false'
+        type: boolean
 
 jobs:
   refresh-health:
@@ -48,4 +53,5 @@ jobs:
           HEALTH_ONLY: 'true'
           SKIP_STRAVA: ${{ inputs.skip_strava || 'false' }}
           SKIP_WITHINGS: ${{ inputs.skip_withings || 'false' }}
+          SKIP_INTERVALS: ${{ inputs.skip_intervals || 'false' }}
         run: python3 fetch_sugarwod.py
