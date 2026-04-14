@@ -2216,14 +2216,21 @@ def generate_recovery_advice(
             return (ne or "")[:120] if ne else ""
 
         today_iso = today.isoformat() if today else ""
+        # Sessions in upcoming_sessions whose date is now past (stale cache) must
+        # also be treated as completed — otherwise they vanish from coach context.
+        past_from_upcoming = [
+            s for s in (runna_data.get("upcoming_sessions") or [])
+            if s.get("date", "") < today_iso
+        ]
+        all_past = list(runna_data.get("recent_completed") or []) + past_from_upcoming
         recent_runs = sorted(
-            [s for s in (runna_data.get("recent_completed") or [])
-             if s.get("date", "") <= today_iso],
+            all_past,
             key=lambda s: s.get("date", ""), reverse=True,
         )[:5]
+        # Use >= so today's planned session is visible as upcoming.
         upcoming_runs = sorted(
             [s for s in (runna_data.get("upcoming_sessions") or [])
-             if s.get("date", "") > today_iso],
+             if s.get("date", "") >= today_iso],
             key=lambda s: s.get("date", ""),
         )[:7]
         if recent_runs:
