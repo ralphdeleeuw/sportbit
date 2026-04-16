@@ -2,3 +2,4 @@ __pycache__/
 *.pyc
 .env
 fetch_events.sh
+fitness_context.md
