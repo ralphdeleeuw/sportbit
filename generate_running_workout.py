@@ -3,7 +3,11 @@
 generate_running_workout.py — Genereert een gepersonaliseerd 2x/week
 hardloopschema via Claude en pusht dit naar intervals.icu.
 
-Schema: dinsdag 20:00 (snelheidswerk) + zaterdag 09:00 (lange duurloop).
+Standaard schema: dinsdag 20:00 (snelheidswerk) + zaterdag 09:00 (lange duurloop).
+De loopdag kan worden verschoven via health_input.json in de Gist:
+  "run_1": "2026-04-22T20:00"   — overschrijft dinsdag-sessie (datum+tijd)
+  "run_2": "2026-04-26T09:00"   — overschrijft zaterdag-sessie (datum+tijd)
+
 Doel: 5K verbeteren van 28 min naar 26 min. Geen einddatum — continu programma.
 Workouts hebben Runna-stijl: specifieke pacedoelen per stap, gestructureerde
 herhalingen, walking rest. workout_doc zorgt voor grafiek in intervals.icu
@@ -56,7 +60,7 @@ ATHLETE_PROFILE = {
         {"day": "Tuesday",  "time": "20:00", "role": "speed"},
         {"day": "Saturday", "time": "09:00", "role": "long_run"},
     ],
-    "saturday_note": "Zaterdag-run (09:00) vervangt de CrossFit-sessie op die dag.",
+    "schedule_note": "Hardloopdagen zijn standaard dinsdag en zaterdag, maar kunnen via health_input.json worden verplaatst.",
 }
 
 # Pacezones op basis van huidig 5K (5:36/km) en doel (5:12/km)
@@ -191,17 +195,36 @@ def _build_claude_context(ctx: dict) -> str:
     else:
         week_number = running_plan.get("week_number", 1)
 
-    next_tuesday  = _next_weekday(1)  # 1 = dinsdag
-    next_saturday = _next_weekday(5)  # 5 = zaterdag
-
     health_input = ctx.get("health_input") or {}
-    health_lines = [f"  - {k}: {v}" for k, v in health_input.items() if k != "date"]
+
+    # Optionele datumoverschrijvingen via health_input.json ("run_1", "run_2")
+    # Formaat: "YYYY-MM-DDTHH:MM" of "YYYY-MM-DD" (tijd valt terug op default)
+    def _parse_run_override(key: str, default_date: date, default_time: str) -> tuple[date, str]:
+        raw = health_input.get(key, "")
+        if not raw:
+            return default_date, default_time
+        try:
+            if "T" in raw:
+                dt = datetime.fromisoformat(raw)
+                return dt.date(), dt.strftime("%H:%M")
+            return date.fromisoformat(raw[:10]), default_time
+        except ValueError:
+            return default_date, default_time
+
+    run1_date, run1_time = _parse_run_override("run_1", _next_weekday(1), "20:00")
+    run2_date, run2_time = _parse_run_override("run_2", _next_weekday(5), "09:00")
+
+    health_lines = [
+        f"  - {k}: {v}"
+        for k, v in health_input.items()
+        if k not in ("date", "run_1", "run_2")
+    ]
 
     sections = [
         f"Datum vandaag: {today.isoformat()}",
         f"Weeknummer in continu 5K-programma: week {week_number}",
-        f"Sessie 1 — snelheidswerk: dinsdag {next_tuesday.isoformat()} om 20:00",
-        f"Sessie 2 — lange duurloop: zaterdag {next_saturday.isoformat()} om 09:00",
+        f"Sessie 1 — snelheidswerk: {run1_date.isoformat()} om {run1_time} (gebruik deze datum en tijd exact)",
+        f"Sessie 2 — lange duurloop: {run2_date.isoformat()} om {run2_time} (gebruik deze datum en tijd exact)",
         f"Huidig 5K-tempo: {ATHLETE_PROFILE['current_5k_pace']}/km ({ATHLETE_PROFILE['current_5k_min']} min)",
         f"Doel 5K-tempo: {ATHLETE_PROFILE['target_5k_pace']}/km ({ATHLETE_PROFILE['target_5k_min']} min)",
     ]
@@ -226,8 +249,9 @@ def _build_claude_context(ctx: dict) -> str:
 
 _SYSTEM_PROMPT = """Je bent een professionele hardloopcoach. Je maakt werkschema's voor Ralph de Leeuw:
 - 47 jaar, 77kg, CrossFit 5x/week, hardloopt 2x/week
-- Huidig 5K: ~28 min (5:36/km) | Doel: 26 min (5:12/km)
-- Dinsdag 20:00 = snelheidswerk | Zaterdag 09:00 = lange duurloop (vervangt CrossFit die dag)
+- Huidig 5K: ~28 min (5:36/km) | Doel: 26 min (5:12/min)
+- Standaard: dinsdag 20:00 = snelheidswerk | zaterdag 09:00 = lange duurloop
+- De exacte data en tijden worden in de context meegegeven — gebruik die altijd exact
 
 Pacezones (stem altijd af op herstelstatus via HRV/TSB):
 - Conversational (max):  6:40/km — "geen sneller dan 6:40/km"
@@ -434,8 +458,14 @@ def _build_description(spec: dict) -> str:
 # ── Intervals.icu event bouwen ─────────────────────────────────────────────────
 
 def _build_intervals_event(spec: dict) -> dict:
-    session_role = spec.get("session", "speed")
-    time_str = "20:00:00" if session_role == "speed" else "09:00:00"
+    # Gebruik de tijd uit spec als die er is, anders val terug op sessie-rol
+    if spec.get("time"):
+        time_str = spec["time"] if ":" in spec["time"] and len(spec["time"]) >= 5 else "20:00:00"
+        if len(time_str) == 5:
+            time_str += ":00"
+    else:
+        session_role = spec.get("session", "speed")
+        time_str = "20:00:00" if session_role == "speed" else "09:00:00"
 
     description = _build_description(spec)
     workout_doc = _build_workout_doc(spec)
@@ -512,9 +542,9 @@ def _notify_pushover(specs: list[dict]) -> None:
     for s in specs:
         d = datetime.strptime(s["date"], "%Y-%m-%d")
         dag = ["ma", "di", "wo", "do", "vr", "za", "zo"][d.weekday()]
-        time = "20:00" if s.get("session") == "speed" else "09:00"
+        time_str = s.get("time", "20:00" if s.get("session") == "speed" else "09:00")
         dist = s.get("total_distance_km", "?")
-        lines.append(f"\n{dag} {d.day}/{d.month} {time} — {s['name']} ({dist}km)")
+        lines.append(f"\n{dag} {d.day}/{d.month} {time_str} — {s['name']} ({dist}km)")
 
     try:
         requests.post(
@@ -576,6 +606,18 @@ def main() -> None:
         week_number = 1
     for s in specs:
         s.setdefault("week_number", week_number)
+
+    # Annoteer de werkelijke starttijden vanuit de context (zodat _build_intervals_event ze kan gebruiken)
+    health_input = ctx.get("health_input") or {}
+    _run1_raw = health_input.get("run_1", "")
+    _run2_raw = health_input.get("run_2", "")
+    _run1_time = (datetime.fromisoformat(_run1_raw).strftime("%H:%M") if "T" in _run1_raw else "20:00") if _run1_raw else "20:00"
+    _run2_time = (datetime.fromisoformat(_run2_raw).strftime("%H:%M") if "T" in _run2_raw else "09:00") if _run2_raw else "09:00"
+    for s in specs:
+        if s.get("session") == "speed":
+            s.setdefault("time", _run1_time)
+        else:
+            s.setdefault("time", _run2_time)
 
     events = [_build_intervals_event(s) for s in specs]
 
