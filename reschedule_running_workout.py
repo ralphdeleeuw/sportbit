@@ -47,6 +47,75 @@ def _patch_gist(gist_id: str, token: str, files: dict[str, str]) -> None:
     resp.raise_for_status()
 
 
+def _gcal_reschedule(workout: dict, calendar_id: str, sa_json_str: str) -> None:
+    """Verwijder oud Google Agenda event en maak nieuw aan op de verschoven datum."""
+    if not sa_json_str:
+        return
+    try:
+        import google.oauth2.service_account as _sa
+        from googleapiclient.discovery import build as _build
+    except ImportError:
+        log.warning("google-auth niet geïnstalleerd — Google Agenda sync overgeslagen")
+        return
+
+    try:
+        creds = _sa.Credentials.from_service_account_info(
+            json.loads(sa_json_str),
+            scopes=["https://www.googleapis.com/auth/calendar"],
+        )
+        service = _build("calendar", "v3", credentials=creds)
+    except Exception as exc:
+        log.error("Fout bij opzetten Google Agenda service: %s", exc)
+        return
+
+    old_gcal_id = workout.get("gcal_event_id")
+    if old_gcal_id:
+        try:
+            service.events().delete(calendarId=calendar_id, eventId=old_gcal_id).execute()
+            log.info("Oud Google Agenda event %s verwijderd", old_gcal_id)
+        except Exception as exc:
+            log.warning("Kon oud Google Agenda event %s niet verwijderen: %s", old_gcal_id, exc)
+
+    from datetime import datetime, timedelta
+    time_str = workout.get("time", "20:00")
+    if len(time_str) == 5:
+        time_str += ":00"
+    try:
+        dt_start = datetime.fromisoformat(f"{workout['date']}T{time_str}")
+    except (ValueError, KeyError):
+        return
+
+    dist_km = workout.get("total_distance_km")
+    dur_min  = workout.get("total_duration_min")
+    if dur_min:
+        dt_end = dt_start + timedelta(minutes=dur_min)
+    elif dist_km:
+        dt_end = dt_start + timedelta(minutes=round(float(dist_km) * 6.5))
+    else:
+        dt_end = dt_start + timedelta(hours=1)
+
+    name      = workout.get("name") or workout.get("type") or "Hardloopworkout"
+    dist_str  = f" ({dist_km}km)" if dist_km else ""
+    desc      = workout.get("description") or ""
+    week_nr   = workout.get("week_number")
+    if week_nr:
+        desc = f"5K-programma week {week_nr}\n\n" + desc
+
+    body = {
+        "summary":     f"🏃 {name}{dist_str}",
+        "description": desc,
+        "start": {"dateTime": dt_start.isoformat(), "timeZone": "Europe/Amsterdam"},
+        "end":   {"dateTime": dt_end.isoformat(),   "timeZone": "Europe/Amsterdam"},
+    }
+    try:
+        result = service.events().insert(calendarId=calendar_id, body=body).execute()
+        workout["gcal_event_id"] = result.get("id")
+        log.info("Nieuw Google Agenda event: '%s' op %s (%s)",
+                 name, workout["date"], workout["gcal_event_id"])
+    except Exception as exc:
+        log.error("Fout bij aanmaken Google Agenda event: %s", exc)
+
+
 def main() -> None:
     logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
 
@@ -142,7 +211,7 @@ def main() -> None:
             )
             resp.raise_for_status()
             new_id = resp.json().get("id")
-            log.info("Nieuw event aangemaakt: id=%s op %s %s", new_id, new_date, new_time)
+            log.info("Nieuw intervals.icu event: id=%s op %s %s", new_id, new_date, new_time)
             workout["date"] = new_date
             workout["time"] = new_time
             workout["event_id"] = new_id
@@ -150,6 +219,13 @@ def main() -> None:
             changed = True
         except Exception as exc:
             log.error("Fout bij aanmaken nieuw event voor %s: %s", key, exc)
+            continue
+
+        # Google Agenda sync
+        gcal_calendar_id = os.environ.get("GOOGLE_CALENDAR_ID", "").strip()
+        gcal_sa_json     = os.environ.get("GOOGLE_SERVICE_ACCOUNT_JSON", "").strip()
+        if gcal_calendar_id and gcal_sa_json:
+            _gcal_reschedule(workout, gcal_calendar_id, gcal_sa_json)
 
     if changed:
         _patch_gist(gist_id, github_token, {

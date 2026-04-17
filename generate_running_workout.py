@@ -520,6 +520,98 @@ def _push_to_intervals(athlete_id: str, api_key: str, events: list[dict]) -> lis
     return results
 
 
+# ── Google Agenda helpers ──────────────────────────────────────────────────────
+
+def _gcal_service(sa_json_str: str):
+    """Retourneert een Google Calendar service object, of None als libs/config ontbreken."""
+    if not sa_json_str:
+        return None
+    try:
+        import google.oauth2.service_account as _sa
+        from googleapiclient.discovery import build as _build
+    except ImportError:
+        log.warning("google-auth niet geïnstalleerd — Google Agenda sync overgeslagen")
+        return None
+    try:
+        creds = _sa.Credentials.from_service_account_info(
+            json.loads(sa_json_str),
+            scopes=["https://www.googleapis.com/auth/calendar"],
+        )
+        return _build("calendar", "v3", credentials=creds)
+    except Exception as exc:
+        log.error("Fout bij opzetten Google Agenda service: %s", exc)
+        return None
+
+
+def _gcal_event_body(spec: dict) -> dict | None:
+    time_str = spec.get("time", "20:00" if spec.get("session") == "speed" else "09:00")
+    if len(time_str) == 5:
+        time_str += ":00"
+    try:
+        dt_start = datetime.fromisoformat(f"{spec['date']}T{time_str}")
+    except (ValueError, KeyError):
+        return None
+
+    dist_km = spec.get("total_distance_km")
+    dur_min  = spec.get("total_duration_min")
+    if dur_min:
+        dt_end = dt_start + timedelta(minutes=dur_min)
+    elif dist_km:
+        dt_end = dt_start + timedelta(minutes=round(float(dist_km) * 6.5))
+    else:
+        dt_end = dt_start + timedelta(hours=1)
+
+    name      = spec.get("name") or spec.get("type") or "Hardloopworkout"
+    dist_str  = f" ({dist_km}km)" if dist_km else ""
+    desc      = spec.get("description") or ""
+    week_nr   = spec.get("week_number")
+    if week_nr:
+        desc = f"5K-programma week {week_nr}\n\n" + desc
+
+    return {
+        "summary":     f"🏃 {name}{dist_str}",
+        "description": desc,
+        "start": {"dateTime": dt_start.isoformat(), "timeZone": "Europe/Amsterdam"},
+        "end":   {"dateTime": dt_end.isoformat(),   "timeZone": "Europe/Amsterdam"},
+    }
+
+
+def _gcal_push(specs: list[dict], calendar_id: str, sa_json_str: str,
+               existing_plan: dict) -> None:
+    """Maak Google Agenda events aan; verwijder eerst oud event als dat bestaat."""
+    service = _gcal_service(sa_json_str)
+    if not service:
+        return
+
+    # Bestaande gcal_event_ids per sessie zodat we duplicaten voorkomen
+    old_ids: dict[str, str] = {
+        w.get("session", ""): w["gcal_event_id"]
+        for w in existing_plan.get("workouts", [])
+        if w.get("gcal_event_id")
+    }
+
+    for spec in specs:
+        old_id = old_ids.get(spec.get("session", ""))
+        if old_id:
+            try:
+                service.events().delete(calendarId=calendar_id, eventId=old_id).execute()
+                log.info("Oud Google Agenda event %s verwijderd", old_id)
+            except Exception as exc:
+                log.warning("Kon oud event %s niet verwijderen: %s", old_id, exc)
+
+        body = _gcal_event_body(spec)
+        if not body:
+            continue
+        try:
+            result = service.events().insert(calendarId=calendar_id, body=body).execute()
+            spec["gcal_event_id"] = result.get("id")
+            log.info("Google Agenda event aangemaakt: '%s' op %s (%s)",
+                     spec.get("name"), spec.get("date"), spec["gcal_event_id"])
+        except Exception as exc:
+            log.error("Fout bij aanmaken Google Agenda event voor %s: %s",
+                      spec.get("date"), exc)
+
+
 # ── iCal genereren ────────────────────────────────────────────────────────────
 
 def _generate_ical(specs: list[dict]) -> str:
@@ -719,6 +811,14 @@ def main() -> None:
             spec["event_id"] = result.get("id")
         if "workout_doc" in event:
             spec["workout_doc"] = event["workout_doc"]
+
+    gcal_calendar_id = os.environ.get("GOOGLE_CALENDAR_ID", "").strip()
+    gcal_sa_json     = os.environ.get("GOOGLE_SERVICE_ACCOUNT_JSON", "").strip()
+    if gcal_calendar_id and gcal_sa_json:
+        log.info("Google Agenda events aanmaken...")
+        _gcal_push(specs, gcal_calendar_id, gcal_sa_json, ctx.get("running_plan", {}))
+    else:
+        log.info("GOOGLE_CALENDAR_ID / GOOGLE_SERVICE_ACCOUNT_JSON niet ingesteld — Google Agenda sync overgeslagen")
 
     _save_plan_to_gist(gist_id, github_token, specs, week_number)
 
