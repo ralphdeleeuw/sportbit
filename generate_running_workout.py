@@ -680,14 +680,51 @@ def _save_ical_to_gist(gist_id: str, token: str, ical_content: str) -> None:
             log.info("iCal opgeslagen → Google Agenda-abonnement URL: %s", raw_url)
 
 
+def _estimate_5k_seconds(specs: list[dict]) -> int | None:
+    """
+    Schat de huidige 5K-tijd op basis van de intervaltempo's in het meest recente plan.
+    Zoekt naar 'run' stappen binnen 'repeat' blokken en pakt het langzaamste (meest
+    realistische) tempo, daarna +12% als race-schatting.
+    Geeft None terug als er onvoldoende data is.
+    """
+    interval_paces_spm: list[float] = []
+    for spec in specs:
+        for step in spec.get("steps", []):
+            if step.get("type") == "repeat":
+                for child in step.get("children", []):
+                    if child.get("type") == "run":
+                        pace_str = child.get("pace_target") or child.get("pace_max")
+                        if pace_str:
+                            try:
+                                mins, secs = pace_str.split(":")
+                                interval_paces_spm.append(int(mins) * 60 + int(secs))
+                            except (ValueError, AttributeError):
+                                pass
+
+    if not interval_paces_spm:
+        return None
+
+    # Gebruik het mediaan intervaltempo voor een stabiele schatting
+    interval_paces_spm.sort()
+    median_pace = interval_paces_spm[len(interval_paces_spm) // 2]
+    # 5K race tempo is ~12% langzamer dan korte interval tempo's
+    race_pace_spm = median_pace * 1.12
+    return round(race_pace_spm * 5)  # 5 km
+
+
 def _save_plan_to_gist(gist_id: str, token: str, specs: list[dict], week_number: int) -> None:
     plan_start = specs[0]["date"] if specs else date.today().isoformat()
+    estimated_5k = _estimate_5k_seconds(specs)
     plan = {
         "generated_at": datetime.now(timezone.utc).isoformat(),
         "week_number": week_number,
         "plan_start_date": plan_start,
         "workouts": specs,
     }
+    if estimated_5k is not None:
+        plan["estimated_5k_seconds"] = estimated_5k
+        mins, secs = divmod(estimated_5k, 60)
+        log.info("Geschatte 5K tijd: %d:%02d", mins, secs)
     _save_to_gist(gist_id, token, "running_plan.json", json.dumps(plan, indent=2, ensure_ascii=False))
     log.info("running_plan.json opgeslagen in Gist (week %d)", week_number)
 

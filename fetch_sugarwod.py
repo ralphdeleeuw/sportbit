@@ -1823,6 +1823,7 @@ def generate_recovery_advice(
     intervals_data: "dict | None" = None,
     personal_events: list[dict] | None = None,
     running_plan: "dict | None" = None,
+    deload_detected: bool = False,
 ) -> str:
     """
     Generate a daily recovery/intensity advice based on recent workouts and
@@ -2246,6 +2247,10 @@ def generate_recovery_advice(
                              f"({w.get('total_distance_km', '?')}km, {w.get('session', '')})")
         running_plan_text = "\n" + "\n".join(lines) + "\n"
 
+    deload_block = ""
+    if deload_detected:
+        deload_block = "\n⚠️ OVERTRAINING RISICO GEDETECTEERD: De atleet vertoont signalen van overbelasting (aanhoudend negatieve TSB en/of langdurige spierpijn). Adviseer NADRUKKELIJK een herstelweek: schaal alle WODs naar 60-70% intensiteit, prioriteer slaap en voeding, beperk extra activiteiten.\n"
+
     prompt = f"""Je bent een ervaren CrossFit coach. Geef een kort, persoonlijk hersteladvies voor vandaag.
 
 Vandaag is: {today_str}
@@ -2269,7 +2274,7 @@ Gebruik dit om de werkelijke intensiteit te beoordelen, NIET alleen de WOD-besch
 {past_personal_text}
 Volgende workout:
 {upcoming_text}{upcoming_timing_context}{upcoming_personal_text}{running_plan_text}{meals_text}{env_block}
-{pr_text}{prev_advice_text}
+{pr_text}{prev_advice_text}{deload_block}
 Geef advies over:
 1. **Herstelniveau** — zijn er spiergroepen die extra rust nodig hebben op basis van de recente workouts?{"  Gebruik de subjectieve hersteldata (slaap, energie, spierpijn) als primaire fysiologische herstelIndicator. Gebruik de Strava workout-data (hartslag, duur) om de werkelijke trainingsbelasting per sessie te beoordelen." if health_input else ""}{"  De ACWR-ratio geeft de trainingsbelasting aan: check of er een patroon is met het vorige advies." if acwr else ""}
 2. **Intensiteitsadvies** — volledig gas geven, gecontroleerd trainen of bewust schalen vandaag?
@@ -2581,6 +2586,40 @@ Wees direct en bondig. Maximaal 260 woorden. Geen inleiding."""
             log.warning("Failed to generate plan for %s: %s", date, exc)
 
     return plans
+
+
+def detect_deload(intervals_data: "dict | None", health_history: list[dict]) -> bool:
+    """
+    Detecteer overtraining risico op basis van TSB-trend en subjectieve spierpijn.
+
+    Triggercondities (één van beide voldoende):
+      - TSB < -20 voor 3+ opeenvolgende recente dagen
+      - Spierpijn >= 4/5 voor 3+ recente dagen EN TSB < -10
+    """
+    tsb_values: list[float] = []
+    if intervals_data:
+        by_date = (intervals_data.get("wellness") or {}).get("by_date", {})
+        recent_dates = sorted(by_date.keys())[-5:]
+        for d in recent_dates:
+            tsb = by_date[d].get("tsb")
+            if tsb is not None:
+                tsb_values.append(float(tsb))
+
+    # Check TSB < -20 voor 3+ achtereenvolgende dagen
+    if len(tsb_values) >= 3 and all(v < -20 for v in tsb_values[-3:]):
+        log.info("[deload] TSB < -20 voor 3+ dagen: %s", tsb_values[-3:])
+        return True
+
+    # Check spierpijn >= 4 voor 3+ dagen én TSB < -10
+    if health_history:
+        recent_scores = [h.get("spierpijn") for h in sorted(health_history, key=lambda h: h.get("date", ""))[-3:]]
+        high_soreness = sum(1 for s in recent_scores if s is not None and int(s) >= 4) >= 3
+        avg_tsb = sum(tsb_values[-3:]) / len(tsb_values[-3:]) if len(tsb_values) >= 3 else 0
+        if high_soreness and avg_tsb < -10:
+            log.info("[deload] Hoge spierpijn + TSB < -10: soreness=%s tsb=%.1f", recent_scores, avg_tsb)
+            return True
+
+    return False
 
 
 # ──────────────────────────────────────────────────────────────
@@ -3087,6 +3126,10 @@ def main() -> int:
         if w.get("description") or any(kw in w.get("title", "").lower() for kw in _MAIN_KEYWORDS):
             date_to_all_main_workouts.setdefault(w["date"], []).append(w)
 
+    deload_detected = detect_deload(intervals_data, health_history)
+    if deload_detected:
+        log.info("[deload] Overtraining risico gedetecteerd — herstelweek aanbevolen")
+
     if skip_ai:
         recovery_advice = None
     elif past_sportbit_dates:
@@ -3136,6 +3179,7 @@ def main() -> int:
             environmental_data=env_data,
             personal_events=personal_events,
             running_plan=running_plan,
+            deload_detected=deload_detected,
         )
 
     # 2. SugarWOD logbook (athlete scored a result)
@@ -3174,6 +3218,7 @@ def main() -> int:
             environmental_data=env_data,
             personal_events=personal_events,
             running_plan=running_plan,
+            deload_detected=deload_detected,
         )
 
     # 3. Fallback: all programmed past workouts
@@ -3200,6 +3245,7 @@ def main() -> int:
             environmental_data=env_data,
             personal_events=personal_events,
             running_plan=running_plan,
+            deload_detected=deload_detected,
         )
 
     wod_data = {
@@ -3207,6 +3253,7 @@ def main() -> int:
         "by_date": by_date,
         "barbell_lifts": barbell_lifts,
         "barbell_source": barbell_source,
+        "deload_alert": deload_detected,
         "personal_records": personal_records,
         "benchmark_workouts": benchmark_workouts,
         "workout_plans": workout_plans,

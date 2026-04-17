@@ -565,6 +565,42 @@
       vertical-align: middle;
     }
 
+    .run-5k-progress {
+      margin: 0.6rem 0 0.8rem;
+      padding: 0.6rem 0.75rem;
+      background: #030e07;
+      border: 1px solid #0a2a12;
+      border-radius: 6px;
+    }
+
+    .run-5k-labels {
+      display: flex;
+      justify-content: space-between;
+      font-size: 0.78rem;
+      color: #7ab890;
+      margin-bottom: 0.4rem;
+    }
+
+    .run-5k-bar-track {
+      height: 6px;
+      background: #0d2a15;
+      border-radius: 3px;
+      overflow: hidden;
+    }
+
+    .run-5k-bar-fill {
+      height: 100%;
+      background: linear-gradient(90deg, #00c853, #e8ff3c);
+      border-radius: 3px;
+      transition: width 0.6s ease;
+    }
+
+    .run-5k-sub {
+      font-size: 0.7rem;
+      color: #4a8058;
+      margin-top: 0.3rem;
+    }
+
     .run-reschedule-btn {
       background: none;
       border: 1px solid rgba(0,200,83,0.3);
@@ -613,6 +649,28 @@
     }
 
     /* AI coaching plan */
+    .weight-suggestions {
+      margin-top: 0.75rem;
+      padding: 0.65rem 0.85rem;
+      background: #0d1a10;
+      border: 1px solid #1a3020;
+      border-radius: 8px;
+    }
+
+    .weight-suggestions-label {
+      font-size: 0.65rem;
+      letter-spacing: 0.15em;
+      text-transform: uppercase;
+      color: #5ab070;
+      font-weight: 600;
+      margin-bottom: 0.4rem;
+    }
+
+    .weight-suggestions td, .weight-suggestions th {
+      font-size: 0.78rem;
+      color: #c0d8c0;
+    }
+
     .coach-plan {
       margin-top: 0.85rem;
       padding: 0.8rem 1rem;
@@ -847,6 +905,18 @@
       font-weight: 400;
       color: #8070a8;
       margin-left: 2px;
+    }
+
+    .deload-banner {
+      background: linear-gradient(135deg, #2d1a00, #1a0000);
+      border: 1px solid #ff6b00;
+      border-radius: 10px;
+      padding: 0.85rem 1.1rem;
+      margin-bottom: 1.2rem;
+      color: #ffb347;
+      font-size: 0.88rem;
+      font-weight: 600;
+      animation: fadeUp 0.4s ease both;
     }
 
     .recovery-block {
@@ -1552,6 +1622,7 @@
     let personalEvents = []; // [{id, title, date, time?, location?, notes?, created_at}]
     let intervalsData = null;   // {wellness: {by_date: {...}}, activities: {by_date: {...}}, fetched_at}
     let withingsData = null;    // {measurements: [...], fetched_at}
+    let deloadAlert = false;    // true als overtraining risico gedetecteerd
     let environmentalData = null; // {training_conditions: {...}, aqi: {...}, fetched_at}
     let runningPlanData = null; // {generated_at, week_number, workouts: [{date, type, name, description, total_duration_min}]}
     let activeChartLift = null;
@@ -1612,6 +1683,7 @@
           intervalsData = data.intervals_data || null;
           withingsData = data.withings_data || null;
           environmentalData = data.environmental_data || null;
+          deloadAlert = data.deload_alert || false;
 
           const bsEl = document.getElementById('barbellStatus');
           if (bsEl) {
@@ -1927,6 +1999,50 @@
       }
     }
 
+    const KNOWN_LIFTS = [
+      'back squat','front squat','overhead squat',
+      'deadlift','sumo deadlift',
+      'bench press','shoulder press','overhead press','push press','push jerk','split jerk',
+      'clean','hang clean','power clean','squat clean','clean and jerk','hang power clean',
+      'snatch','hang snatch','power snatch','squat snatch','hang power snatch',
+      'thruster','good morning','romanian deadlift','rdl',
+    ];
+
+    function renderWeightSuggestions(wods) {
+      if (!Object.keys(barbellLifts).length) return '';
+      const allText = wods.map(w => (w.title + ' ' + stripHtml(w.description || '')).toLowerCase()).join(' ');
+      const found = KNOWN_LIFTS.filter(l => allText.includes(l));
+      if (!found.length) return '';
+
+      // Resolve lift name to barbellLifts key (case-insensitive partial match)
+      const rows = found.map(liftName => {
+        const key = Object.keys(barbellLifts).find(k => k.toLowerCase() === liftName ||
+          k.toLowerCase().includes(liftName) || liftName.includes(k.toLowerCase()));
+        if (!key) return null;
+        const lifts = barbellLifts[key];
+        const oneRM = lifts['1RM'];
+        if (!oneRM) return null;
+        const pcts = [65, 70, 75, 80, 85, 90];
+        const cols = pcts.map(p => {
+          const kg = Math.round(oneRM * p / 100 / 2.5) * 2.5;
+          return `<td style="text-align:center;padding:3px 6px">${kg}</td>`;
+        }).join('');
+        return `<tr><td style="padding:3px 8px 3px 0;color:#ccc;font-size:0.8rem">${key}</td>${cols}</tr>`;
+      }).filter(Boolean);
+
+      if (!rows.length) return '';
+      const pctHeaders = [65, 70, 75, 80, 85, 90].map(p =>
+        `<th style="text-align:center;padding:3px 6px;color:#888;font-size:0.75rem">${p}%</th>`
+      ).join('');
+      return `<div class="weight-suggestions">
+        <div class="weight-suggestions-label">Gewichten (kg)</div>
+        <table style="border-collapse:collapse;width:100%">
+          <thead><tr><th></th>${pctHeaders}</tr></thead>
+          <tbody>${rows.join('')}</tbody>
+        </table>
+      </div>`;
+    }
+
     function renderWodSections(wods, date) {
       const sections = wods.map(w => {
         const desc = stripHtml(w.description || '').trim();
@@ -1936,6 +2052,8 @@
         </div>`;
       }).join('');
 
+      const weightHtml = renderWeightSuggestions(wods);
+
       const plan = date && workoutPlans[date];
       const planHtml = plan ? `
         <div class="coach-plan">
@@ -1943,7 +2061,7 @@
           <div class="coach-plan-body">${marked.parse(plan)}</div>
         </div>` : '';
 
-      return sections + planHtml;
+      return sections + weightHtml + planHtml;
     }
 
     function renderStravaBlock(date) {
@@ -2003,8 +2121,32 @@
         </div>`;
       }).join('');
 
+      // 5K voortgangsmeter
+      const goal5kSec  = 26 * 60;  // 26:00
+      const start5kSec = 28 * 60;  // 28:00 (startpunt)
+      const est5kSec   = runningPlanData.estimated_5k_seconds;
+      let progressHtml = '';
+      if (est5kSec) {
+        const clampedEst = Math.min(Math.max(est5kSec, goal5kSec), start5kSec);
+        const pct = Math.round((start5kSec - clampedEst) / (start5kSec - goal5kSec) * 100);
+        const estMins = Math.floor(est5kSec / 60);
+        const estSecs = est5kSec % 60;
+        const secLeft = Math.max(0, est5kSec - goal5kSec);
+        progressHtml = `<div class="run-5k-progress">
+          <div class="run-5k-labels">
+            <span>5K doel: <strong>26:00</strong></span>
+            <span style="color:#e8ff3c">Huidig: <strong>${estMins}:${String(estSecs).padStart(2,'0')}</strong></span>
+          </div>
+          <div class="run-5k-bar-track">
+            <div class="run-5k-bar-fill" style="width:${pct}%"></div>
+          </div>
+          <div class="run-5k-sub">Nog ~${Math.floor(secLeft)}s te verbeteren · ${pct}% naar doel</div>
+        </div>`;
+      }
+
       return `<div class="run-block">
         <div class="run-block-label">Hardloopplan${weekBadge}</div>
+        ${progressHtml}
         ${rows}
       </div>`;
     }
@@ -2143,6 +2285,9 @@
           ...upcomingRuns,
         ].sort((a, b) => a.date.localeCompare(b.date) || (a.time || '').localeCompare(b.time || ''));
 
+        if (deloadAlert) {
+          html += `<div class="deload-banner">⚠️ Herstelweek aanbevolen — je lichaam geeft overbelastingssignalen. Schaal WODs naar 60–70% en prioriteer slaap.</div>`;
+        }
         html += `<div class="section-title">Aankomend <button class="add-event-btn" onclick="showAddEventForm()">+ Toevoegen</button></div>`;
         html += `<div id="addEventFormWrapper"></div>`;
         html += `<div class="cards" id="upcomingCards">`;
@@ -2803,7 +2948,15 @@
           const col = hrvColor ? ` style="color:${hrvColor}"` : '';
           const statusBadge = (hrvIcon && hrvStatus)
             ? ` <span style="color:${hrvColor};font-size:0.85em">${hrvIcon} ${hrvStatus}</span>` : '';
-          p.push(`HRV <strong${col} title="Vandaag${baselineTitle}">${Math.round(w.hrv)}ms</strong>${statusBadge}`);
+          const trendData = intervalsData?.hrv_trend;
+          const trendBadge = (() => {
+            if (!trendData || Math.abs(trendData.delta_ms) < 0.5) return '';
+            const up = trendData.delta_ms > 0;
+            const col2 = up ? '#2ecc71' : '#f39c12';
+            const arrow = up ? '↑' : '↓';
+            return ` <span style="color:${col2};font-size:0.78em" title="HRV trend (${trendData.days_used} dagen): ${trendData.prev_avg}ms → ${trendData.recent_avg}ms">${arrow}${Math.abs(trendData.delta_ms)}ms</span>`;
+          })();
+          p.push(`HRV <strong${col} title="Vandaag${baselineTitle}">${Math.round(w.hrv)}ms</strong>${statusBadge}${trendBadge}`);
         }
         if (w.resting_hr != null)  p.push(`RHR <strong>${w.resting_hr}bpm</strong>`);
         if (w.sleep_hrs != null) {
