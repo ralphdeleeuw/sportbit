@@ -1822,8 +1822,6 @@ def generate_recovery_advice(
     environmental_data: "dict | None" = None,
     intervals_data: "dict | None" = None,
     personal_events: list[dict] | None = None,
-    runna_data: "dict | None" = None,
-    runna_notes: "dict | None" = None,
 ) -> str:
     """
     Generate a daily recovery/intensity advice based on recent workouts and
@@ -2218,72 +2216,6 @@ def generate_recovery_advice(
                 lines.append(line)
             upcoming_personal_text = "\n" + "\n".join(lines) + "\n"
 
-    # Runna hardlooptrainingen
-    runna_past_text = ""
-    runna_upcoming_text = ""
-    if runna_data and not runna_data.get("error"):
-        notes_lookup = runna_notes or {}
-
-        def _runna_key(s: dict) -> str:
-            slug = re.sub(r"[^a-z0-9]+", "-", (s.get("title") or "").lower()).strip("-")[:40]
-            return f"{s.get('date', '')}_{slug}"
-
-        def _note_for(s: dict) -> str:
-            ne = notes_lookup.get(_runna_key(s))
-            if isinstance(ne, dict):
-                parts = []
-                if ne.get("time"):
-                    parts.append(f"om {ne['time']}")
-                if ne.get("notes"):
-                    parts.append(ne["notes"][:120])
-                return ", ".join(parts)
-            return (ne or "")[:120] if ne else ""
-
-        today_iso = today.isoformat() if today else ""
-        # Sessions in upcoming_sessions whose date is now past (stale cache) must
-        # also be treated as completed — otherwise they vanish from coach context.
-        past_from_upcoming = [
-            s for s in (runna_data.get("upcoming_sessions") or [])
-            if s.get("date", "") < today_iso
-        ]
-        all_past = list(runna_data.get("recent_completed") or []) + past_from_upcoming
-        recent_runs = sorted(
-            all_past,
-            key=lambda s: s.get("date", ""), reverse=True,
-        )[:5]
-        # Use >= so today's planned session is visible as upcoming.
-        upcoming_runs = sorted(
-            [s for s in (runna_data.get("upcoming_sessions") or [])
-             if s.get("date", "") >= today_iso],
-            key=lambda s: s.get("date", ""),
-        )[:7]
-        if recent_runs:
-            lines = ["Recente hardlooptrainingen (Runna):"]
-            for s in reversed(recent_runs):
-                line = f"  {_nl_date(s['date'])}: {s.get('title', 'Run')}"
-                if s.get("distance_km"):
-                    line += f" — {s['distance_km']}km"
-                if s.get("duration_min"):
-                    line += f", {s['duration_min']} min"
-                note = _note_for(s)
-                if note:
-                    line += f" [{note}]"
-                lines.append(line)
-            runna_past_text = "\n" + "\n".join(lines) + "\n"
-        if upcoming_runs:
-            lines = ["Aankomende hardlooptrainingen (Runna, komende 7 dagen):"]
-            for s in upcoming_runs:
-                line = f"  {_nl_date(s['date'])}: {s.get('title', 'Run')}"
-                if s.get("distance_km"):
-                    line += f" — {s['distance_km']}km"
-                note = _note_for(s)
-                if note:
-                    line += f" [{note}]"
-                elif s.get("time"):
-                    line += f" om {s['time']}"
-                lines.append(line)
-            runna_upcoming_text = "\n" + "\n".join(lines) + "\n"
-
     prompt = f"""Je bent een ervaren CrossFit coach. Geef een kort, persoonlijk hersteladvies voor vandaag.
 
 Vandaag is: {today_str}
@@ -2304,9 +2236,9 @@ Waar beschikbaar is Strava-data (↳) toegevoegd: hartslag, duur, calorieën, Re
 Gebruik dit om de werkelijke intensiteit te beoordelen, NIET alleen de WOD-beschrijving:
 {hr_zones_text}
 {past_text if past_text.strip() else "Geen recente trainingen bekend."}
-{past_personal_text}{runna_past_text}
+{past_personal_text}
 Volgende workout:
-{upcoming_text}{upcoming_timing_context}{upcoming_personal_text}{runna_upcoming_text}{meals_text}{env_block}
+{upcoming_text}{upcoming_timing_context}{upcoming_personal_text}{meals_text}{env_block}
 {pr_text}{prev_advice_text}
 Geef advies over:
 1. **Herstelniveau** — zijn er spiergroepen die extra rust nodig hebben op basis van de recente workouts?{"  Gebruik de subjectieve hersteldata (slaap, energie, spierpijn) als primaire fysiologische herstelIndicator. Gebruik de Strava workout-data (hartslag, duur) om de werkelijke trainingsbelasting per sessie te beoordelen." if health_input else ""}{"  De ACWR-ratio geeft de trainingsbelasting aan: check of er een patroon is met het vorige advies." if acwr else ""}
@@ -2776,18 +2708,12 @@ def _load_previous_coach_context(gist_id: str, token: str) -> dict:
         cached_meals = json.loads(meals_raw).get("meals", []) if meals_raw else []
         personal_events_raw = files.get("personal_events.json", {}).get("content", "")
         personal_events = json.loads(personal_events_raw).get("events", []) if personal_events_raw else []
-        runna_raw = files.get("runna_data.json", {}).get("content", "")
-        runna_data = json.loads(runna_raw) if runna_raw else None
-        runna_notes_raw = files.get("runna_notes.json", {}).get("content", "")
-        runna_notes = json.loads(runna_notes_raw).get("notes", {}) if runna_notes_raw else {}
         return {
             "barbell_lifts_history": existing.get("barbell_lifts_history", []),
             "recovery_advice_history": existing.get("recovery_advice_history", []),
             "_full": existing,
             "_keukenbaas": cached_meals,
             "_personal_events": personal_events,
-            "_runna_data": runna_data,
-            "_runna_notes": runna_notes,
         }
     except Exception as exc:
         log.warning("[gist] Could not load previous coach context: %s", exc)
@@ -2883,19 +2809,13 @@ def main() -> int:
     cached_gist: dict = {}
     cached_keukenbaas: list = []
     personal_events: list[dict] = []
-    runna_data: "dict | None" = None
-    runna_notes: dict = {}
     if gist_id and token:
         full_ctx = _load_previous_coach_context(gist_id, token)
         cached_gist = full_ctx.pop("_full", {})
         cached_keukenbaas = full_ctx.pop("_keukenbaas", [])
         personal_events = full_ctx.pop("_personal_events", [])
-        runna_data      = full_ctx.pop("_runna_data", None)
-        runna_notes     = full_ctx.pop("_runna_notes", {})
         prev_coach_ctx = full_ctx
         log.info("[gist] personal_events.json: %d events geladen", len(personal_events))
-        log.info("[gist] runna_data.json: %s", "geladen" if runna_data else "niet gevonden")
-        log.info("[gist] runna_notes.json: %d notities geladen", len(runna_notes))
         log.info(
             "Gist cache geladen: %d barbell snapshots, %d advice entries",
             len(prev_coach_ctx["barbell_lifts_history"]),
@@ -3180,8 +3100,6 @@ def main() -> int:
             withings_data=withings_data,
             environmental_data=env_data,
             personal_events=personal_events,
-            runna_data=runna_data,
-            runna_notes=runna_notes,
         )
 
     # 2. SugarWOD logbook (athlete scored a result)
@@ -3219,8 +3137,6 @@ def main() -> int:
             withings_data=withings_data,
             environmental_data=env_data,
             personal_events=personal_events,
-            runna_data=runna_data,
-            runna_notes=runna_notes,
         )
 
     # 3. Fallback: all programmed past workouts
@@ -3246,8 +3162,6 @@ def main() -> int:
             withings_data=withings_data,
             environmental_data=env_data,
             personal_events=personal_events,
-            runna_data=runna_data,
-            runna_notes=runna_notes,
         )
 
     wod_data = {

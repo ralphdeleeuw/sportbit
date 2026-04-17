@@ -2,8 +2,8 @@
 """
 generate_fitness_context.py — Genereert een fitness context markdown voor Claude.
 
-Haalt data op uit de GitHub Gist (sugarwod_wod.json, health_input.json,
-runna_data.json) en combineert dit met het vaste atletenprofiel om een
+Haalt data op uit de GitHub Gist (sugarwod_wod.json, health_input.json)
+en combineert dit met het vaste atletenprofiel om een
 volledig overzicht te maken dat als context dient bij het genereren van
 een persoonlijk fitnessplan.
 
@@ -433,57 +433,6 @@ def section_wods(wod_data: dict | None, workout_log: dict | None) -> str:
     return "\n".join(lines)
 
 
-def section_runna(runna_data: dict | None) -> str:
-    lines = [_section("Looptraining (Runna)")]
-
-    if not runna_data:
-        lines.append("*Geen Runna-data beschikbaar.*")
-        return "\n".join(lines)
-
-    plan = runna_data.get("training_plan", {})
-    if plan:
-        plan_v2 = plan.get("planV2", {})
-        plan_name = plan.get("customPlanName") or plan_v2.get("shortPlanName", "Onbekend")
-        race_dist = plan_v2.get("raceDistName", "—")
-        plan_len = plan_v2.get("planLength", "—")
-        lines.append(f"**Huidig plan:** {plan_name}")
-        lines.append(f"**Afstand:** {race_dist} | **Lengte:** {plan_len} weken\n")
-
-    upcoming: list[dict] = runna_data.get("upcoming_sessions", [])
-    if upcoming:
-        lines.append("**Komende trainingen:**\n")
-        rows = []
-        for s in upcoming[:10]:
-            rows.append([
-                s.get("date", "—"),
-                s.get("title", "—"),
-                s.get("sessionType", "—"),
-                _fmt_val(s.get("targetDistance_km"), " km"),
-                _fmt_val(s.get("targetDuration_min"), " min"),
-                s.get("status", "—"),
-            ])
-        lines.append(_table(
-            ["Datum", "Titel", "Type", "Afstand", "Duur", "Status"],
-            rows,
-        ))
-
-    completed: list[dict] = runna_data.get("recent_completed", [])
-    if completed:
-        lines.append("\n**Recente voltooid (Runna):**\n")
-        rows = []
-        for s in completed[:7]:
-            rows.append([
-                s.get("date", "—"),
-                s.get("title", "—"),
-                s.get("sessionType", "—"),
-                _fmt_val(s.get("actualDistance_km"), " km"),
-                _fmt_val(s.get("actualDuration_min"), " min"),
-            ])
-        lines.append(_table(["Datum", "Titel", "Type", "Werkelijke afstand", "Werkelijke duur"], rows))
-
-    return "\n".join(lines)
-
-
 def section_nutrition() -> str:
     lines = [_section("Voeding")]
     lines.append(f"**Ontbijt ({BREAKFAST['time']}):** {BREAKFAST['description']}\n")
@@ -506,7 +455,6 @@ def generate(output_file: str = "fitness_context.md") -> None:
     wod_data: dict | None = None
     health_input: dict | None = None
     hi_history: list[dict] = []
-    runna_data: dict | None = None
     workout_log: dict | None = None
 
     if gist_id and token:
@@ -525,7 +473,6 @@ def generate(output_file: str = "fitness_context.md") -> None:
                         "stress": hi_raw.get("stress"),
                     }
                 hi_history = hi_raw.get("history", [])
-            runna_data = _parse_json(files.get("runna_data.json", ""), "runna_data.json")
             wl_raw = _parse_json(files.get("workout_log.json", ""), "workout_log.json")
             if isinstance(wl_raw, dict):
                 workout_log = {e["date"]: e for e in wl_raw.get("entries", []) if "date" in e}
@@ -550,7 +497,6 @@ def generate(output_file: str = "fitness_context.md") -> None:
         section_health_metrics(wod_data, health_input, hi_history),
         section_activities(wod_data),
         section_wods(wod_data, workout_log),
-        section_runna(runna_data),
         section_nutrition(),
         "\n---",
         "\n*Dit document is automatisch gegenereerd door `generate_fitness_context.py`. "
