@@ -3149,7 +3149,7 @@
       const chevron = session.description ? `<div class="wod-chevron" style="color:#00c853">▾</div>` : '';
 
       const rescheduleBtn = isUpcoming
-        ? `<button class="run-reschedule-btn" onclick="event.stopPropagation(); toggleReschedule('${cardId}')">📅 Verplaats</button>`
+        ? `<button class="run-reschedule-btn" onclick="event.stopPropagation(); toggleReschedule('${cardId}')">📅 Datum/tijd</button>`
         : '';
 
       const scheduledOverride = (healthInput || {})[sessionKey];
@@ -3191,7 +3191,7 @@
                 </div>
                 <div class="card-right">
                   ${rescheduleBtn}
-                  <div class="card-date" style="color:#00c853">${formatDate(session.date)}</div>
+                  <div class="card-date" style="color:#00c853">${formatDate(session.date)} ${sessionTime}</div>
                   <div class="card-relative-day">${relativeDay(session.date)}</div>
                   ${chevron}
                 </div>
