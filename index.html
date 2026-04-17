@@ -2131,7 +2131,10 @@
       // 5K voortgangsmeter
       const goal5kSec  = 26 * 60;  // 26:00
       const start5kSec = 28 * 60;  // 28:00 (startpunt)
-      const est5kSec   = runningPlanData.estimated_5k_seconds;
+      // Sanity check: schatting op basis van intervaldata kan onbetrouwbaar zijn.
+      // Als de waarde > 32 min is, is de berekening fout (bijv. duurlooptempo meegenomen).
+      const rawEst = runningPlanData.estimated_5k_seconds;
+      const est5kSec = (rawEst && rawEst <= 32 * 60) ? rawEst : null;
       let progressHtml = '';
       if (est5kSec) {
         const clampedEst = Math.min(Math.max(est5kSec, goal5kSec), start5kSec);

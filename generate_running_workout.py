@@ -682,33 +682,38 @@ def _save_ical_to_gist(gist_id: str, token: str, ical_content: str) -> None:
 
 def _estimate_5k_seconds(specs: list[dict]) -> int | None:
     """
-    Schat de huidige 5K-tijd op basis van de intervaltempo's in het meest recente plan.
-    Zoekt naar 'run' stappen binnen 'repeat' blokken en pakt het langzaamste (meest
-    realistische) tempo, daarna +12% als race-schatting.
-    Geeft None terug als er onvoldoende data is.
+    Schat de huidige 5K-tijd op basis van de intervaltempo's in de speed-sessie.
+
+    Gebruikt alleen de speed-sessie (niet de lange duurloop) en alleen
+    pace_target velden (niet pace_max, die gelden voor easy runs).
+    Intervaltempos voor 300-400m zijn ~6% sneller dan 5K race pace.
     """
     interval_paces_spm: list[float] = []
     for spec in specs:
+        if spec.get("session") != "speed":
+            continue
         for step in spec.get("steps", []):
             if step.get("type") == "repeat":
                 for child in step.get("children", []):
                     if child.get("type") == "run":
-                        pace_str = child.get("pace_target") or child.get("pace_max")
+                        pace_str = child.get("pace_target")  # alleen expliciete intervaltargets
                         if pace_str:
                             try:
                                 mins, secs = pace_str.split(":")
-                                interval_paces_spm.append(int(mins) * 60 + int(secs))
+                                spm = int(mins) * 60 + int(secs)
+                                # Filter out easy paces (> 6:10/km) — die horen niet in een interval
+                                if spm <= 370:
+                                    interval_paces_spm.append(spm)
                             except (ValueError, AttributeError):
                                 pass
 
     if not interval_paces_spm:
         return None
 
-    # Gebruik het mediaan intervaltempo voor een stabiele schatting
     interval_paces_spm.sort()
     median_pace = interval_paces_spm[len(interval_paces_spm) // 2]
-    # 5K race tempo is ~12% langzamer dan korte interval tempo's
-    race_pace_spm = median_pace * 1.12
+    # 300-400m intervaltempo is ~6% sneller dan 5K race pace
+    race_pace_spm = median_pace * 1.06
     return round(race_pace_spm * 5)  # 5 km
 
 
