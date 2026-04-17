@@ -565,6 +565,28 @@
       vertical-align: middle;
     }
 
+    .run-reschedule-btn {
+      background: none;
+      border: 1px solid rgba(0,200,83,0.3);
+      color: #00c853;
+      border-radius: 4px;
+      font-size: 0.7rem;
+      padding: 0.15rem 0.45rem;
+      cursor: pointer;
+      margin-left: 0.3rem;
+      white-space: nowrap;
+    }
+    .run-reschedule-btn:hover { background: rgba(0,200,83,0.08); }
+    .run-reschedule-form {
+      display: none;
+      background: #060f09;
+      border: 1px solid #1a4d2e;
+      border-top: none;
+      border-radius: 0 0 8px 8px;
+      padding: 0.75rem 1rem 0.75rem 2.5rem;
+      margin-bottom: 0.75rem;
+    }
+
     .run-item {
       display: flex;
       justify-content: space-between;
@@ -3109,8 +3131,15 @@
     // ── Hardlooplan event cards ────────────────────────────────────────────────
 
     function renderRunEventCard(session, delay) {
-      const dur = session.total_duration_min ? `${session.total_duration_min} min` : '';
-      const metaParts = [dur].filter(Boolean).join(' · ');
+      const today = new Date().toISOString().slice(0, 10);
+      const isUpcoming = session.date >= today;
+      const sessionKey = session.session === 'speed' ? 'run_1' : 'run_2';
+      const sessionTime = session.time || (session.session === 'speed' ? '20:00' : '09:00');
+      const cardId = 'run' + session.date.replace(/-/g, '');
+
+      const distStr = session.total_distance_km ? `${session.total_distance_km} km` : '';
+      const durStr = session.total_duration_min ? `${session.total_duration_min} min` : '';
+      const metaParts = [distStr, durStr].filter(Boolean).join(' · ');
       const metaHtml = metaParts ? `<div class="card-meta"><span>${metaParts}</span></div>` : '';
 
       const descHtml = session.description
@@ -3119,24 +3148,113 @@
       const hasWod = session.description ? ' has-wod' : '';
       const chevron = session.description ? `<div class="wod-chevron" style="color:#00c853">▾</div>` : '';
 
-      return `
-        <div class="card${hasWod}" style="animation-delay:${delay}s"${session.description ? ' onclick="toggleWod(this)"' : ''}>
-          <div class="card-dot" style="background:#00c853"></div>
-          <div class="card-info">
-            <div class="card-header">
-              <div class="card-header-left">
-                <div class="card-title">🏃 ${escapeHtml(session.name || session.type || 'Run')}</div>
-                ${metaHtml}
-              </div>
-              <div class="card-right">
-                <div class="card-date" style="color:#00c853">${formatDate(session.date)}</div>
-                <div class="card-relative-day">${relativeDay(session.date)}</div>
-                ${chevron}
-              </div>
-            </div>
-            ${descHtml}
+      const rescheduleBtn = isUpcoming
+        ? `<button class="run-reschedule-btn" onclick="event.stopPropagation(); toggleReschedule('${cardId}')">📅 Verplaats</button>`
+        : '';
+
+      const scheduledOverride = (healthInput || {})[sessionKey];
+      const overrideNote = scheduledOverride
+        ? `<div style="font-size:0.7rem;color:#ffb300;margin-bottom:0.4rem">⚠ Verplaatst naar: ${scheduledOverride.replace('T', ' ')}</div>`
+        : '';
+      const clearBtn = scheduledOverride
+        ? `<button class="run-reschedule-btn" style="color:#ff6b6b;border-color:rgba(255,107,107,0.3)" onclick="clearRunReschedule('${sessionKey}', '${cardId}')">✕ Herstel standaard</button>`
+        : '';
+
+      const rescheduleForm = isUpcoming ? `
+        <div id="${cardId}" class="run-reschedule-form">
+          ${overrideNote}
+          <div style="font-size:0.75rem;color:#a0a0a0;margin-bottom:0.5rem">Nieuwe datum en tijd:</div>
+          <div style="display:flex;gap:0.5rem;align-items:center;flex-wrap:wrap">
+            <input type="datetime-local" id="rsinput-${cardId}"
+                   value="${session.date}T${sessionTime}"
+                   class="add-event-input" style="flex:1;min-width:180px">
+            <button class="run-reschedule-btn" id="rssave-${cardId}"
+                    onclick="saveRunReschedule('${sessionKey}', '${cardId}')">Opslaan</button>
+            ${clearBtn}
           </div>
+        </div>` : '';
+
+      const cardStyle = isUpcoming && session.description
+        ? 'border-radius:8px 8px 0 0;border-bottom-color:transparent;'
+        : '';
+
+      return `
+        <div>
+          <div class="card${hasWod}" style="animation-delay:${delay}s;${cardStyle}"${session.description ? ' onclick="toggleWod(this)"' : ''}>
+            <div class="card-dot" style="background:#00c853"></div>
+            <div class="card-info">
+              <div class="card-header">
+                <div class="card-header-left">
+                  <div class="card-title">🏃 ${escapeHtml(session.name || session.type || 'Run')}</div>
+                  ${metaHtml}
+                </div>
+                <div class="card-right">
+                  ${rescheduleBtn}
+                  <div class="card-date" style="color:#00c853">${formatDate(session.date)}</div>
+                  <div class="card-relative-day">${relativeDay(session.date)}</div>
+                  ${chevron}
+                </div>
+              </div>
+              ${descHtml}
+            </div>
+          </div>
+          ${rescheduleForm}
         </div>`;
+    }
+
+    function toggleReschedule(cardId) {
+      const el = document.getElementById(cardId);
+      if (!el) return;
+      el.style.display = el.style.display === 'block' ? 'none' : 'block';
+    }
+
+    async function saveRunReschedule(sessionKey, cardId) {
+      const token = document.getElementById('githubToken').value.trim();
+      if (!token || !currentGistId) { alert('GitHub token vereist'); return; }
+      const input = document.getElementById('rsinput-' + cardId);
+      if (!input || !input.value) return;
+      const newDatetime = input.value; // "YYYY-MM-DDTHH:MM"
+      const btn = document.getElementById('rssave-' + cardId);
+      if (btn) { btn.textContent = 'Opslaan…'; btn.disabled = true; }
+      try {
+        const resp = await fetch(`https://api.github.com/gists/${currentGistId}`, {
+          headers: { Authorization: `token ${token}` }
+        });
+        const gist = await resp.json();
+        let h = {};
+        try { h = JSON.parse(gist.files['health_input.json']?.content || '{}'); } catch(e) {}
+        h[sessionKey] = newDatetime;
+        healthInput = h;
+        await fetch(`https://api.github.com/gists/${currentGistId}`, {
+          method: 'PATCH',
+          headers: { Authorization: `token ${token}`, 'Content-Type': 'application/json' },
+          body: JSON.stringify({ files: { 'health_input.json': { content: JSON.stringify(h, null, 2) } } })
+        });
+        if (btn) { btn.textContent = '✓ Opgeslagen'; btn.disabled = false; }
+      } catch(e) {
+        if (btn) { btn.textContent = 'Fout!'; btn.disabled = false; }
+      }
+    }
+
+    async function clearRunReschedule(sessionKey, cardId) {
+      const token = document.getElementById('githubToken').value.trim();
+      if (!token || !currentGistId) { alert('GitHub token vereist'); return; }
+      try {
+        const resp = await fetch(`https://api.github.com/gists/${currentGistId}`, {
+          headers: { Authorization: `token ${token}` }
+        });
+        const gist = await resp.json();
+        let h = {};
+        try { h = JSON.parse(gist.files['health_input.json']?.content || '{}'); } catch(e) {}
+        delete h[sessionKey];
+        healthInput = h;
+        await fetch(`https://api.github.com/gists/${currentGistId}`, {
+          method: 'PATCH',
+          headers: { Authorization: `token ${token}`, 'Content-Type': 'application/json' },
+          body: JSON.stringify({ files: { 'health_input.json': { content: JSON.stringify(h, null, 2) } } })
+        });
+        document.getElementById(cardId).style.display = 'none';
+      } catch(e) { console.error(e); }
     }
 
     function showAddEventForm() {
