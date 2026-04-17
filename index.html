@@ -3169,9 +3169,10 @@
                    value="${session.date}T${sessionTime}"
                    class="add-event-input" style="flex:1;min-width:180px">
             <button class="run-reschedule-btn" id="rssave-${cardId}"
-                    onclick="saveRunReschedule('${sessionKey}', '${cardId}')">Opslaan</button>
+                    onclick="saveAndSyncReschedule('${sessionKey}', '${cardId}')">Opslaan & Sync Garmin</button>
             ${clearBtn}
           </div>
+          <div id="rsstatus-${cardId}" style="font-size:0.72rem;color:var(--muted);margin-top:0.4rem"></div>
         </div>` : '';
 
       const cardStyle = isUpcoming && session.description
@@ -3208,49 +3209,71 @@
       el.style.display = el.style.display === 'block' ? 'none' : 'block';
     }
 
-    async function saveRunReschedule(sessionKey, cardId) {
+    async function _patchRescheduleToGist(token, sessionKey, newDatetime) {
+      const newDate = newDatetime.slice(0, 10);
+      const newTime = newDatetime.slice(11, 16);
+      const resp = await fetch(`https://api.github.com/gists/${currentGistId}`, {
+        headers: { Authorization: `token ${token}` }
+      });
+      const gist = await resp.json();
+      let h = {};
+      try { h = JSON.parse(gist.files['health_input.json']?.content || '{}'); } catch(e) {}
+      h[sessionKey] = newDatetime;
+      healthInput = h;
+      let plan = {};
+      try { plan = JSON.parse(gist.files['running_plan.json']?.content || '{}'); } catch(e) {}
+      const sessionRole = sessionKey === 'run_1' ? 'speed' : 'long_run';
+      if (plan.workouts) {
+        const w = plan.workouts.find(w => w.session === sessionRole);
+        if (w) { w.date = newDate; w.time = newTime; }
+      }
+      await fetch(`https://api.github.com/gists/${currentGistId}`, {
+        method: 'PATCH',
+        headers: { Authorization: `token ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ files: {
+          'health_input.json': { content: JSON.stringify(h, null, 2) },
+          'running_plan.json': { content: JSON.stringify(plan, null, 2) },
+        }})
+      });
+    }
+
+    async function saveAndSyncReschedule(sessionKey, cardId) {
       const token = document.getElementById('githubToken').value.trim();
       if (!token || !currentGistId) { alert('GitHub token vereist'); return; }
       const input = document.getElementById('rsinput-' + cardId);
       if (!input || !input.value) return;
-      const newDatetime = input.value; // "YYYY-MM-DDTHH:MM"
-      const newDate = newDatetime.slice(0, 10);
-      const newTime = newDatetime.slice(11, 16);
+      const newDatetime = input.value;
       const btn = document.getElementById('rssave-' + cardId);
-      if (btn) { btn.textContent = 'Opslaan…'; btn.disabled = true; }
+      const statusEl = document.getElementById('rsstatus-' + cardId);
+      const setStatus = (msg, color) => { if (statusEl) { statusEl.textContent = msg; statusEl.style.color = color || 'var(--muted)'; } };
+
+      if (btn) { btn.disabled = true; btn.textContent = 'Opslaan…'; }
       try {
-        const resp = await fetch(`https://api.github.com/gists/${currentGistId}`, {
-          headers: { Authorization: `token ${token}` }
-        });
-        const gist = await resp.json();
+        await _patchRescheduleToGist(token, sessionKey, newDatetime);
+        setStatus('✓ Opgeslagen in Gist — Garmin sync starten…');
 
-        // Update health_input.json (voor volgende gegenereerd plan)
-        let h = {};
-        try { h = JSON.parse(gist.files['health_input.json']?.content || '{}'); } catch(e) {}
-        h[sessionKey] = newDatetime;
-        healthInput = h;
-
-        // Update running_plan.json (zodat de kaart na refresh de juiste datum toont)
-        let plan = {};
-        try { plan = JSON.parse(gist.files['running_plan.json']?.content || '{}'); } catch(e) {}
-        const sessionRole = sessionKey === 'run_1' ? 'speed' : 'long_run';
-        if (plan.workouts) {
-          const w = plan.workouts.find(w => w.session === sessionRole);
-          if (w) { w.date = newDate; w.time = newTime; }
+        // Trigger reschedule workflow
+        const triggerTime = new Date();
+        const triggerResp = await fetch(
+          'https://api.github.com/repos/ralphdeleeuw/sportbit/actions/workflows/reschedule_running_workout.yml/dispatches',
+          {
+            method: 'POST',
+            headers: { Authorization: `token ${token}`, Accept: 'application/vnd.github+json', 'Content-Type': 'application/json' },
+            body: JSON.stringify({ ref: 'main', inputs: {} }),
+          }
+        );
+        if (triggerResp.status !== 204) {
+          const body = await triggerResp.json().catch(() => ({}));
+          setStatus(`Workflow fout ${triggerResp.status}: ${body.message || 'onbekend'}`, 'var(--accent2)');
+          if (btn) { btn.disabled = false; btn.textContent = 'Opslaan & Sync Garmin'; }
+          return;
         }
-
-        await fetch(`https://api.github.com/gists/${currentGistId}`, {
-          method: 'PATCH',
-          headers: { Authorization: `token ${token}`, 'Content-Type': 'application/json' },
-          body: JSON.stringify({ files: {
-            'health_input.json': { content: JSON.stringify(h, null, 2) },
-            'running_plan.json': { content: JSON.stringify(plan, null, 2) },
-          }})
-        });
-        if (btn) { btn.textContent = '✓ Opgeslagen'; btn.disabled = false; }
-        setTimeout(() => location.reload(), 800);
+        if (btn) { btn.textContent = '⏳ Sync…'; }
+        setStatus('⏳ Garmin sync bezig…');
+        await pollWorkflowRun(token, triggerTime, statusEl, btn, 'reschedule_running_workout.yml', 'Opslaan & Sync Garmin');
       } catch(e) {
-        if (btn) { btn.textContent = 'Fout!'; btn.disabled = false; }
+        setStatus(`Fout: ${e.message}`, 'var(--accent2)');
+        if (btn) { btn.disabled = false; btn.textContent = 'Opslaan & Sync Garmin'; }
         console.error(e);
       }
     }
@@ -3269,7 +3292,6 @@
         delete h[sessionKey];
         healthInput = h;
 
-        // Zet running_plan.json terug naar standaarddatum (di/za komende week)
         let plan = {};
         try { plan = JSON.parse(gist.files['running_plan.json']?.content || '{}'); } catch(e) {}
         const sessionRole = sessionKey === 'run_1' ? 'speed' : 'long_run';
