@@ -10,7 +10,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with: {python-version: '3.12'}
-      - run: pip install requests google-auth google-api-python-client
+      - run: pip install requests google-auth google-auth-oauthlib google-api-python-client
       - run: python3 reschedule_running_workout.py
         env:
           INTERVALS_ATHLETE_ID: ${{ secrets.INTERVALS_ATHLETE_ID }}
