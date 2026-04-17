@@ -2022,18 +2022,25 @@
         const lifts = barbellLifts[key];
         const oneRM = lifts['1RM'];
         if (!oneRM) return null;
-        const pcts = [65, 70, 75, 80, 85, 90];
+        const pcts = [65, 70, 75, 80, 85, 90, 100, 105];
         const cols = pcts.map(p => {
           const kg = Math.round(oneRM * p / 100 / 2.5) * 2.5;
-          return `<td style="text-align:center;padding:3px 6px">${kg}</td>`;
+          const is1rm = p === 100;
+          const style = is1rm
+            ? `text-align:center;padding:3px 6px;color:#e8ff3c;font-weight:700`
+            : `text-align:center;padding:3px 6px`;
+          return `<td style="${style}">${kg}</td>`;
         }).join('');
         return `<tr><td style="padding:3px 8px 3px 0;color:#ccc;font-size:0.8rem">${key}</td>${cols}</tr>`;
       }).filter(Boolean);
 
       if (!rows.length) return '';
-      const pctHeaders = [65, 70, 75, 80, 85, 90].map(p =>
-        `<th style="text-align:center;padding:3px 6px;color:#888;font-size:0.75rem">${p}%</th>`
-      ).join('');
+      const pctHeaders = [65, 70, 75, 80, 85, 90, 100, 105].map(p => {
+        const style = p === 100
+          ? `text-align:center;padding:3px 6px;color:#e8ff3c;font-size:0.75rem;font-weight:700`
+          : `text-align:center;padding:3px 6px;color:#888;font-size:0.75rem`;
+        return `<th style="${style}">${p}%</th>`;
+      }).join('');
       return `<div class="weight-suggestions">
         <div class="weight-suggestions-label">Gewichten (kg)</div>
         <table style="border-collapse:collapse;width:100%">
