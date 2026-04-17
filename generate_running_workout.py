@@ -338,15 +338,10 @@ def _build_description(spec: dict) -> str:
 def _build_intervals_event(spec: dict) -> dict:
     event: dict = {
         "start_date_local": f"{spec['date']}T08:00:00",
-        "type": "Run",
+        "category": "WORKOUT",
         "name": spec["name"],
         "description": _build_description(spec),
     }
-
-    total_min = spec.get("total_duration_min")
-    if total_min:
-        event["duration"] = total_min * 60
-
     return event
 
 
