@@ -355,9 +355,15 @@ def _push_to_intervals(athlete_id: str, api_key: str, events: list[dict]) -> lis
     created = []
     for event in events:
         url = f"{INTERVALS_BASE}/{athlete_id}/events"
+        log.info("Payload naar intervals.icu: %s", json.dumps(event, ensure_ascii=False))
         try:
             resp = session.post(url, json=event, timeout=20)
-            resp.raise_for_status()
+            if not resp.ok:
+                log.error(
+                    "Fout bij aanmaken event '%s': %s — response: %s",
+                    event.get("name"), resp.status_code, resp.text[:500],
+                )
+                continue
             result = resp.json()
             log.info(
                 "Event aangemaakt: '%s' op %s (id: %s)",
