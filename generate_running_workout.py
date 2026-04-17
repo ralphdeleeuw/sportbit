@@ -339,6 +339,7 @@ def _build_intervals_event(spec: dict) -> dict:
     event: dict = {
         "start_date_local": f"{spec['date']}T08:00:00",
         "category": "WORKOUT",
+        "type": "Run",
         "name": spec["name"],
         "description": _build_description(spec),
     }
