@@ -3214,6 +3214,8 @@
       const input = document.getElementById('rsinput-' + cardId);
       if (!input || !input.value) return;
       const newDatetime = input.value; // "YYYY-MM-DDTHH:MM"
+      const newDate = newDatetime.slice(0, 10);
+      const newTime = newDatetime.slice(11, 16);
       const btn = document.getElementById('rssave-' + cardId);
       if (btn) { btn.textContent = 'Opslaan…'; btn.disabled = true; }
       try {
@@ -3221,18 +3223,35 @@
           headers: { Authorization: `token ${token}` }
         });
         const gist = await resp.json();
+
+        // Update health_input.json (voor volgende gegenereerd plan)
         let h = {};
         try { h = JSON.parse(gist.files['health_input.json']?.content || '{}'); } catch(e) {}
         h[sessionKey] = newDatetime;
         healthInput = h;
+
+        // Update running_plan.json (zodat de kaart na refresh de juiste datum toont)
+        let plan = {};
+        try { plan = JSON.parse(gist.files['running_plan.json']?.content || '{}'); } catch(e) {}
+        const sessionRole = sessionKey === 'run_1' ? 'speed' : 'long_run';
+        if (plan.workouts) {
+          const w = plan.workouts.find(w => w.session === sessionRole);
+          if (w) { w.date = newDate; w.time = newTime; }
+        }
+
         await fetch(`https://api.github.com/gists/${currentGistId}`, {
           method: 'PATCH',
           headers: { Authorization: `token ${token}`, 'Content-Type': 'application/json' },
-          body: JSON.stringify({ files: { 'health_input.json': { content: JSON.stringify(h, null, 2) } } })
+          body: JSON.stringify({ files: {
+            'health_input.json': { content: JSON.stringify(h, null, 2) },
+            'running_plan.json': { content: JSON.stringify(plan, null, 2) },
+          }})
         });
         if (btn) { btn.textContent = '✓ Opgeslagen'; btn.disabled = false; }
+        setTimeout(() => location.reload(), 800);
       } catch(e) {
         if (btn) { btn.textContent = 'Fout!'; btn.disabled = false; }
+        console.error(e);
       }
     }
 
@@ -3244,16 +3263,38 @@
           headers: { Authorization: `token ${token}` }
         });
         const gist = await resp.json();
+
         let h = {};
         try { h = JSON.parse(gist.files['health_input.json']?.content || '{}'); } catch(e) {}
         delete h[sessionKey];
         healthInput = h;
+
+        // Zet running_plan.json terug naar standaarddatum (di/za komende week)
+        let plan = {};
+        try { plan = JSON.parse(gist.files['running_plan.json']?.content || '{}'); } catch(e) {}
+        const sessionRole = sessionKey === 'run_1' ? 'speed' : 'long_run';
+        if (plan.workouts) {
+          const w = plan.workouts.find(w => w.session === sessionRole);
+          if (w) {
+            const targetDay = sessionKey === 'run_1' ? 2 : 6; // 2=di, 6=za
+            const today = new Date();
+            const daysAhead = (targetDay - today.getDay() + 7) % 7 || 7;
+            const def = new Date(today);
+            def.setDate(today.getDate() + daysAhead);
+            w.date = def.toISOString().slice(0, 10);
+            w.time = sessionKey === 'run_1' ? '20:00' : '09:00';
+          }
+        }
+
         await fetch(`https://api.github.com/gists/${currentGistId}`, {
           method: 'PATCH',
           headers: { Authorization: `token ${token}`, 'Content-Type': 'application/json' },
-          body: JSON.stringify({ files: { 'health_input.json': { content: JSON.stringify(h, null, 2) } } })
+          body: JSON.stringify({ files: {
+            'health_input.json': { content: JSON.stringify(h, null, 2) },
+            'running_plan.json': { content: JSON.stringify(plan, null, 2) },
+          }})
         });
-        document.getElementById(cardId).style.display = 'none';
+        setTimeout(() => location.reload(), 300);
       } catch(e) { console.error(e); }
     }
 
