@@ -1,0 +1,43 @@
+name: Pre-workout Pushover Briefing
+
+on:
+  schedule:
+    # Controleer elk half uur of er een les aankomt (Amsterdam tijdzone = UTC+1/+2)
+    # Lestijden: 07:30 (wed ochtend), 07:30 (za/zo ochtend), 18:30 (ma/do avond)
+    # Run 30-45 min voor elke geplande lestijd in UTC zomertijd (CEST = UTC+2):
+    - cron: "30 5 * * 3"    # Woensdag 07:30 → check 05:30 UTC (CEST)
+    - cron: "30 5 * * 6"    # Zaterdag 07:30 → check 05:30 UTC
+    - cron: "30 5 * * 0"    # Zondag 07:30 → check 05:30 UTC
+    - cron: "30 17 * * 1"   # Maandag 19:30 → check 17:30 UTC
+    - cron: "30 17 * * 4"   # Donderdag 19:30 → check 17:30 UTC
+    # Wintertijd (CET = UTC+1):
+    - cron: "30 6 * * 3"    # Woensdag 07:30 CET
+    - cron: "30 6 * * 6"    # Zaterdag 07:30 CET
+    - cron: "30 6 * * 0"    # Zondag 07:30 CET
+    - cron: "30 18 * * 1"   # Maandag 19:30 CET
+    - cron: "30 18 * * 4"   # Donderdag 19:30 CET
+  workflow_dispatch:        # Handmatig triggeren voor testen
+
+permissions:
+  contents: read
+
+jobs:
+  briefing:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Stuur pre-workout briefing
+        env:
+          GIST_ID: ${{ secrets.GIST_ID }}
+          GITHUB_TOKEN: ${{ secrets.GIST_TOKEN }}
+          PUSHOVER_USER_KEY: ${{ secrets.PUSHOVER_USER_KEY }}
+          PUSHOVER_API_TOKEN: ${{ secrets.PUSHOVER_API_TOKEN }}
+        run: python3 send_preworkout_briefing.py

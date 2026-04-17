@@ -260,6 +260,28 @@ def fetch_intervals_data() -> dict | None:
     except Exception as exc:
         log.warning("Intervals.icu activiteiten fetch mislukt: %s", exc)
 
+    # ── 3. HRV adaptatie trend (recente 15 dagen vs. vorige 15 dagen) ───────
+    hrv_dates = sorted(
+        d for d in result["wellness"]["by_date"]
+        if result["wellness"]["by_date"][d].get("hrv") is not None
+    )
+    if len(hrv_dates) >= 10:
+        mid = len(hrv_dates) // 2
+        recent_vals = [result["wellness"]["by_date"][d]["hrv"] for d in hrv_dates[mid:]]
+        prev_vals   = [result["wellness"]["by_date"][d]["hrv"] for d in hrv_dates[:mid]]
+        recent_avg  = sum(recent_vals) / len(recent_vals)
+        prev_avg    = sum(prev_vals) / len(prev_vals)
+        delta       = round(recent_avg - prev_avg, 1)
+        result["hrv_trend"] = {
+            "delta_ms":   delta,
+            "direction":  "up" if delta > 0.5 else "down" if delta < -0.5 else "stable",
+            "recent_avg": round(recent_avg, 1),
+            "prev_avg":   round(prev_avg, 1),
+            "days_used":  len(hrv_dates),
+        }
+        log.info("HRV trend: %+.1f ms (%s) — recent avg %.1f ms, prev avg %.1f ms",
+                 delta, result["hrv_trend"]["direction"], recent_avg, prev_avg)
+
     # Retourneer None als er helemaal niets opgehaald is
     if not result["wellness"]["by_date"] and not result["activities"]["by_date"]:
         log.info("Geen intervals.icu data ontvangen")
