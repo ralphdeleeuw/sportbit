@@ -522,27 +522,6 @@ def _push_to_intervals(athlete_id: str, api_key: str, events: list[dict]) -> lis
 
 # ── Google Agenda helpers ──────────────────────────────────────────────────────
 
-def _gcal_service(sa_json_str: str):
-    """Retourneert een Google Calendar service object, of None als libs/config ontbreken."""
-    if not sa_json_str:
-        return None
-    try:
-        import google.oauth2.service_account as _sa
-        from googleapiclient.discovery import build as _build
-    except ImportError:
-        log.warning("google-auth niet geïnstalleerd — Google Agenda sync overgeslagen")
-        return None
-    try:
-        creds = _sa.Credentials.from_service_account_info(
-            json.loads(sa_json_str),
-            scopes=["https://www.googleapis.com/auth/calendar"],
-        )
-        return _build("calendar", "v3", credentials=creds)
-    except Exception as exc:
-        log.error("Fout bij opzetten Google Agenda service: %s", exc)
-        return None
-
-
 def _gcal_event_body(spec: dict) -> dict | None:
     time_str = spec.get("time", "20:00" if spec.get("session") == "speed" else "09:00")
     if len(time_str) == 5:
@@ -576,14 +555,17 @@ def _gcal_event_body(spec: dict) -> dict | None:
     }
 
 
-def _gcal_push(specs: list[dict], calendar_id: str, sa_json_str: str,
+def _gcal_push(specs: list[dict], calendar_id: str, creds_json: str,
                existing_plan: dict) -> None:
     """Maak Google Agenda events aan; verwijder eerst oud event als dat bestaat."""
-    service = _gcal_service(sa_json_str)
-    if not service:
+    try:
+        from google_calendar_sync import GoogleCalendarSync
+        cal = GoogleCalendarSync(creds_json=creds_json)
+    except Exception as exc:
+        log.error("Fout bij opzetten Google Agenda service: %s", exc)
         return
 
-    # Bestaande gcal_event_ids per sessie zodat we duplicaten voorkomen
+    # Bestaande gcal_event_ids per sessie om duplicaten te voorkomen
     old_ids: dict[str, str] = {
         w.get("session", ""): w["gcal_event_id"]
         for w in existing_plan.get("workouts", [])
@@ -594,7 +576,7 @@ def _gcal_push(specs: list[dict], calendar_id: str, sa_json_str: str,
         old_id = old_ids.get(spec.get("session", ""))
         if old_id:
             try:
-                service.events().delete(calendarId=calendar_id, eventId=old_id).execute()
+                cal.service.events().delete(calendarId=calendar_id, eventId=old_id).execute()
                 log.info("Oud Google Agenda event %s verwijderd", old_id)
             except Exception as exc:
                 log.warning("Kon oud event %s niet verwijderen: %s", old_id, exc)
@@ -603,7 +585,7 @@ def _gcal_push(specs: list[dict], calendar_id: str, sa_json_str: str,
         if not body:
             continue
         try:
-            result = service.events().insert(calendarId=calendar_id, body=body).execute()
+            result = cal.create_event(calendar_id=calendar_id, event_details=body)
             spec["gcal_event_id"] = result.get("id")
             log.info("Google Agenda event aangemaakt: '%s' op %s (%s)",
                      spec.get("name"), spec.get("date"), spec["gcal_event_id"])
@@ -812,13 +794,13 @@ def main() -> None:
         if "workout_doc" in event:
             spec["workout_doc"] = event["workout_doc"]
 
-    gcal_calendar_id = os.environ.get("GOOGLE_CALENDAR_ID", "").strip()
-    gcal_sa_json     = os.environ.get("GOOGLE_SERVICE_ACCOUNT_JSON", "").strip()
-    if gcal_calendar_id and gcal_sa_json:
+    gcal_creds_json = os.environ.get("GOOGLE_CREDENTIALS", "").strip()
+    gcal_calendar_id = os.environ.get("CALENDAR_ID", "").strip()
+    if gcal_creds_json and gcal_calendar_id:
         log.info("Google Agenda events aanmaken...")
-        _gcal_push(specs, gcal_calendar_id, gcal_sa_json, ctx.get("running_plan", {}))
+        _gcal_push(specs, gcal_calendar_id, gcal_creds_json, ctx.get("running_plan", {}))
     else:
-        log.info("GOOGLE_CALENDAR_ID / GOOGLE_SERVICE_ACCOUNT_JSON niet ingesteld — Google Agenda sync overgeslagen")
+        log.info("GOOGLE_CREDENTIALS / CALENDAR_ID niet ingesteld — Google Agenda sync overgeslagen")
 
     _save_plan_to_gist(gist_id, github_token, specs, week_number)
 
