@@ -520,7 +520,92 @@ def _push_to_intervals(athlete_id: str, api_key: str, events: list[dict]) -> lis
     return results
 
 
-# ── Sla plan op in Gist ────────────────────────────────────────────────────────
+# ── iCal genereren ────────────────────────────────────────────────────────────
+
+def _generate_ical(specs: list[dict]) -> str:
+    """Genereer iCal content voor alle hardloopworkouts."""
+    lines = [
+        "BEGIN:VCALENDAR",
+        "VERSION:2.0",
+        "PRODID:-//Sportbit//Running Workouts//NL",
+        "CALSCALE:GREGORIAN",
+        "METHOD:PUBLISH",
+        "X-WR-CALNAME:Hardloopplan",
+        "X-WR-TIMEZONE:Europe/Amsterdam",
+    ]
+
+    for spec in specs:
+        date_str = spec.get("date", "")
+        time_str = spec.get("time", "20:00" if spec.get("session") == "speed" else "09:00")
+        if len(time_str) == 5:
+            time_str += ":00"
+        try:
+            dt_start = datetime.fromisoformat(f"{date_str}T{time_str}")
+        except ValueError:
+            continue
+
+        dist_km = spec.get("total_distance_km")
+        dur_min = spec.get("total_duration_min")
+        if dur_min:
+            dt_end = dt_start + timedelta(minutes=dur_min)
+        elif dist_km:
+            dt_end = dt_start + timedelta(minutes=round(float(dist_km) * 6.5))
+        else:
+            dt_end = dt_start + timedelta(hours=1)
+
+        dtstart = dt_start.strftime("%Y%m%dT%H%M%S")
+        dtend   = dt_end.strftime("%Y%m%dT%H%M%S")
+
+        name = spec.get("name") or spec.get("type") or "Hardloopworkout"
+        dist_str = f" ({dist_km}km)" if dist_km else ""
+        summary  = f"🏃 {name}{dist_str}"
+
+        raw_desc = spec.get("description") or ""
+        description = raw_desc.replace("\\", "\\\\").replace("\n", "\\n").replace(",", "\\,")
+
+        week_nr = spec.get("week_number")
+        if week_nr:
+            description = f"5K-programma week {week_nr}\\n\\n" + description
+
+        uid = f"sportbit-run-{date_str}@sportbit"
+        now_stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+
+        lines += [
+            "BEGIN:VEVENT",
+            f"UID:{uid}",
+            f"DTSTAMP:{now_stamp}",
+            f"DTSTART;TZID=Europe/Amsterdam:{dtstart}",
+            f"DTEND;TZID=Europe/Amsterdam:{dtend}",
+            f"SUMMARY:{summary}",
+            f"DESCRIPTION:{description}",
+            "CATEGORIES:Hardlopen",
+            "END:VEVENT",
+        ]
+
+    lines.append("END:VCALENDAR")
+    return "\r\n".join(lines) + "\r\n"
+
+
+def _save_ical_to_gist(gist_id: str, token: str, ical_content: str) -> None:
+    resp = requests.patch(
+        f"https://api.github.com/gists/{gist_id}",
+        headers={"Authorization": f"token {token}", "Accept": "application/json"},
+        json={"files": {"running_workouts.ics": {"content": ical_content}}},
+        timeout=20,
+    )
+    resp.raise_for_status()
+    html_url = resp.json().get("html_url", "")
+    if html_url:
+        parts = html_url.rstrip("/").split("/")
+        if len(parts) >= 2:
+            username = parts[-2]
+            raw_url = (
+                f"https://gist.githubusercontent.com/{username}/{gist_id}"
+                "/raw/running_workouts.ics"
+            )
+            log.info("iCal opgeslagen → Google Agenda-abonnement URL: %s", raw_url)
+
+─
 
 def _save_plan_to_gist(gist_id: str, token: str, specs: list[dict], week_number: int) -> None:
     plan_start = specs[0]["date"] if specs else date.today().isoformat()
@@ -636,6 +721,10 @@ def main() -> None:
             spec["workout_doc"] = event["workout_doc"]
 
     _save_plan_to_gist(gist_id, github_token, specs, week_number)
+
+    ical = _generate_ical(specs)
+    _save_ical_to_gist(gist_id, github_token, ical)
+
     _notify_pushover(specs)
 
     log.info("Klaar! %d workout(s) gepland in intervals.icu.", len(specs))
