@@ -679,7 +679,6 @@ def _save_ical_to_gist(gist_id: str, token: str, ical_content: str) -> None:
             )
             log.info("iCal opgeslagen → Google Agenda-abonnement URL: %s", raw_url)
 
-─
 
 def _save_plan_to_gist(gist_id: str, token: str, specs: list[dict], week_number: int) -> None:
     plan_start = specs[0]["date"] if specs else date.today().isoformat()
