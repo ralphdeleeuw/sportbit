@@ -485,12 +485,12 @@ def _build_intervals_event(spec: dict) -> dict:
 
 # ── Push naar intervals.icu ────────────────────────────────────────────────────
 
-def _push_to_intervals(athlete_id: str, api_key: str, events: list[dict]) -> list[dict]:
+def _push_to_intervals(athlete_id: str, api_key: str, events: list[dict]) -> list[dict | None]:
     session = requests.Session()
     session.auth = ("API_KEY", api_key)
     session.headers.update({"Accept": "application/json", "Content-Type": "application/json"})
 
-    created = []
+    results: list[dict | None] = []
     for event in events:
         url = f"{INTERVALS_BASE}/{athlete_id}/events"
         try:
@@ -500,6 +500,7 @@ def _push_to_intervals(athlete_id: str, api_key: str, events: list[dict]) -> lis
                     "Fout bij aanmaken event '%s': %s — %s",
                     event.get("name"), resp.status_code, resp.text[:300],
                 )
+                results.append(None)
                 continue
             result = resp.json()
             log.info(
@@ -509,11 +510,12 @@ def _push_to_intervals(athlete_id: str, api_key: str, events: list[dict]) -> lis
                 event["start_date_local"][11:16],
                 result.get("id"),
             )
-            created.append(result)
+            results.append(result)
         except Exception as exc:
             log.error("Fout bij aanmaken event '%s': %s", event.get("name"), exc)
+            results.append(None)
 
-    return created
+    return results
 
 
 # ── Sla plan op in Gist ────────────────────────────────────────────────────────
@@ -622,7 +624,14 @@ def main() -> None:
     events = [_build_intervals_event(s) for s in specs]
 
     log.info("Workouts pushen naar intervals.icu...")
-    _push_to_intervals(athlete_id, api_key, events)
+    results = _push_to_intervals(athlete_id, api_key, events)
+
+    # Sla event_id en workout_doc op in specs zodat reschedule ze kan gebruiken
+    for spec, event, result in zip(specs, events, results):
+        if result:
+            spec["event_id"] = result.get("id")
+        if "workout_doc" in event:
+            spec["workout_doc"] = event["workout_doc"]
 
     _save_plan_to_gist(gist_id, github_token, specs, week_number)
     _notify_pushover(specs)
