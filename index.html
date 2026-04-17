@@ -534,8 +534,8 @@
       font-weight: 600;
     }
 
-    /* Runna hardlopen */
-    .runna-block {
+    /* Hardloopplan */
+    .run-block {
       margin-top: 0.85rem;
       padding: 0.65rem 0.9rem;
       background: #051a0d;
@@ -543,7 +543,7 @@
       border-radius: 8px;
     }
 
-    .runna-block-label {
+    .run-block-label {
       font-size: 0.67rem;
       letter-spacing: 0.16em;
       text-transform: uppercase;
@@ -552,7 +552,7 @@
       margin-bottom: 0.35rem;
     }
 
-    .runna-plan-badge {
+    .run-badge {
       display: inline-block;
       font-size: 0.65rem;
       font-weight: 700;
@@ -565,7 +565,7 @@
       vertical-align: middle;
     }
 
-    .runna-run-item {
+    .run-item {
       display: flex;
       justify-content: space-between;
       align-items: baseline;
@@ -576,15 +576,15 @@
       gap: 0.5rem;
     }
 
-    .runna-run-item:last-child { border-bottom: none; }
+    .run-item:last-child { border-bottom: none; }
 
-    .runna-run-title {
+    .run-title {
       flex: 1;
       font-weight: 500;
       color: #c8e8d0;
     }
 
-    .runna-run-meta {
+    .run-meta {
       font-size: 0.75rem;
       color: #5a8a62;
       white-space: nowrap;
@@ -1399,11 +1399,11 @@
         </div>
 
         <div class="workflow-card">
-          <div class="workflow-card-header">🏃 Runna Hardlopen</div>
-          <div class="workflow-card-desc">Hardloopschema &amp; sessies ophalen</div>
+          <div class="workflow-card-header">🏃 Hardloopplan</div>
+          <div class="workflow-card-desc">Nieuw hardloopschema genereren via Claude</div>
           <div class="workflow-card-footer">
-            <button id="runnaBtn" class="sync-btn" onclick="triggerRunna()">🏃 Runna</button>
-            <span id="runnaStatus" class="sync-status"></span>
+            <button id="runningPlanBtn" class="sync-btn" onclick="triggerRunningPlan()">🏃 Genereer</button>
+            <span id="runningPlanStatus" class="sync-status"></span>
           </div>
         </div>
 
@@ -1531,8 +1531,7 @@
     let intervalsData = null;   // {wellness: {by_date: {...}}, activities: {by_date: {...}}, fetched_at}
     let withingsData = null;    // {measurements: [...], fetched_at}
     let environmentalData = null; // {training_conditions: {...}, aqi: {...}, fetched_at}
-    let runnaData = null;      // {training_plan, upcoming_sessions, recent_completed, fetched_at}
-    let runnaNotesData = {};   // {noteKey: notesText} — opgeslagen in runna_notes.json in Gist
+    let runningPlanData = null; // {generated_at, week_number, workouts: [{date, type, name, description, total_duration_min}]}
     let activeChartLift = null;
     let liftChart = null;
     let currentGistId = '';
@@ -1646,16 +1645,10 @@
         personalEvents = [];
       }
 
-      // runna_data.json
-      const runnaFile = files['runna_data.json'];
-      if (runnaFile) {
-        try { runnaData = JSON.parse(runnaFile.content); } catch(e) {}
-      }
-
-      // runna_notes.json — handmatig toegevoegde notities per Runna-sessie
-      const runnaNotesFile = files['runna_notes.json'];
-      if (runnaNotesFile) {
-        try { runnaNotesData = JSON.parse(runnaNotesFile.content).notes || {}; } catch(e) {}
+      // running_plan.json
+      const runningPlanFile = files['running_plan.json'];
+      if (runningPlanFile) {
+        try { runningPlanData = JSON.parse(runningPlanFile.content); } catch(e) {}
       }
     }
 
@@ -1969,67 +1962,29 @@
       }).join('');
     }
 
-    function renderRunnaSection() {
-      if (!runnaData || runnaData.error) return '';
+    function renderRunningPlanSection() {
+      if (!runningPlanData) return '';
+      const workouts = runningPlanData.workouts || [];
+      if (workouts.length === 0) return '';
 
-      const plan = runnaData.training_plan || {};
-      const upcoming = (runnaData.upcoming_sessions || []).slice(0, 7);
-      const completed = (runnaData.recent_completed || []).slice(0, 7);
-      if (!plan.name && upcoming.length === 0 && completed.length === 0) return '';
+      const today = new Date().toISOString().slice(0, 10);
+      const weekBadge = runningPlanData.week_number
+        ? `<span class="run-badge">Week ${runningPlanData.week_number}</span>` : '';
 
-      // Trainingsplan-header
-      let planHtml = '';
-      if (plan.name) {
-        const weekBadge = plan.current_week && plan.total_weeks
-          ? `<span class="runna-plan-badge">Week ${plan.current_week}/${plan.total_weeks}</span>`
-          : plan.total_weeks
-          ? `<span class="runna-plan-badge">${plan.total_weeks} weken</span>`
-          : '';
-        planHtml = `<div class="runna-block">
-          <div class="runna-block-label">Runna — Trainingsplan${weekBadge}</div>
-          <div style="font-size:0.88rem;color:#c8e8d0;font-weight:500">${escapeHtml(plan.name)}</div>
-          ${plan.goal ? `<div style="font-size:0.78rem;color:#5a8a62;margin-top:0.2rem">${escapeHtml(plan.goal)}</div>` : ''}
-          ${plan.phase ? `<div style="font-size:0.72rem;color:#3a6a42;margin-top:0.1rem">${escapeHtml(plan.phase)}</div>` : ''}
+      const rows = workouts.map(s => {
+        const dur = s.total_duration_min ? `${s.total_duration_min}min` : '';
+        const meta = [formatDate(s.date), dur].filter(Boolean).join(' · ');
+        const past = s.date < today ? ' style="opacity:0.55"' : '';
+        return `<div class="run-item"${past}>
+          <span class="run-title">🏃 ${escapeHtml(s.name || s.type || 'Run')}</span>
+          <span class="run-meta">${escapeHtml(meta)}</span>
         </div>`;
-      }
+      }).join('');
 
-      // Aankomende sessies
-      let upcomingHtml = '';
-      if (upcoming.length > 0) {
-        const rows = upcoming.map(s => {
-          const dist = s.distance_km ? `${s.distance_km}km` : '';
-          const dur  = s.duration_min ? `${s.duration_min}min` : '';
-          const meta = [formatDate(s.date), dist, dur].filter(Boolean).join(' · ');
-          return `<div class="runna-run-item">
-            <span class="runna-run-title">${escapeHtml(s.title || s.session_type || 'Run')}</span>
-            <span class="runna-run-meta">${escapeHtml(meta)}</span>
-          </div>`;
-        }).join('');
-        upcomingHtml = `<div class="runna-block" style="margin-top:0.6rem">
-          <div class="runna-block-label">Aankomende runs</div>
-          ${rows}
-        </div>`;
-      }
-
-      // Recent voltooide runs
-      let completedHtml = '';
-      if (completed.length > 0) {
-        const rows = completed.map(s => {
-          const dist = s.distance_km ? `${s.distance_km}km` : '';
-          const dur  = s.duration_min ? `${s.duration_min}min` : '';
-          const meta = [formatDate(s.date), dist, dur].filter(Boolean).join(' · ');
-          return `<div class="runna-run-item">
-            <span class="runna-run-title">${escapeHtml(s.title || 'Run')}</span>
-            <span class="runna-run-meta">${escapeHtml(meta)}</span>
-          </div>`;
-        }).join('');
-        completedHtml = `<div class="runna-block" style="margin-top:0.6rem">
-          <div class="runna-block-label">Recent gelopen</div>
-          ${rows}
-        </div>`;
-      }
-
-      return planHtml + upcomingHtml + completedHtml;
+      return `<div class="run-block">
+        <div class="run-block-label">Hardloopplan${weekBadge}</div>
+        ${rows}
+      </div>`;
     }
 
     function renderActivityCard(date, delay) {
@@ -2150,24 +2105,20 @@
         const mealsHtml = renderMealsBlock();
         if (mealsHtml) html += mealsHtml;
 
-        // Upcoming: CrossFit classes + personal events + Runna runs combined
+        // Upcoming: CrossFit classes + personal events + running plan combined
         _upcomingCrossfit = upcoming;
-        const todayForRunna = new Date().toISOString().slice(0, 10);
-        const cutoffRunna = (() => { const d = new Date(); d.setDate(d.getDate() + 7); return d.toISOString().slice(0, 10); })();
+        const todayForRun = new Date().toISOString().slice(0, 10);
+        const cutoffRun = (() => { const d = new Date(); d.setDate(d.getDate() + 14); return d.toISOString().slice(0, 10); })();
         const upcomingPersonal = personalEvents.filter(e => isUpcoming(e.date, e.time || null));
-        const upcomingRunna = runnaData
-          ? (runnaData.upcoming_sessions || [])
-              .filter(s => s.date >= todayForRunna && s.date <= cutoffRunna)
-              .map(s => {
-                const ne = runnaNotesData[runnaSessionKey(s)];
-                const t = ne && typeof ne === 'object' ? (ne.time || '') : '';
-                return { ...s, _src: 'runna', time: t };
-              })
+        const upcomingRuns = runningPlanData
+          ? (runningPlanData.workouts || [])
+              .filter(s => s.date >= todayForRun && s.date <= cutoffRun)
+              .map(s => ({ ...s, _src: 'run' }))
           : [];
         const allUpcoming = [
           ...upcoming.map(e => ({ ...e, _src: 'crossfit' })),
           ...upcomingPersonal.map(e => ({ ...e, _src: 'personal' })),
-          ...upcomingRunna.map(e => ({ ...e, _src: 'runna' })),
+          ...upcomingRuns,
         ].sort((a, b) => a.date.localeCompare(b.date) || (a.time || '').localeCompare(b.time || ''));
 
         html += `<div class="section-title">Aankomend <button class="add-event-btn" onclick="showAddEventForm()">+ Toevoegen</button></div>`;
@@ -2178,7 +2129,7 @@
         } else {
           allUpcoming.forEach((e, i) => {
             if (e._src === 'crossfit') html += renderCard(e, 'active', i * 0.05, wodByDate[e.date]);
-            else if (e._src === 'runna') html += renderRunnaEventCard(e, i * 0.05);
+            else if (e._src === 'run') html += renderRunEventCard(e, i * 0.05);
             else html += renderPersonalEventCard(e, i * 0.05);
           });
         }
@@ -2209,13 +2160,13 @@
             .filter(d => !classDates.has(d) && d >= cutoffStr && d <= new Date().toISOString().slice(0, 10));
 
           // Bouw gecombineerde lijst: {type, date, item?}
-          const pastRunna = runnaData
-            ? (runnaData.recent_completed || []).filter(s => s.date >= cutoffStr && s.date < todayForRunna)
+          const pastRuns = runningPlanData
+            ? (runningPlanData.workouts || []).filter(s => s.date >= cutoffStr && s.date < todayForRun)
             : [];
           const pastItems = [
             ...past.slice(-5).map(e => ({ type: 'class', date: e.date, item: e })),
             ...orphanDates.map(d => ({ type: 'activity', date: d })),
-            ...pastRunna.map(s => ({ type: 'runna', date: s.date, item: s })),
+            ...pastRuns.map(s => ({ type: 'run', date: s.date, item: s })),
           ];
           pastItems.sort((a, b) => b.date.localeCompare(a.date));
           const pastSlice = pastItems.slice(0, 8); // max 8 kaarten
@@ -2225,8 +2176,8 @@
             pastSlice.forEach((entry, i) => {
               if (entry.type === 'class') {
                 html += renderPastCard(entry.item, i * 0.05);
-              } else if (entry.type === 'runna') {
-                html += renderRunnaEventCard(entry.item, i * 0.05);
+              } else if (entry.type === 'run') {
+                html += renderRunEventCard(entry.item, i * 0.05);
               } else {
                 html += renderActivityCard(entry.date, i * 0.05);
               }
@@ -2263,11 +2214,11 @@
           html += `<div class="section-title collapsible" onclick="toggleSection(this)">Benchmark Workouts</div><div class="collapsible-body">` + renderBenchmarks(benchmarkWorkouts) + `</div>`;
         }
 
-        // Runna hardlopen
-        const runnaHtml = renderRunnaSection();
-        if (runnaHtml) {
-          html += `<div class="section-title collapsible" onclick="toggleSection(this)">Runna Hardlopen</div>
-                   <div class="collapsible-body">${runnaHtml}</div>`;
+        // Hardloopplan
+        const runningPlanHtml = renderRunningPlanSection();
+        if (runningPlanHtml) {
+          html += `<div class="section-title collapsible" onclick="toggleSection(this)">Hardloopplan</div>
+                   <div class="collapsible-body">${runningPlanHtml}</div>`;
         }
 
         // Data bronnen inspector
@@ -2403,10 +2354,10 @@
       }
     }
 
-    async function triggerRunna() {
+    async function triggerRunningPlan() {
       const token = document.getElementById('githubToken').value.trim();
-      const statusEl = document.getElementById('runnaStatus');
-      const btn = document.getElementById('runnaBtn');
+      const statusEl = document.getElementById('runningPlanStatus');
+      const btn = document.getElementById('runningPlanBtn');
 
       if (!token) {
         statusEl.textContent = 'Vul eerst je GitHub Token in (nodig om workflow te starten)';
@@ -2416,14 +2367,14 @@
 
       btn.disabled = true;
       btn.textContent = '🏃 Bezig…';
-      statusEl.textContent = 'Runna workflow starten…';
+      statusEl.textContent = 'Hardloopplan workflow starten…';
       statusEl.style.color = 'var(--muted)';
 
       const triggerTime = new Date();
 
       try {
         const resp = await fetch(
-          'https://api.github.com/repos/ralphdeleeuw/sportbit/actions/workflows/fetch_runna.yml/dispatches',
+          'https://api.github.com/repos/ralphdeleeuw/sportbit/actions/workflows/generate_running_workout.yml/dispatches',
           {
             method: 'POST',
             headers: {
@@ -2440,19 +2391,19 @@
           statusEl.textContent = `Fout ${resp.status}: ${body.message || 'onbekend'}`;
           statusEl.style.color = 'var(--accent2)';
           btn.disabled = false;
-          btn.textContent = '🏃 Runna';
+          btn.textContent = '🏃 Genereer';
           return;
         }
 
         statusEl.textContent = '⏳ In wachtrij…';
         statusEl.style.color = 'var(--muted)';
-        await pollWorkflowRun(token, triggerTime, statusEl, btn, 'fetch_runna.yml', '🏃 Runna');
+        await pollWorkflowRun(token, triggerTime, statusEl, btn, 'generate_running_workout.yml', '🏃 Genereer');
 
       } catch (e) {
         statusEl.textContent = `Netwerkfout: ${e.message}`;
         statusEl.style.color = 'var(--accent2)';
         btn.disabled = false;
-        btn.textContent = '🏃 Runna';
+        btn.textContent = '🏃 Genereer';
       }
     }
 
@@ -2748,21 +2699,18 @@
         rows.push(`<div class="ds-section-title">Strava — Activiteiten</div>${makeTable(allActs, cols)}`);
       }
 
-      // ── Runna sessies ──────────────────────────────────────────────
+      // ── Hardloopplan workouts ──────────────────────────────────────
       {
-        const allSessions = [
-          ...(runnaData?.upcoming_sessions || []),
-          ...(runnaData?.recent_completed || []),
-        ].sort((a, b) => b.date.localeCompare(a.date));
-        const cols = [
-          { label: 'Datum',    key: 'date' },
-          { label: 'Titel',    key: 'title' },
-          { label: 'Type',     key: 'session_type' },
-          { label: 'km',       key: 'distance_km' },
-          { label: 'min',      key: 'duration_min' },
-          { label: 'Gedaan',   get: r => r.completed ? 'ja' : 'nee' },
-        ];
-        rows.push(`<div class="ds-section-title">Runna — Sessies</div>${makeTable(allSessions, cols)}`);
+        const allSessions = (runningPlanData?.workouts || []).slice().sort((a, b) => b.date.localeCompare(a.date));
+        if (allSessions.length > 0) {
+          const cols = [
+            { label: 'Datum',   key: 'date' },
+            { label: 'Naam',    key: 'name' },
+            { label: 'Type',    key: 'type' },
+            { label: 'Min',     key: 'total_duration_min' },
+          ];
+          rows.push(`<div class="ds-section-title">Hardloopplan — Workouts</div>${makeTable(allSessions, cols)}`);
+        }
       }
 
       return `<div class="section-title collapsible" onclick="toggleSection(this)">Data bronnen</div>
@@ -3158,49 +3106,26 @@
         </div>`;
     }
 
-    // ── Runna event cards ─────────────────────────────────────────────────────
+    // ── Hardlooplan event cards ────────────────────────────────────────────────
 
-    function runnaSessionKey(session) {
-      const slug = (session.title || '').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 40);
-      return `${session.date}_${slug}`;
-    }
+    function renderRunEventCard(session, delay) {
+      const dur = session.total_duration_min ? `${session.total_duration_min} min` : '';
+      const metaParts = [dur].filter(Boolean).join(' · ');
+      const metaHtml = metaParts ? `<div class="card-meta"><span>${metaParts}</span></div>` : '';
 
-    function renderRunnaEventCard(session, delay) {
-      const key      = runnaSessionKey(session);
-      const ne       = runnaNotesData[key];
-      const notes    = ne && typeof ne === 'object' ? (ne.notes || '') : (ne || '');
-      const savedTime = ne && typeof ne === 'object' ? (ne.time  || '') : '';
-      const displayTime = session.time || savedTime;
-
-      const dist     = session.distance_km ? `${session.distance_km}km` : '';
-      const timeSpan = displayTime ? `<span class="card-time" style="color:#00c853">${displayTime}</span>` : '';
-      const metaParts = [timeSpan, dist ? `<span>${dist}</span>` : ''].filter(Boolean).join('');
-      const metaHtml = metaParts ? `<div class="card-meta">${metaParts}</div>` : '';
-      const chevron  = `<div class="wod-chevron" style="color:#00c853">▾</div>`;
-
-      const wodContent = notes
-        ? `<div style="font-size:0.82rem;color:#a0e8b0;white-space:pre-wrap;line-height:1.6;margin-bottom:0.5rem">${escapeHtml(notes)}</div>
-           <button class="personal-delete-btn" style="background:#0d3a1a;color:#00c853;border:1px solid #00c853"
-             onclick="event.stopPropagation();startEditRunnaNote('${key}',this)">Bewerk</button>`
-        : `<div style="display:flex;gap:0.5rem;align-items:center;margin-bottom:0.4rem">
-             <span style="font-size:0.78rem;color:#5a8a62">Tijdstip:</span>
-             <input type="time" id="runna-time-${key}" value="${savedTime}"
-               style="background:#0a2010;color:#c8e8d0;border:1px solid #1a5a2a;border-radius:5px;padding:0.2rem 0.4rem;font-size:0.8rem"
-               onclick="event.stopPropagation()" />
-           </div>
-           <textarea id="runna-ta-${key}" rows="3" placeholder="Plak hier de oefening of notitie…"
-             style="width:100%;background:#0a2010;color:#c8e8d0;border:1px solid #1a5a2a;border-radius:6px;padding:0.5rem;font-size:0.82rem;resize:vertical;box-sizing:border-box"
-             onclick="event.stopPropagation()"></textarea>
-           <button style="margin-top:0.4rem;padding:0.3rem 0.9rem;background:#00c853;color:#000;border:none;border-radius:5px;font-size:0.8rem;cursor:pointer"
-             onclick="event.stopPropagation();saveRunnaNote('${key}',this)">Opslaan</button>`;
+      const descHtml = session.description
+        ? `<div class="card-wod"><div style="font-size:0.82rem;color:#a0e8b0;white-space:pre-wrap;line-height:1.6">${escapeHtml(session.description)}</div></div>`
+        : '';
+      const hasWod = session.description ? ' has-wod' : '';
+      const chevron = session.description ? `<div class="wod-chevron" style="color:#00c853">▾</div>` : '';
 
       return `
-        <div class="card has-wod" style="animation-delay:${delay}s" onclick="toggleWod(this)">
+        <div class="card${hasWod}" style="animation-delay:${delay}s"${session.description ? ' onclick="toggleWod(this)"' : ''}>
           <div class="card-dot" style="background:#00c853"></div>
           <div class="card-info">
             <div class="card-header">
               <div class="card-header-left">
-                <div class="card-title">🏃 ${escapeHtml(session.title || 'Run')}</div>
+                <div class="card-title">🏃 ${escapeHtml(session.name || session.type || 'Run')}</div>
                 ${metaHtml}
               </div>
               <div class="card-right">
@@ -3209,87 +3134,9 @@
                 ${chevron}
               </div>
             </div>
-            <div class="card-wod">${wodContent}</div>
+            ${descHtml}
           </div>
         </div>`;
-    }
-
-    function startEditRunnaNote(key, btn) {
-      const ne    = runnaNotesData[key];
-      const notes = ne && typeof ne === 'object' ? (ne.notes || '') : (ne || '');
-      const time  = ne && typeof ne === 'object' ? (ne.time  || '') : '';
-      const wod   = btn.closest('.card-wod');
-      wod.innerHTML = `
-        <div style="display:flex;gap:0.5rem;align-items:center;margin-bottom:0.4rem">
-          <span style="font-size:0.78rem;color:#5a8a62">Tijdstip:</span>
-          <input type="time" id="runna-time-${key}" value="${time}"
-            style="background:#0a2010;color:#c8e8d0;border:1px solid #1a5a2a;border-radius:5px;padding:0.2rem 0.4rem;font-size:0.8rem"
-            onclick="event.stopPropagation()" />
-        </div>
-        <textarea id="runna-ta-${key}" rows="3"
-          style="width:100%;background:#0a2010;color:#c8e8d0;border:1px solid #1a5a2a;border-radius:6px;padding:0.5rem;font-size:0.82rem;resize:vertical;box-sizing:border-box"
-          onclick="event.stopPropagation()">${escapeHtml(notes)}</textarea>
-        <button style="margin-top:0.4rem;padding:0.3rem 0.9rem;background:#00c853;color:#000;border:none;border-radius:5px;font-size:0.8rem;cursor:pointer"
-          onclick="event.stopPropagation();saveRunnaNote('${key}',this)">Opslaan</button>`;
-    }
-
-    async function saveRunnaNote(key, btn) {
-      const token = document.getElementById('githubToken').value.trim();
-      if (!token) { btn.textContent = '⚠ Token nodig'; return; }
-
-      const ta    = document.getElementById(`runna-ta-${key}`);
-      const ti    = document.getElementById(`runna-time-${key}`);
-      const notes = (ta?.value || '').trim();
-      const time  = (ti?.value || '').trim();
-      btn.disabled = true;
-      btn.textContent = '…';
-
-      try {
-        if (notes || time) {
-          runnaNotesData[key] = { notes, time };
-        } else {
-          delete runnaNotesData[key];
-        }
-
-        const patch = await fetch(`https://api.github.com/gists/${currentGistId}`, {
-          method: 'PATCH',
-          headers: { Authorization: `token ${token}`, 'Content-Type': 'application/json' },
-          body: JSON.stringify({ files: { 'runna_notes.json': { content: JSON.stringify({ notes: runnaNotesData }, null, 2) } } }),
-        });
-        if (!patch.ok) throw new Error(`${patch.status}`);
-
-        // Vervang textarea door de opgeslagen tekst; update ook tijdstip in card-header
-        const card = btn.closest('.card');
-        if (time) {
-          let timeEl = card?.querySelector('.card-time');
-          if (timeEl) { timeEl.textContent = time; }
-          else {
-            const meta = card?.querySelector('.card-meta');
-            if (meta) meta.insertAdjacentHTML('afterbegin', `<span class="card-time" style="color:#00c853">${time}</span>`);
-          }
-        }
-        const wod = btn.closest('.card-wod');
-        if (notes || time) {
-          wod.innerHTML = `${notes ? `<div style="font-size:0.82rem;color:#a0e8b0;white-space:pre-wrap;line-height:1.6;margin-bottom:0.5rem">${escapeHtml(notes)}</div>` : ''}
-            <button class="personal-delete-btn" style="background:#0d3a1a;color:#00c853;border:1px solid #00c853"
-              onclick="event.stopPropagation();startEditRunnaNote('${key}',this)">Bewerk</button>`;
-        } else {
-          wod.innerHTML = `<div style="display:flex;gap:0.5rem;align-items:center;margin-bottom:0.4rem">
-              <span style="font-size:0.78rem;color:#5a8a62">Tijdstip:</span>
-              <input type="time" id="runna-time-${key}"
-                style="background:#0a2010;color:#c8e8d0;border:1px solid #1a5a2a;border-radius:5px;padding:0.2rem 0.4rem;font-size:0.8rem"
-                onclick="event.stopPropagation()" />
-            </div>
-            <textarea id="runna-ta-${key}" rows="3" placeholder="Plak hier de oefening of notitie…"
-              style="width:100%;background:#0a2010;color:#c8e8d0;border:1px solid #1a5a2a;border-radius:6px;padding:0.5rem;font-size:0.82rem;resize:vertical;box-sizing:border-box"
-              onclick="event.stopPropagation()"></textarea>
-            <button style="margin-top:0.4rem;padding:0.3rem 0.9rem;background:#00c853;color:#000;border:none;border-radius:5px;font-size:0.8rem;cursor:pointer"
-              onclick="event.stopPropagation();saveRunnaNote('${key}',this)">Opslaan</button>`;
-        }
-      } catch(e) {
-        btn.disabled = false;
-        btn.textContent = `❌ ${e.message}`;
-      }
     }
 
     function showAddEventForm() {
