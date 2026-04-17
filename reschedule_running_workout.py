@@ -47,23 +47,11 @@ def _patch_gist(gist_id: str, token: str, files: dict[str, str]) -> None:
     resp.raise_for_status()
 
 
-def _gcal_reschedule(workout: dict, calendar_id: str, sa_json_str: str) -> None:
+def _gcal_reschedule(workout: dict, calendar_id: str, creds_json: str) -> None:
     """Verwijder oud Google Agenda event en maak nieuw aan op de verschoven datum."""
-    if not sa_json_str:
-        return
     try:
-        import google.oauth2.service_account as _sa
-        from googleapiclient.discovery import build as _build
-    except ImportError:
-        log.warning("google-auth niet geïnstalleerd — Google Agenda sync overgeslagen")
-        return
-
-    try:
-        creds = _sa.Credentials.from_service_account_info(
-            json.loads(sa_json_str),
-            scopes=["https://www.googleapis.com/auth/calendar"],
-        )
-        service = _build("calendar", "v3", credentials=creds)
+        from google_calendar_sync import GoogleCalendarSync
+        cal = GoogleCalendarSync(creds_json=creds_json)
     except Exception as exc:
         log.error("Fout bij opzetten Google Agenda service: %s", exc)
         return
@@ -71,7 +59,7 @@ def _gcal_reschedule(workout: dict, calendar_id: str, sa_json_str: str) -> None:
     old_gcal_id = workout.get("gcal_event_id")
     if old_gcal_id:
         try:
-            service.events().delete(calendarId=calendar_id, eventId=old_gcal_id).execute()
+            cal.service.events().delete(calendarId=calendar_id, eventId=old_gcal_id).execute()
             log.info("Oud Google Agenda event %s verwijderd", old_gcal_id)
         except Exception as exc:
             log.warning("Kon oud Google Agenda event %s niet verwijderen: %s", old_gcal_id, exc)
@@ -94,10 +82,10 @@ def _gcal_reschedule(workout: dict, calendar_id: str, sa_json_str: str) -> None:
     else:
         dt_end = dt_start + timedelta(hours=1)
 
-    name      = workout.get("name") or workout.get("type") or "Hardloopworkout"
-    dist_str  = f" ({dist_km}km)" if dist_km else ""
-    desc      = workout.get("description") or ""
-    week_nr   = workout.get("week_number")
+    name     = workout.get("name") or workout.get("type") or "Hardloopworkout"
+    dist_str = f" ({dist_km}km)" if dist_km else ""
+    desc     = workout.get("description") or ""
+    week_nr  = workout.get("week_number")
     if week_nr:
         desc = f"5K-programma week {week_nr}\n\n" + desc
 
@@ -108,7 +96,7 @@ def _gcal_reschedule(workout: dict, calendar_id: str, sa_json_str: str) -> None:
         "end":   {"dateTime": dt_end.isoformat(),   "timeZone": "Europe/Amsterdam"},
     }
     try:
-        result = service.events().insert(calendarId=calendar_id, body=body).execute()
+        result = cal.create_event(calendar_id=calendar_id, event_details=body)
         workout["gcal_event_id"] = result.get("id")
         log.info("Nieuw Google Agenda event: '%s' op %s (%s)",
                  name, workout["date"], workout["gcal_event_id"])
@@ -222,10 +210,10 @@ def main() -> None:
             continue
 
         # Google Agenda sync
-        gcal_calendar_id = os.environ.get("GOOGLE_CALENDAR_ID", "").strip()
-        gcal_sa_json     = os.environ.get("GOOGLE_SERVICE_ACCOUNT_JSON", "").strip()
-        if gcal_calendar_id and gcal_sa_json:
-            _gcal_reschedule(workout, gcal_calendar_id, gcal_sa_json)
+        gcal_creds_json  = os.environ.get("GOOGLE_CREDENTIALS", "").strip()
+        gcal_calendar_id = os.environ.get("CALENDAR_ID", "").strip()
+        if gcal_creds_json and gcal_calendar_id:
+            _gcal_reschedule(workout, gcal_calendar_id, gcal_creds_json)
 
     if changed:
         _patch_gist(gist_id, github_token, {
