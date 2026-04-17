@@ -331,17 +331,20 @@ def _pace_to_sec_per_km(pace: str) -> int:
 # ── workout_doc bouwen ─────────────────────────────────────────────────────────
 
 def _step_to_doc(step: dict) -> dict | None:
-    """Converteer een Claude-stap naar intervals.icu workout_doc stap."""
+    """Converteer een Claude-stap naar intervals.icu workout_doc stap.
+    Durations altijd in seconden — intervals.icu ondersteunt geen durationType Distance."""
     stype = step.get("type")
 
-    def duration_fields(s: dict) -> dict:
-        if s.get("distance_m"):
-            return {"duration": s["distance_m"], "durationType": "Distance"}
-        if s.get("duration_min"):
-            return {"duration": int(s["duration_min"] * 60), "durationType": "Time"}
+    def to_secs(s: dict) -> int | None:
         if s.get("duration_s"):
-            return {"duration": s["duration_s"], "durationType": "Time"}
-        return {}
+            return int(s["duration_s"])
+        if s.get("duration_min"):
+            return int(s["duration_min"] * 60)
+        if s.get("distance_m"):
+            pace_str = s.get("pace_target") or s.get("pace_max")
+            pace_sec = _pace_to_sec_per_km(pace_str) if pace_str else 400  # fallback 6:40/km
+            return int(s["distance_m"] / 1000 * pace_sec)
+        return None
 
     def pace_target(s: dict) -> dict | None:
         if s.get("pace_target"):
@@ -352,30 +355,29 @@ def _step_to_doc(step: dict) -> dict | None:
             return {"type": "pace", "pace": sec, "paceRange": 30}
         return None
 
-    if stype == "warmup":
-        doc = {"type": "warmup", **duration_fields(step)}
-        t = pace_target(step)
-        if t:
-            doc["target"] = t
-        return doc
-
-    if stype == "cooldown":
-        doc = {"type": "cooldown", **duration_fields(step)}
+    if stype in ("warmup", "cooldown"):
+        dur = to_secs(step)
+        if not dur:
+            return None
+        doc: dict = {"type": stype, "duration": dur}
         t = pace_target(step)
         if t:
             doc["target"] = t
         return doc
 
     if stype == "run":
-        doc = {"type": "SteadyState", **duration_fields(step)}
+        dur = to_secs(step)
+        if not dur:
+            return None
+        doc = {"type": "active", "duration": dur}
         t = pace_target(step)
         if t:
             doc["target"] = t
         return doc
 
     if stype == "rest":
-        dur = step.get("duration_s") or int((step.get("duration_min") or 0) * 60)
-        return {"type": "rest", "duration": dur, "durationType": "Time"}
+        dur = to_secs(step)
+        return {"type": "rest", "duration": dur} if dur else None
 
     if stype == "repeat":
         children = [_step_to_doc(c) for c in step.get("children", [])]
