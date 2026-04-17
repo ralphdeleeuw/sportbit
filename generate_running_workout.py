@@ -1,14 +1,13 @@
 #!/usr/bin/env python3
 """
-generate_running_workout.py — Genereert een gepersonaliseerd hardloopschema via Claude
-en pusht dit naar intervals.icu (dat automatisch synchroniseert naar Garmin Connect → Fenix).
+generate_running_workout.py — Genereert een gepersonaliseerd 2x/week
+hardloopschema via Claude en pusht dit naar intervals.icu.
 
-Workflow:
-1. Laad fitnessdata uit GitHub Gist (wellness, activiteiten, herstelscores)
-2. Genereer 2 hardloopsessies via Claude API (afgestemd op 5K doel + herstelstatus)
-3. Push workouts als events naar intervals.icu API
-4. Sla plan op in Gist als running_plan.json
-5. Stuur Pushover-notificatie
+Schema: dinsdag 20:00 (snelheidswerk) + zaterdag 09:00 (lange duurloop).
+Doel: 5K verbeteren van 28 min naar 26 min. Geen einddatum — continu programma.
+Workouts hebben Runna-stijl: specifieke pacedoelen per stap, gestructureerde
+herhalingen, walking rest. workout_doc zorgt voor grafiek in intervals.icu
+en gestructureerde workout op de Garmin Fenix.
 
 GitHub Secrets vereist:
   INTERVALS_ATHLETE_ID  — intervals.icu athlete ID (bijv. "i12345")
@@ -22,7 +21,6 @@ GitHub Secrets vereist:
 Eenmalige instelling:
   intervals.icu → Settings → Connected Accounts → Garmin
   → "Sync planned workouts to Garmin" inschakelen
-  Daarna verschijnen workouts automatisch op de Garmin Fenix.
 """
 
 from __future__ import annotations
@@ -48,21 +46,31 @@ ATHLETE_PROFILE = {
     "name": "Ralph de Leeuw",
     "age": 47,
     "weight_kg": 77,
-    "goal": "5K race (sneller worden)",
+    "current_5k_min": 28,
+    "current_5k_pace": "5:36",
+    "target_5k_min": 26,
+    "target_5k_pace": "5:12",
     "running_base": "enige basis — kan 5-10km lopen maar niet regelmatig geweest",
-    "runs_per_week": 2,
-    "crossfit_days": ["Maandag", "Woensdag", "Donderdag", "Zaterdag", "Zondag"],
-    "run_days": ["Dinsdag", "Vrijdag"],
+    "crossfit_schedule": "Maandag 20:00, Woensdag 08:00, Donderdag 20:00, Zaterdag 09:00, Zondag 09:00",
+    "run_sessions": [
+        {"day": "Tuesday",  "time": "20:00", "role": "speed"},
+        {"day": "Saturday", "time": "09:00", "role": "long_run"},
+    ],
+    "saturday_note": "Zaterdag-run (09:00) vervangt de CrossFit-sessie op die dag.",
 }
 
-# HR zones (geschat max HR 173bpm op leeftijd 47)
-HR_ZONES = {
-    1: (0, 104),
-    2: (104, 121),
-    3: (121, 138),
-    4: (138, 156),
-    5: (156, 173),
+# Pacezones op basis van huidig 5K (5:36/km) en doel (5:12/km)
+PACE_ZONES = {
+    "easy":       ("6:40", "7:10"),  # conversational, max 6:40/km
+    "aerobic":    ("6:00", "6:30"),  # comfortabel uitdagend
+    "threshold":  ("5:45", "5:55"),  # drempelintensiteit
+    "5k_current": ("5:30", "5:42"),  # huidig 5K race tempo
+    "5k_target":  ("5:08", "5:18"),  # doel 5K race tempo
+    "fast_400":   ("5:10", "5:25"),  # intervaltempo 400m
+    "fast_300":   ("5:20", "5:35"),  # intervaltempo 300m
+    "fast_200":   ("5:00", "5:15"),  # intervaltempo 200m
 }
+
 
 # ── Gist helpers ───────────────────────────────────────────────────────────────
 
@@ -125,33 +133,32 @@ def _load_fitness_context(gist_id: str, token: str) -> dict:
 
 # ── Context samenvatten voor Claude ───────────────────────────────────────────
 
+def _next_weekday(weekday: int) -> date:
+    """Geeft de eerstvolgende datum voor een gegeven weekdag (0=ma, 1=di, ..., 5=za)."""
+    today = date.today()
+    days_ahead = (weekday - today.weekday()) % 7
+    if days_ahead == 0:
+        days_ahead = 7
+    return today + timedelta(days=days_ahead)
+
+
 def _build_claude_context(ctx: dict) -> str:
     today = date.today()
 
-    # Wellness laatste 7 dagen
     wellness_by_date: dict = ctx["wellness"]
     recent_dates = sorted(wellness_by_date.keys(), reverse=True)[:7]
     wellness_lines = []
     for d in recent_dates:
         w = wellness_by_date[d]
         parts = [f"  {d}:"]
-        if w.get("hrv"):
-            parts.append(f"HRV={w['hrv']}ms")
-        if w.get("resting_hr"):
-            parts.append(f"rustpols={w['resting_hr']}bpm")
-        if w.get("sleep_hrs"):
-            parts.append(f"slaap={w['sleep_hrs']}u")
-        if w.get("sleep_score"):
-            parts.append(f"slaapscore={w['sleep_score']}/100")
-        if w.get("ctl") is not None:
-            parts.append(f"CTL={w['ctl']}")
-        if w.get("atl") is not None:
-            parts.append(f"ATL={w['atl']}")
-        if w.get("tsb") is not None:
-            parts.append(f"TSB={w['tsb']}")
+        if w.get("hrv"):       parts.append(f"HRV={w['hrv']}ms")
+        if w.get("resting_hr"):parts.append(f"rustpols={w['resting_hr']}bpm")
+        if w.get("sleep_hrs"): parts.append(f"slaap={w['sleep_hrs']}u")
+        if w.get("ctl") is not None: parts.append(f"CTL={w['ctl']}")
+        if w.get("atl") is not None: parts.append(f"ATL={w['atl']}")
+        if w.get("tsb") is not None: parts.append(f"TSB={w['tsb']}")
         wellness_lines.append(" ".join(parts))
 
-    # Recente hardloopactiviteiten (laatste 21 dagen)
     activities_by_date: dict = ctx["activities"]
     run_lines = []
     for d in sorted(activities_by_date.keys(), reverse=True)[:21]:
@@ -169,12 +176,10 @@ def _build_claude_context(ctx: dict) -> str:
                 parts.append(f"pace {int(spm)}:{int((spm % 1) * 60):02d}/km")
             if act.get("avg_hr"):
                 parts.append(f"gem.HR {act['avg_hr']}bpm")
-            if act.get("training_load"):
-                parts.append(f"load={act['training_load']}")
             run_lines.append(" ".join(parts))
 
-    # Week nummer
     running_plan = ctx["running_plan"]
+    # Weeknummer op basis van startdatum plan; anders ophogen vanuit vorig plan
     week_number = 1
     plan_start_str = running_plan.get("plan_start_date")
     if plan_start_str:
@@ -186,25 +191,19 @@ def _build_claude_context(ctx: dict) -> str:
     else:
         week_number = running_plan.get("week_number", 1)
 
-    # Bepaal hardloopdagen aankomende week
-    tuesday = today + timedelta(days=(1 - today.weekday()) % 7)
-    friday = today + timedelta(days=(4 - today.weekday()) % 7)
-    if tuesday <= today:
-        tuesday += timedelta(weeks=1)
-    if friday <= today:
-        friday += timedelta(weeks=1)
+    next_tuesday  = _next_weekday(1)  # 1 = dinsdag
+    next_saturday = _next_weekday(5)  # 5 = zaterdag
 
-    # Subjectieve gezondheidsscores
     health_input = ctx.get("health_input") or {}
-    health_lines = []
-    for k, v in health_input.items():
-        if k != "date":
-            health_lines.append(f"  - {k}: {v}")
+    health_lines = [f"  - {k}: {v}" for k, v in health_input.items() if k != "date"]
 
     sections = [
         f"Datum vandaag: {today.isoformat()}",
-        f"Aankomende hardloopdagen: dinsdag {tuesday.isoformat()}, vrijdag {friday.isoformat()}",
-        f"Weeknummer in 5K programma: week {week_number}",
+        f"Weeknummer in continu 5K-programma: week {week_number}",
+        f"Sessie 1 — snelheidswerk: dinsdag {next_tuesday.isoformat()} om 20:00",
+        f"Sessie 2 — lange duurloop: zaterdag {next_saturday.isoformat()} om 09:00",
+        f"Huidig 5K-tempo: {ATHLETE_PROFILE['current_5k_pace']}/km ({ATHLETE_PROFILE['current_5k_min']} min)",
+        f"Doel 5K-tempo: {ATHLETE_PROFILE['target_5k_pace']}/km ({ATHLETE_PROFILE['target_5k_min']} min)",
     ]
 
     if wellness_lines:
@@ -215,7 +214,7 @@ def _build_claude_context(ctx: dict) -> str:
     if run_lines:
         sections.append("Recente hardloopactiviteiten:\n" + "\n".join(run_lines[:8]))
     else:
-        sections.append("Recente hardloopactiviteiten: geen gevonden (begin van het programma)")
+        sections.append("Recente hardloopactiviteiten: geen — dit is de start van het programma")
 
     if health_lines:
         sections.append("Subjectieve gezondheidsscores:\n" + "\n".join(health_lines))
@@ -223,47 +222,55 @@ def _build_claude_context(ctx: dict) -> str:
     return "\n\n".join(sections)
 
 
-# ── Claude plan genereren ──────────────────────────────────────────────────────
+# ── Claude prompt ──────────────────────────────────────────────────────────────
 
-_SYSTEM_PROMPT = """Je bent een professionele hardloopcoach. Je maakt gepersonaliseerde 5K-trainingssessies voor Ralph de Leeuw:
-- 47 jaar, 77kg, CrossFit 5x/week (ma/wo/do/za/zo), hardlopen 2x/week (di/vrij)
-- Doel: 5K race — snelheidsopbouw over meerdere weken
-- Basis: kan 5-10km lopen maar niet regelmatig geweest
+_SYSTEM_PROMPT = """Je bent een professionele hardloopcoach. Je maakt werkschema's voor Ralph de Leeuw:
+- 47 jaar, 77kg, CrossFit 5x/week, hardloopt 2x/week
+- Huidig 5K: ~28 min (5:36/km) | Doel: 26 min (5:12/km)
+- Dinsdag 20:00 = snelheidswerk | Zaterdag 09:00 = lange duurloop (vervangt CrossFit die dag)
 
-Hartslag zones (max HR ~173bpm):
-- Zone 2: 104-121bpm (aerobe basis, makkelijk gesprek mogelijk)
-- Zone 3: 121-138bpm (comfortabel uitdagend)
-- Zone 4: 138-156bpm (drempelintensiteit, hard)
-- Zone 5: 156+bpm (maximaal)
+Pacezones (stem altijd af op herstelstatus via HRV/TSB):
+- Conversational (max):  6:40/km — "geen sneller dan 6:40/km"
+- Aeroob:                6:00-6:20/km
+- Drempel:               5:45-5:55/km
+- 5K race tempo (nu):    5:30-5:42/km
+- Intervaltempo 800m:    5:20-5:30/km
+- Intervaltempo 400m:    5:10-5:25/km
+- Intervaltempo 300m:    5:20-5:35/km
+- Intervaltempo 200m:    5:00-5:15/km
 
-Periodiseringsrichtlijnen:
-- Week 1-3: opbouw basis (beide sessies easy, zone 2, 20-35min)
-- Week 4-6: eerste snelheidswerk (1 easy + 1 fartlek of tempo 20min)
-- Week 7+: structurele intervallen (1 easy/tempo + 1 interval 4-6x400m of 3x800m)
-- Pas aan op basis van herstelstatus: lage HRV of hoge ATL → minder intensiteit
+Periodi­sering (continu, geen einddatum):
+- Week 1-4:   basis opbouwen — easy duurlopen + lichte fartlek, max 6km zaterdag
+- Week 5-8:   eerste structuurwerk — rolling repeats (300m/400m), progressive long runs
+- Week 9-12:  intensiteit — Fast 8-4-2s stijl, drempelintervallen, langere long runs
+- Week 13+:   consolidatie + race prep — elke 4e week herstelweek (30% minder volume)
+- Lage HRV (<35ms) of negatieve TSB (<-15): kies altijd de lichtere variant
 
-Geef ALLEEN geldig JSON terug (geen markdown, geen uitleg erbuiten):
+Werkwoord: geef ALLEEN geldige JSON terug (geen markdown, geen uitleg):
 [
   {
     "date": "YYYY-MM-DD",
-    "type": "easy_run|tempo_run|interval_run",
-    "name": "Korte Nederlandse naam",
-    "description": "Beschrijving van doel en uitvoering (2-3 zinnen)",
-    "total_duration_min": <int>,
+    "session": "speed|long_run",
+    "type": "easy_run|fartlek|interval_run|progressive_run|tempo_run",
+    "name": "Korte Nederlandse sessienaam (zoals Runna: 'Rolling 300s', 'Progressive duurloop')",
+    "description": "1-2 zinnen over het doel van deze sessie",
+    "total_distance_km": <float>,
     "steps": [
-      {"type": "warmup", "duration_min": <int>},
-      {"type": "run", "duration_min": <int>, "hr_zone": <1-5>},
-      {"type": "cooldown", "duration_min": <int>}
+      <stappen — zie formaat hieronder>
     ]
   }
 ]
 
-Voor interval_run gebruik:
-  {"type": "repeat", "count": <int>, "children": [
-    {"type": "run", "distance_m": <int>, "hr_zone": <4-5>},
-    {"type": "rest", "duration_min": <int>}
-  ]}
-"""
+Stap­formaten:
+  Warming-up:   {"type":"warmup",   "distance_m":<int>, "pace_max":"M:SS"}
+  Rustige run:  {"type":"run",      "distance_m":<int>, "pace_target":"M:SS"} of {"duration_min":<int>, "pace_max":"M:SS"}
+  Herhaling:    {"type":"repeat",   "count":<int>, "children":[<stappen>]}
+  Walking rest: {"type":"rest",     "duration_s":<int>}
+  Cooling-down: {"type":"cooldown", "distance_m":<int>, "pace_max":"M:SS"}
+
+Pace: schrijf als "M:SS" (bijv. "6:40", "5:35"). Gebruik altijd distance_m voor intervallen, duration_min voor easy stukken.
+Walking rest na het hele herhaling­blok (niet per herhaling) als het een lange pauze is.
+Zaterdag-sessie: altijd progressive_run of easy_run, 5-9km afhankelijk van weeknummer."""
 
 
 def _generate_plan_claude(context_text: str) -> list[dict]:
@@ -271,19 +278,15 @@ def _generate_plan_claude(context_text: str) -> list[dict]:
 
     message = client.messages.create(
         model="claude-sonnet-4-6",
-        max_tokens=1024,
+        max_tokens=1500,
         system=_SYSTEM_PROMPT,
         messages=[{
             "role": "user",
-            "content": (
-                "Genereer het hardloopschema voor aankomende week op basis van "
-                "deze fitnessdata:\n\n" + context_text
-            ),
+            "content": "Genereer het hardloopschema voor aankomende week:\n\n" + context_text,
         }],
     )
 
     raw = message.content[0].text.strip()
-    # Strip markdown code fences als aanwezig
     if raw.startswith("```"):
         parts = raw.split("```")
         raw = parts[1] if len(parts) > 1 else raw
@@ -293,56 +296,160 @@ def _generate_plan_claude(context_text: str) -> list[dict]:
     return json.loads(raw)
 
 
-# ── Intervals.icu event bouwen ─────────────────────────────────────────────────
+# ── Pace helpers ───────────────────────────────────────────────────────────────
+
+def _pace_to_sec_per_km(pace: str) -> int:
+    """Converteer "5:35" naar seconden per km (335)."""
+    parts = pace.split(":")
+    return int(parts[0]) * 60 + int(parts[1])
+
+
+# ── workout_doc bouwen ─────────────────────────────────────────────────────────
+
+def _step_to_doc(step: dict) -> dict | None:
+    """Converteer een Claude-stap naar intervals.icu workout_doc stap."""
+    stype = step.get("type")
+
+    def duration_fields(s: dict) -> dict:
+        if s.get("distance_m"):
+            return {"duration": s["distance_m"], "durationType": "Distance"}
+        if s.get("duration_min"):
+            return {"duration": int(s["duration_min"] * 60), "durationType": "Time"}
+        if s.get("duration_s"):
+            return {"duration": s["duration_s"], "durationType": "Time"}
+        return {}
+
+    def pace_target(s: dict) -> dict | None:
+        if s.get("pace_target"):
+            sec = _pace_to_sec_per_km(s["pace_target"])
+            return {"type": "pace", "pace": sec, "paceRange": 10}
+        if s.get("pace_max"):
+            sec = _pace_to_sec_per_km(s["pace_max"])
+            return {"type": "pace", "pace": sec, "paceRange": 30}
+        return None
+
+    if stype == "warmup":
+        doc = {"type": "warmup", **duration_fields(step)}
+        t = pace_target(step)
+        if t:
+            doc["target"] = t
+        return doc
+
+    if stype == "cooldown":
+        doc = {"type": "cooldown", **duration_fields(step)}
+        t = pace_target(step)
+        if t:
+            doc["target"] = t
+        return doc
+
+    if stype == "run":
+        doc = {"type": "SteadyState", **duration_fields(step)}
+        t = pace_target(step)
+        if t:
+            doc["target"] = t
+        return doc
+
+    if stype == "rest":
+        dur = step.get("duration_s") or int((step.get("duration_min") or 0) * 60)
+        return {"type": "rest", "duration": dur, "durationType": "Time"}
+
+    if stype == "repeat":
+        children = [_step_to_doc(c) for c in step.get("children", [])]
+        return {
+            "type": "Repeat",
+            "reps": step["count"],
+            "steps": [c for c in children if c],
+        }
+
+    return None
+
+
+def _build_workout_doc(spec: dict) -> dict | None:
+    steps = [_step_to_doc(s) for s in spec.get("steps", [])]
+    steps = [s for s in steps if s]
+    return {"steps": steps} if steps else None
+
+
+# ── Beschrijvingstekst (Runna-stijl) ──────────────────────────────────────────
 
 def _build_description(spec: dict) -> str:
     lines = []
-    desc = spec.get("description", "")
-    if desc:
-        lines.append(desc)
+    if spec.get("description"):
+        lines.append(spec["description"])
         lines.append("")
 
-    lines.append("Workout:")
     for step in spec.get("steps", []):
         stype = step.get("type")
+
         if stype == "warmup":
-            lines.append(f"  • Warming-up: {step.get('duration_min', '?')} min (rustig inlopen)")
+            dist = step.get("distance_m", "")
+            pace = step.get("pace_max", "")
+            dist_str = f"{dist/1000:.1f}km " if dist else ""
+            pace_str = f" (geen sneller dan {pace}/km)" if pace else ""
+            lines.append(f"{dist_str}warming-up in conversational pace{pace_str}")
+
         elif stype == "cooldown":
-            lines.append(f"  • Cooling-down: {step.get('duration_min', '?')} min (rustig uitlopen)")
+            dist = step.get("distance_m", "")
+            dist_str = f"{dist/1000:.1f}km " if dist else ""
+            lines.append(f"\n{dist_str}cooling-down in conversational pace (of langzamer!)")
+
         elif stype == "run":
-            zone = step.get("hr_zone")
-            hr = HR_ZONES.get(zone, (0, 0))
-            dur = step.get("duration_min")
             dist = step.get("distance_m")
+            dur = step.get("duration_min")
+            pace = step.get("pace_target") or step.get("pace_max")
             if dist:
-                lines.append(f"  • Lopen: {dist}m — HR zone {zone} ({hr[0]}-{hr[1]} bpm)")
+                pace_str = f" op {pace}/km" if pace else ""
+                lines.append(f"{dist}m{pace_str}")
             elif dur:
-                lines.append(f"  • Lopen: {dur} min — HR zone {zone} ({hr[0]}-{hr[1]} bpm)")
+                pace_str = f" (max {pace}/km)" if pace else ""
+                lines.append(f"{dur} min{pace_str}")
+
         elif stype == "repeat":
-            lines.append(f"  • {step['count']}x herhalen:")
+            count = step.get("count", "?")
+            lines.append(f"\nHerhaal het volgende {count}x:")
+            lines.append("----------")
             for child in step.get("children", []):
                 ct = child.get("type")
                 if ct == "run":
                     dist = child.get("distance_m")
-                    zone = child.get("hr_zone")
-                    hr = HR_ZONES.get(zone, (0, 0))
-                    lines.append(f"      – Snel: {dist}m — HR zone {zone} ({hr[0]}-{hr[1]} bpm)")
+                    pace = child.get("pace_target") or child.get("pace_max")
+                    pace_str = f" op {pace}/km" if pace else ""
+                    lines.append(f"{dist}m{pace_str}" if dist else "run")
                 elif ct == "rest":
-                    lines.append(f"      – Herstel: {child.get('duration_min', '?')} min (wandelen)")
+                    dur_s = child.get("duration_s", 0)
+                    lines.append(f"{dur_s}s wandel-herstel")
+            lines.append("----------")
+
         elif stype == "rest":
-            lines.append(f"  • Herstel: {step.get('duration_min', '?')} min")
+            dur_s = step.get("duration_s", 0)
+            lines.append(f"\n{dur_s}s wandel-herstel")
+
+    week = spec.get("week_number", "")
+    if week:
+        lines.append(f"\n5K Verbeteringsprogramma (Week {week})")
 
     return "\n".join(lines)
 
 
+# ── Intervals.icu event bouwen ─────────────────────────────────────────────────
+
 def _build_intervals_event(spec: dict) -> dict:
+    session_role = spec.get("session", "speed")
+    time_str = "20:00:00" if session_role == "speed" else "09:00:00"
+
+    description = _build_description(spec)
+    workout_doc = _build_workout_doc(spec)
+
     event: dict = {
-        "start_date_local": f"{spec['date']}T08:00:00",
+        "start_date_local": f"{spec['date']}T{time_str}",
         "category": "WORKOUT",
         "type": "Run",
         "name": spec["name"],
-        "description": _build_description(spec),
+        "description": description,
     }
+    if workout_doc:
+        event["workout_doc"] = workout_doc
+
     return event
 
 
@@ -360,15 +467,16 @@ def _push_to_intervals(athlete_id: str, api_key: str, events: list[dict]) -> lis
             resp = session.post(url, json=event, timeout=20)
             if not resp.ok:
                 log.error(
-                    "Fout bij aanmaken event '%s': %s — response: %s",
-                    event.get("name"), resp.status_code, resp.text[:500],
+                    "Fout bij aanmaken event '%s': %s — %s",
+                    event.get("name"), resp.status_code, resp.text[:300],
                 )
                 continue
             result = resp.json()
             log.info(
-                "Event aangemaakt: '%s' op %s (id: %s)",
+                "Event aangemaakt: '%s' op %s om %s (id: %s)",
                 event["name"],
                 event["start_date_local"][:10],
+                event["start_date_local"][11:16],
                 result.get("id"),
             )
             created.append(result)
@@ -398,25 +506,21 @@ def _notify_pushover(specs: list[dict]) -> None:
     user_key = os.environ.get("PUSHOVER_USER_KEY", "")
     api_token = os.environ.get("PUSHOVER_API_TOKEN", "")
     if not user_key or not api_token:
-        log.info("Pushover niet ingesteld — notificatie overgeslagen")
         return
 
     lines = ["Hardloopschema deze week:"]
     for s in specs:
-        dur = s.get("total_duration_min", "?")
-        wtype = s.get("type", "").replace("_", " ")
-        lines.append(f"\n{s['date']} - {s['name']}")
-        lines.append(f"{dur} min | {wtype}")
+        d = datetime.strptime(s["date"], "%Y-%m-%d")
+        dag = ["ma", "di", "wo", "do", "vr", "za", "zo"][d.weekday()]
+        time = "20:00" if s.get("session") == "speed" else "09:00"
+        dist = s.get("total_distance_km", "?")
+        lines.append(f"\n{dag} {d.day}/{d.month} {time} — {s['name']} ({dist}km)")
 
     try:
         requests.post(
             "https://api.pushover.net/1/messages.json",
-            data={
-                "token": api_token,
-                "user": user_key,
-                "title": "Hardloopplan klaar",
-                "message": "\n".join(lines),
-            },
+            data={"token": api_token, "user": user_key,
+                  "title": "Hardloopplan klaar", "message": "\n".join(lines)},
             timeout=10,
         )
         log.info("Pushover notificatie verstuurd")
@@ -429,47 +533,36 @@ def _notify_pushover(specs: list[dict]) -> None:
 def main() -> None:
     logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
 
-    athlete_id = os.environ.get("INTERVALS_ATHLETE_ID", "").strip()
-    api_key = os.environ.get("INTERVALS_API_KEY", "").strip()
-    gist_id = os.environ.get("GIST_ID", "").strip()
+    athlete_id   = os.environ.get("INTERVALS_ATHLETE_ID", "").strip()
+    api_key      = os.environ.get("INTERVALS_API_KEY", "").strip()
+    gist_id      = os.environ.get("GIST_ID", "").strip()
     github_token = os.environ.get("GITHUB_TOKEN", "").strip()
 
-    missing = [
-        name for name, val in [
-            ("INTERVALS_ATHLETE_ID", athlete_id),
-            ("INTERVALS_API_KEY", api_key),
-            ("ANTHROPIC_API_KEY", os.environ.get("ANTHROPIC_API_KEY", "")),
-            ("GIST_ID", gist_id),
-            ("GITHUB_TOKEN", github_token),
-        ] if not val
-    ]
+    missing = [name for name, val in [
+        ("INTERVALS_ATHLETE_ID", athlete_id),
+        ("INTERVALS_API_KEY", api_key),
+        ("ANTHROPIC_API_KEY", os.environ.get("ANTHROPIC_API_KEY", "")),
+        ("GIST_ID", gist_id),
+        ("GITHUB_TOKEN", github_token),
+    ] if not val]
     if missing:
         log.error("Vereiste environment variables ontbreken: %s", ", ".join(missing))
         sys.exit(1)
 
-    # 1. Laad fitnessdata
     log.info("Laden fitnessdata uit Gist...")
     ctx = _load_fitness_context(gist_id, github_token)
 
-    # 2. Bouw context voor Claude
     context_text = _build_claude_context(ctx)
     log.info("Context klaar:\n%s", context_text)
 
-    # 3. Genereer plan via Claude
     log.info("Hardloopplan genereren via Claude...")
     specs = _generate_plan_claude(context_text)
     log.info("Claude genereerde %d workout(s)", len(specs))
     for s in specs:
-        log.info("  - %s: %s (%s min, %s)", s["date"], s["name"], s.get("total_duration_min", "?"), s.get("type"))
+        log.info("  - %s [%s]: %s (%s km, %s)", s["date"], s.get("session"), s["name"],
+                 s.get("total_distance_km", "?"), s.get("type"))
 
-    # 4. Bouw intervals.icu events
-    events = [_build_intervals_event(s) for s in specs]
-
-    # 5. Push naar intervals.icu
-    log.info("Workouts pushen naar intervals.icu...")
-    _push_to_intervals(athlete_id, api_key, events)
-
-    # 6. Bepaal weeknummer
+    # Annoteer week_number in specs voor beschrijvingstekst
     running_plan = ctx.get("running_plan", {})
     today = date.today()
     plan_start_str = running_plan.get("plan_start_date")
@@ -481,11 +574,15 @@ def main() -> None:
             week_number = running_plan.get("week_number", 1)
     else:
         week_number = 1
+    for s in specs:
+        s.setdefault("week_number", week_number)
 
-    # 7. Sla plan op
+    events = [_build_intervals_event(s) for s in specs]
+
+    log.info("Workouts pushen naar intervals.icu...")
+    _push_to_intervals(athlete_id, api_key, events)
+
     _save_plan_to_gist(gist_id, github_token, specs, week_number)
-
-    # 8. Notificatie
     _notify_pushover(specs)
 
     log.info("Klaar! %d workout(s) gepland in intervals.icu.", len(specs))
