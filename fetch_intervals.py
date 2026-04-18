@@ -166,7 +166,7 @@ def fetch_intervals_data() -> dict | None:
             if vo2max is not None and vo2max > 0:
                 entry["vo2max"] = round(float(vo2max), 1)
 
-            # Subjectieve metrics (schaal 1-5 in intervals.icu)
+            # Subjectieve metrics (schaal 1-4 in intervals.icu; 1=laag/best voor mood/motivatie)
             for field in ("soreness", "fatigue", "stress", "mood", "motivation"):
                 val = w.get(field)
                 if val is not None:
