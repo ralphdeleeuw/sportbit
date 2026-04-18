@@ -2318,7 +2318,10 @@
         const upcomingPersonal = personalEvents.filter(e => isUpcoming(e.date, e.time || null));
         const upcomingRuns = runningPlanData
           ? (runningPlanData.workouts || [])
-              .filter(s => s.date >= todayForRun && s.date <= cutoffRun)
+              .filter(s => {
+                const t = s.time || (s.session === 'speed' ? '20:00' : '09:00');
+                return isUpcoming(s.date, t) && s.date <= cutoffRun;
+              })
               .map(s => ({ ...s, _src: 'run' }))
           : [];
         const allUpcoming = [
@@ -2370,7 +2373,10 @@
 
           // Bouw gecombineerde lijst: {type, date, item?}
           const pastRuns = runningPlanData
-            ? (runningPlanData.workouts || []).filter(s => s.date >= cutoffStr && s.date < todayForRun)
+            ? (runningPlanData.workouts || []).filter(s => {
+                const t = s.time || (s.session === 'speed' ? '20:00' : '09:00');
+                return s.date >= cutoffStr && !isUpcoming(s.date, t);
+              })
             : [];
           const pastItems = [
             ...past.slice(-5).map(e => ({ type: 'class', date: e.date, item: e })),
