@@ -3269,7 +3269,18 @@ def main() -> int:
             except Exception as exc:
                 log.warning("Withings fetch mislukt: %s", exc)
 
-        # MyFitnessPal
+        # HEALTH_ONLY modus heeft geen Playwright — gebruik gecachte MFP data.
+        # Verse MFP data wordt opgehaald in de SugarWOD-modus (zie hieronder).
+        mfp_data: dict | None = cached_mfp_data
+
+    else:
+        # ── SUGARWOD MODE: Use cached health data from Gist ─────────────────
+        strava_data = cached_gist.get("strava_data")
+        intervals_data = cached_gist.get("intervals_data")
+        withings_data = cached_gist.get("withings_data")
+        log.info("SugarWOD modus: gecachte health data (Strava/Intervals/Withings) geladen uit Gist")
+
+        # MyFitnessPal ophalen via Playwright (beschikbaar in deze workflow)
         skip_mfp = os.environ.get("SKIP_MYFITNESSPAL", "false").lower() in ("true", "1", "yes")
         mfp_data: dict | None = None
         if skip_mfp:
@@ -3288,14 +3299,6 @@ def main() -> int:
             except Exception as exc:
                 log.warning("MyFitnessPal fetch mislukt: %s", exc)
                 mfp_data = cached_mfp_data
-
-    else:
-        # ── SUGARWOD MODE: Use cached health data from Gist ─────────────────
-        strava_data = cached_gist.get("strava_data")
-        intervals_data = cached_gist.get("intervals_data")
-        withings_data = cached_gist.get("withings_data")
-        mfp_data = cached_mfp_data
-        log.info("SugarWOD modus: gecachte health data (Strava/Intervals/Withings/MFP) geladen uit Gist")
 
     # Subjectieve hersteldata (sliders) is verwijderd uit de UI — niet meer gebruiken.
     health_input: dict | None = None
