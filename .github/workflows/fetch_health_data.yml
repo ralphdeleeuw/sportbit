@@ -39,7 +39,7 @@ jobs:
           python-version: '3.12'
 
       - name: Install dependencies
-        run: pip install requests beautifulsoup4 anthropic "myfitnesspal<2.0"
+        run: pip install requests beautifulsoup4 anthropic
 
       - name: Refresh Strava / Intervals.icu / Withings / Environmental data + AI coach
         env:
