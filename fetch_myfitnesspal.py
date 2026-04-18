@@ -427,9 +427,26 @@ def fetch_myfitnesspal_data(days: int = 7) -> dict | None:
                 timeout=30_000,
             )
 
+            # Log formulierelementen voor diagnose
+            try:
+                inputs = page.evaluate(
+                    "() => [...document.querySelectorAll('input')]"
+                    ".map(i => ({type: i.type, name: i.name, id: i.id}))"
+                )
+                log.info("MFP login inputs: %s", inputs)
+                buttons = page.evaluate(
+                    "() => [...document.querySelectorAll('button')]"
+                    ".map(b => ({type: b.type, text: b.textContent.trim().slice(0,40)}))"
+                )
+                log.info("MFP login buttons: %s", buttons)
+            except Exception as dbg_exc:
+                log.debug("MFP: formulier inspecteren mislukt: %s", dbg_exc)
+
             # Sluit Sourcepoint privacy/consent popup als aanwezig.
             # Het iframe blokkeert anders pointer events op het loginformulier.
             _dismiss_consent_popup(page)
+            # Wacht even zodat React de popup-verwijdering kan verwerken
+            page.wait_for_timeout(1_500)
 
             # Gebruikersnaamveld invullen (force=True bypasses eventuele overlays)
             user_input = page.locator(
@@ -440,9 +457,21 @@ def fetch_myfitnesspal_data(days: int = 7) -> dict | None:
             user_input.type(username, delay=40)
 
             # Wachtwoordveld invullen
-            pw_input = page.locator('input[type="password"]').first
+            pw_input = page.locator(
+                'input[type="password"], input[name="password"]'
+            ).first
             pw_input.click(force=True)
             pw_input.type(password, delay=40)
+
+            # Formulier verzenden — probeer expliciete "Log In" knop, dan Enter
+            try:
+                submit = page.locator(
+                    'button[type="submit"], input[type="submit"], '
+                    'button:has-text("Log In"), button:has-text("Login")'
+                ).first
+                submit.click(force=True, timeout=5_000)
+            except Exception:
+                pw_input.press("Enter")
 
             # Formulier verzenden
             try:
@@ -461,9 +490,24 @@ def fetch_myfitnesspal_data(days: int = 7) -> dict | None:
                 )
                 log.info("MyFitnessPal: succesvol ingelogd als %s", username)
             except Exception:
+                current_url = page.url
+                try:
+                    errors = page.evaluate("""
+                        () => [...document.querySelectorAll(
+                            '[class*="error" i], [role="alert"], [class*="alert" i]'
+                        )].map(e => e.textContent.trim())
+                         .filter(t => t.length > 0)
+                         .slice(0, 3)
+                         .join(' | ')
+                    """)
+                    if errors:
+                        log.warning("MFP paginafout: %s", errors[:300])
+                except Exception:
+                    pass
                 log.warning(
-                    "MyFitnessPal: inloggen mislukt — "
-                    "controleer MFP_USERNAME / MFP_PASSWORD secrets"
+                    "MyFitnessPal: inloggen mislukt (URL: %s) — "
+                    "controleer MFP_USERNAME / MFP_PASSWORD secrets",
+                    current_url,
                 )
                 browser.close()
                 return None
