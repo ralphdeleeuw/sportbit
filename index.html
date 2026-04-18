@@ -501,6 +501,31 @@
       line-height: 1.65;
     }
 
+    .athlete-notes {
+      margin-top: 0.6rem;
+      padding: 0.55rem 0.8rem;
+      background: #12100a;
+      border: 1px solid #3a2e00;
+      border-left: 3px solid #e8b800;
+      border-radius: 0 6px 6px 0;
+    }
+
+    .athlete-notes-label {
+      font-size: 0.63rem;
+      letter-spacing: 0.16em;
+      text-transform: uppercase;
+      color: #e8b800;
+      font-weight: 700;
+      margin-bottom: 0.3rem;
+    }
+
+    .athlete-notes-body {
+      font-size: 0.8rem;
+      color: #d4c890;
+      white-space: pre-wrap;
+      line-height: 1.55;
+    }
+
     /* Strava activiteit blok */
     .strava-block {
       margin-top: 0.85rem;
@@ -2053,9 +2078,16 @@
     function renderWodSections(wods, date) {
       const sections = wods.map(w => {
         const desc = stripHtml(w.description || '').trim();
+        const notes = (w.athlete_notes || '').trim();
+        const notesHtml = notes ? `
+          <div class="athlete-notes">
+            <div class="athlete-notes-label">Athlete Notes</div>
+            <div class="athlete-notes-body">${escapeHtml(notes)}</div>
+          </div>` : '';
         return `<div class="wod-section">
           <div class="wod-section-title">${w.title}</div>
           ${desc ? `<div class="wod-section-body">${desc}</div>` : ''}
+          ${notesHtml}
         </div>`;
       }).join('');
 
