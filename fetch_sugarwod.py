@@ -2685,6 +2685,10 @@ def generate_workout_plans(
         if not description:
             continue
 
+        # Athlete/coach notes: timecap, RX weights in kg, scaling options
+        notes_raw = main.get("athlete_notes", "").strip()
+        notes_context = f"\nCoach-/athlete notes (officiële gewichten in kg, timecap, scaling):\n{notes_raw}\n" if notes_raw else ""
+
         # Detect team/partner format from description or title
         team_size = _detect_team_size(description + " " + title)
 
@@ -2779,7 +2783,7 @@ Barbell maxima (kg):
 Gewichtnotatie: Als gewichten genoteerd zijn als "X/Y lbs" of "X/Y kg", gebruik dan altijd het eerste getal (X) — dat is het gewicht voor mannen.
 
 Hoofdworkout ({date} — {title}):
-{description}{accessory_context}{meal_context}
+{description}{notes_context}{accessory_context}{meal_context}
 {team_context}{timing_context}{env_context}
 Het uitvoeringsplan moet UITSLUITEND gaan over de hoofdworkout hierboven. Ga niet in op de accessory work.
 
