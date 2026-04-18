@@ -1138,6 +1138,9 @@ def fetch_all_workouts_playwright(
                 # Second pass: click each visible workout card to trigger detail XHR
                 card_loc = None
                 for selector in [
+                    # Confirmed real class from JS discovery (SugarWOD uses .cal-workout)
+                    '.cal-workout:not(.cal-workout-content)',
+                    '.cal-workout',
                     '[class*="WorkoutCard"]',
                     '[class*="workout-card"]',
                     '[class*="WodCard"]',
@@ -1581,10 +1584,13 @@ _MAIN_KEYWORDS = ("metcon", "weightlifting", "team metcon", "strength", "conditi
 
 def _extract_athlete_notes(item: dict) -> str:
     """Extract athlete/coach notes from a SugarWOD workout object.
-    SugarWOD uses camelCase for Parse Server fields; try all known variants.
+    The weekly API returns 'athletesNotes'/'coachesNotes' (plural);
+    detail XHRs use singular 'athleteNotes'/'coachNotes'.
     """
     return (
-        item.get("athleteNotes")
+        item.get("athletesNotes")
+        or item.get("coachesNotes")
+        or item.get("athleteNotes")
         or item.get("programNotes")
         or item.get("coachNotes")
         or item.get("athlete_notes")
