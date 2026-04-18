@@ -319,6 +319,47 @@ def _extract_from_dom(page) -> dict | None:
     return None
 
 
+def _dismiss_consent_popup(page) -> None:
+    """
+    Sluit een Sourcepoint CMP privacy popup als aanwezig.
+
+    MFP toont een consent iframe (sp_message_iframe_*) dat pointer events
+    op het loginformulier blokkeert. We proberen eerst een knop in het
+    iframe te klikken, daarna verwijderen we de overlay via JavaScript.
+    """
+    # Probeer de knop in het Sourcepoint iframe te klikken
+    try:
+        consent_frame = page.frame_locator('iframe[title="SP Consent Message"]')
+        btn = consent_frame.locator(
+            'button:has-text("Accept All"), '
+            'button:has-text("Accept"), '
+            'button:has-text("Reject All"), '
+            'button:has-text("Continue without Accepting")'
+        ).first
+        btn.click(timeout=5_000)
+        page.wait_for_timeout(500)
+        log.info("MyFitnessPal: privacy popup gesloten via iframe-knop")
+        return
+    except Exception:
+        pass
+
+    # Fallback: verwijder de overlay-container direct via JavaScript
+    try:
+        removed = page.evaluate("""
+            () => {
+                let n = 0;
+                document.querySelectorAll('[id^="sp_message_container"]').forEach(el => {
+                    el.remove(); n++;
+                });
+                return n;
+            }
+        """)
+        if removed:
+            log.info("MyFitnessPal: %d privacy popup(s) verwijderd via JavaScript", removed)
+    except Exception:
+        pass
+
+
 def fetch_myfitnesspal_data(days: int = 7) -> dict | None:
     """
     Haal MyFitnessPal voedingsdagboek op voor de afgelopen `days` dagen
@@ -386,17 +427,21 @@ def fetch_myfitnesspal_data(days: int = 7) -> dict | None:
                 timeout=30_000,
             )
 
-            # Gebruikersnaamveld invullen
+            # Sluit Sourcepoint privacy/consent popup als aanwezig.
+            # Het iframe blokkeert anders pointer events op het loginformulier.
+            _dismiss_consent_popup(page)
+
+            # Gebruikersnaamveld invullen (force=True bypasses eventuele overlays)
             user_input = page.locator(
                 'input[name="username"], input[id="username"], '
                 'input[id="email"], input[type="email"]'
             ).first
-            user_input.click()
+            user_input.click(force=True)
             user_input.type(username, delay=40)
 
             # Wachtwoordveld invullen
             pw_input = page.locator('input[type="password"]').first
-            pw_input.click()
+            pw_input.click(force=True)
             pw_input.type(password, delay=40)
 
             # Formulier verzenden
