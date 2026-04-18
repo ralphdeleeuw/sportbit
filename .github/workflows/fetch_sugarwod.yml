@@ -14,6 +14,11 @@ on:
         required: false
         default: 'false'
         type: boolean
+      skip_myfitnesspal:
+        description: 'MyFitnessPal data overslaan'
+        required: false
+        default: 'false'
+        type: boolean
 
 jobs:
   fetch-wod:
@@ -42,6 +47,9 @@ jobs:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
           WAQI_API_TOKEN: ${{ secrets.WAQI_API_TOKEN }}
+          MFP_USERNAME: ${{ secrets.MFP_USERNAME }}
+          MFP_PASSWORD: ${{ secrets.MFP_PASSWORD }}
           SKIP_AI: ${{ inputs.skip_ai || 'false' }}
+          SKIP_MYFITNESSPAL: ${{ inputs.skip_myfitnesspal || 'false' }}
           # HEALTH_ONLY is false (default): alleen SugarWOD ophalen, gecachte health data uit Gist gebruiken
         run: python3 fetch_sugarwod.py
