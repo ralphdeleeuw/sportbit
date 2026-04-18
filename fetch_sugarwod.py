@@ -1195,6 +1195,37 @@ def fetch_all_workouts_playwright(
                 except Exception as exc:
                     log.warning("[http] Week %s failed: %s", week_str, exc)
 
+            # ── Fetch athlete notes for upcoming workouts that don't have them yet ─
+            today_iso = datetime.now(timezone.utc).date().isoformat()
+            missing_notes = [
+                w for w in all_workouts
+                if w.get("object_id") and not w.get("athlete_notes")
+                and w.get("date", "") >= today_iso
+            ][:10]  # limit requests
+            if missing_notes:
+                log.info("[athlete_notes] Fetching notes for %d upcoming workouts", len(missing_notes))
+            for w in missing_notes:
+                oid = w["object_id"]
+                for detail_url in [
+                    f"{SUGARWOD_BASE}/api/workouts/{oid}",
+                    f"{SUGARWOD_BASE}/public/api/v1/workouts/{oid}",
+                ]:
+                    try:
+                        dr = api_session.get(detail_url, timeout=15,
+                                             headers={"Accept": "application/json",
+                                                      "X-Requested-With": "XMLHttpRequest"})
+                        if dr.status_code == 200:
+                            ddata = dr.json()
+                            item = ddata.get("data") or ddata if isinstance(ddata, dict) else {}
+                            notes = _extract_athlete_notes(item)
+                            if notes:
+                                w["athlete_notes"] = notes
+                                log.info("[athlete_notes] %s '%s': %d chars",
+                                         w.get("date"), w.get("title", "")[:30], len(notes))
+                                break
+                    except Exception as exc:
+                        log.debug("[athlete_notes] %s failed: %s", detail_url, exc)
+
     except Exception as exc:
         log.warning("Playwright error: %s", exc)
         return None
@@ -1390,6 +1421,21 @@ _SKIP_TITLES = ("warm",)  # warming up only; accessory workouts are now shown in
 _MAIN_KEYWORDS = ("metcon", "weightlifting", "team metcon", "strength", "conditioning")
 
 
+def _extract_athlete_notes(item: dict) -> str:
+    """Extract athlete/coach notes from a SugarWOD workout object.
+    SugarWOD uses camelCase for Parse Server fields; try all known variants.
+    """
+    return (
+        item.get("athleteNotes")
+        or item.get("programNotes")
+        or item.get("coachNotes")
+        or item.get("athlete_notes")
+        or item.get("notes")
+        or item.get("comment")
+        or ""
+    )
+
+
 def _parse_parse_workouts(results: list[dict], week_str: str | None = None) -> list[dict]:
     """Convert Parse Server workout objects to our standard format."""
     # Derive monday from week_str (YYYYMMDD) as fallback date source
@@ -1446,7 +1492,14 @@ def _parse_parse_workouts(results: list[dict], week_str: str | None = None) -> l
             or item.get("workout")
             or ""
         )
-        workouts.append({"date": date_str, "title": title_raw, "description": description})
+        athlete_notes = _extract_athlete_notes(item)
+        object_id = item.get("objectId") or item.get("id") or item.get("_id") or ""
+        entry: dict = {"date": date_str, "title": title_raw, "description": description}
+        if athlete_notes:
+            entry["athlete_notes"] = athlete_notes
+        if object_id:
+            entry["object_id"] = str(object_id)
+        workouts.append(entry)
     return workouts
 
 
@@ -1487,11 +1540,14 @@ def _parse_workouts_json(data, monday: datetime) -> list[dict]:
             or ""
         )
 
-        workouts.append({
-            "date": date_str,
-            "title": title,
-            "description": description,
-        })
+        athlete_notes = _extract_athlete_notes(item)
+        object_id = item.get("objectId") or item.get("id") or item.get("_id") or ""
+        entry: dict = {"date": date_str, "title": title, "description": description}
+        if athlete_notes:
+            entry["athlete_notes"] = athlete_notes
+        if object_id:
+            entry["object_id"] = str(object_id)
+        workouts.append(entry)
 
     log.info("Parsed %d workout(s) from JSON", len(workouts))
     return workouts
@@ -2967,9 +3023,10 @@ def main() -> int:
     for w in workouts:
         d = w.get("date")
         if d:
-            by_date.setdefault(d, []).append(
-                {"title": w["title"], "description": w["description"]}
-            )
+            entry: dict = {"title": w["title"], "description": w["description"]}
+            if w.get("athlete_notes"):
+                entry["athlete_notes"] = w["athlete_notes"]
+            by_date.setdefault(d, []).append(entry)
 
     # Generate AI coaching plans for upcoming workouts (moved below load_sportbit_attended_dates
     # so that signed_up_times is available)
