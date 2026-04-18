@@ -409,13 +409,27 @@ def fetch_myfitnesspal_data(days: int = 7) -> dict | None:
 
     try:
         with sync_playwright() as pw:
-            browser = pw.chromium.launch(headless=True, args=["--no-sandbox"])
+            browser = pw.chromium.launch(
+                headless=True,
+                args=[
+                    "--no-sandbox",
+                    "--disable-blink-features=AutomationControlled",
+                ],
+            )
             context = browser.new_context(
                 user_agent=(
                     "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 "
                     "(KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36"
-                )
+                ),
+                viewport={"width": 1280, "height": 720},
             )
+            # Verberg Playwright/webdriver-kenmerken die bot-detectie triggeren
+            context.add_init_script("""
+                Object.defineProperty(navigator, 'webdriver', {get: () => undefined});
+                Object.defineProperty(navigator, 'plugins', {get: () => [1, 2, 3]});
+                Object.defineProperty(navigator, 'languages', {get: () => ['nl-NL', 'nl', 'en-US', 'en']});
+                window.chrome = {runtime: {}};
+            """)
             page = context.new_page()
             page.on("response", _on_response)
 
@@ -448,26 +462,31 @@ def fetch_myfitnesspal_data(days: int = 7) -> dict | None:
             # Wacht even zodat React de popup-verwijdering kan verwerken
             page.wait_for_timeout(1_500)
 
-            # Gebruikersnaamveld invullen (force=True bypasses eventuele overlays)
+            # Gebruikersveld invullen (MFP gebruikt name="email" / id="email")
             user_input = page.locator(
-                'input[name="username"], input[id="username"], '
-                'input[id="email"], input[type="email"]'
+                'input[name="email"], input[id="email"], '
+                'input[name="username"], input[id="username"]'
             ).first
             user_input.click(force=True)
-            user_input.type(username, delay=40)
+            user_input.type(username, delay=60)
+
+            # Kleine pauze — menselijker gedrag
+            page.wait_for_timeout(400)
 
             # Wachtwoordveld invullen
             pw_input = page.locator(
-                'input[type="password"], input[name="password"]'
+                'input[name="password"], input[type="password"]'
             ).first
             pw_input.click(force=True)
-            pw_input.type(password, delay=40)
+            pw_input.type(password, delay=60)
 
-            # Formulier verzenden — probeer expliciete "Log In" knop, dan Enter
+            page.wait_for_timeout(400)
+
+            # Formulier verzenden — probeer "Log in" knop, dan Enter
             try:
                 submit = page.locator(
-                    'button[type="submit"], input[type="submit"], '
-                    'button:has-text("Log In"), button:has-text("Login")'
+                    'button[type="submit"], '
+                    'button:has-text("Log in"), button:has-text("Log In")'
                 ).first
                 submit.click(force=True, timeout=5_000)
             except Exception:
