@@ -1100,6 +1100,142 @@ def fetch_all_workouts_playwright(
             except Exception as exc:
                 log.warning("[browser] /workouts navigation failed: %s", exc)
 
+            # ── 3a. Click workout cards to capture athlete notes via XHR ─────────
+            # Athlete notes (timecap, coach info) are only loaded when the user
+            # clicks an individual workout card. We click each visible card and
+            # wait for the resulting detail XHR which contains athleteNotes.
+            athlete_notes_map: dict[str, str] = {}  # objectId or "date|title" → notes
+            try:
+                log.info("[athlete_notes] Scanning %d page-load XHRs for embedded notes", len(captured))
+
+                # First pass: notes sometimes in the bulk /api/workouts response
+                for cap_item in captured:
+                    cap_data = cap_item["data"]
+                    bulk_items = None
+                    if isinstance(cap_data, dict):
+                        bulk_items = cap_data.get("data") or cap_data.get("workouts") or cap_data.get("results")
+                    if isinstance(bulk_items, list):
+                        for w in bulk_items:
+                            if not isinstance(w, dict):
+                                continue
+                            notes = _extract_athlete_notes(w)
+                            if not notes:
+                                continue
+                            oid = w.get("objectId") or w.get("id") or ""
+                            title = w.get("title") or w.get("name") or ""
+                            date_int = w.get("scheduledDateInteger")
+                            date_s = ""
+                            if date_int:
+                                try:
+                                    date_s = datetime.strptime(str(date_int), "%Y%m%d").strftime("%Y-%m-%d")
+                                except ValueError:
+                                    pass
+                            key = str(oid) if oid else f"{date_s}|{title}"
+                            if key:
+                                athlete_notes_map[key] = notes
+                                log.info("[athlete_notes] Bulk XHR notes: %s '%s' (%d chars)", date_s, title, len(notes))
+
+                # Second pass: click each visible workout card to trigger detail XHR
+                card_loc = None
+                for selector in [
+                    '[class*="WorkoutCard"]',
+                    '[class*="workout-card"]',
+                    '[class*="WodCard"]',
+                    '[class*="wod-card"]',
+                    '[data-testid*="workout"]',
+                    '[class*="EventCard"]',
+                    'article[class*="Card"]',
+                    '[class*="ScheduleCard"]',
+                ]:
+                    try:
+                        loc = page.locator(selector)
+                        if loc.count() > 0:
+                            card_loc = loc
+                            log.info("[athlete_notes] Card selector '%s' found %d elements", selector, loc.count())
+                            break
+                    except Exception:
+                        pass
+
+                if card_loc is None:
+                    log.info("[athlete_notes] No card selector matched; trying JS element discovery")
+                    try:
+                        js_info = page.evaluate("""
+                            () => {
+                                const els = [...document.querySelectorAll('div, article, li')];
+                                const cards = els.filter(el => {
+                                    const c = el.className || '';
+                                    return /workout|wod|card|event/i.test(c) && el.offsetHeight > 40 && el.offsetWidth > 40;
+                                });
+                                return cards.slice(0, 8).map(el => ({
+                                    tag: el.tagName, cls: el.className.slice(0, 80),
+                                    txt: el.textContent.trim().slice(0, 60)
+                                }));
+                            }
+                        """)
+                        log.info("[athlete_notes] JS card candidates: %s", js_info)
+                    except Exception:
+                        pass
+
+                pre_map_size = len(athlete_notes_map)
+                if card_loc is not None:
+                    n_cards = min(card_loc.count(), 7)
+                    log.info("[athlete_notes] Clicking %d workout cards for detail XHRs", n_cards)
+                    for i in range(n_cards):
+                        try:
+                            card = card_loc.nth(i)
+                            pre_count = len(captured)
+                            card.scroll_into_view_if_needed(timeout=2000)
+                            card.click(timeout=3000)
+                            page.wait_for_timeout(1800)
+
+                            # Scan newly captured XHRs for notes
+                            for new_item in captured[pre_count:]:
+                                new_data = new_item["data"]
+                                if not isinstance(new_data, dict):
+                                    continue
+                                detail = new_data.get("data") or new_data
+                                if not isinstance(detail, dict):
+                                    continue
+                                notes = _extract_athlete_notes(detail)
+                                if not notes:
+                                    continue
+                                oid = detail.get("objectId") or detail.get("id") or ""
+                                title = detail.get("title") or detail.get("name") or ""
+                                date_int = detail.get("scheduledDateInteger")
+                                date_s = ""
+                                if date_int:
+                                    try:
+                                        date_s = datetime.strptime(str(date_int), "%Y%m%d").strftime("%Y-%m-%d")
+                                    except ValueError:
+                                        pass
+                                key = str(oid) if oid else f"{date_s}|{title}"
+                                if key:
+                                    athlete_notes_map[key] = notes
+                                    log.info("[athlete_notes] Card %d click → notes: %s '%s' (%d chars)",
+                                             i, date_s, title, len(notes))
+
+                            # Dismiss any modal that may have opened
+                            for close_sel in [
+                                '[aria-label="Close"]', '[aria-label="close"]',
+                                'button.close', '.modal-close', '[data-dismiss="modal"]',
+                            ]:
+                                try:
+                                    btn = page.locator(close_sel).first
+                                    if btn.is_visible(timeout=400):
+                                        btn.click(timeout=1000)
+                                        page.wait_for_timeout(400)
+                                        break
+                                except Exception:
+                                    pass
+                        except Exception as exc:
+                            log.debug("[athlete_notes] Card %d click failed: %s", i, exc)
+
+                log.info("[athlete_notes] Notes map: %d entries (%d from clicks)",
+                         len(athlete_notes_map), len(athlete_notes_map) - pre_map_size)
+            except Exception as exc:
+                athlete_notes_map = {}
+                log.warning("[athlete_notes] Click-based notes fetch failed: %s", exc)
+
             # Capture session cookies before closing the browser
             browser_cookies = {
                 c["name"]: c["value"] for c in context.cookies()
@@ -1195,15 +1331,37 @@ def fetch_all_workouts_playwright(
                 except Exception as exc:
                     log.warning("[http] Week %s failed: %s", week_str, exc)
 
-            # ── Fetch athlete notes for upcoming workouts that don't have them yet ─
+            # ── Apply Playwright-captured athlete notes to workouts ────────────
+            # Playwright clicked cards above and stored notes in athlete_notes_map.
+            # Match by objectId first, then fall back to "date|title".
             today_iso = datetime.now(timezone.utc).date().isoformat()
+            if athlete_notes_map:
+                applied = 0
+                for w in all_workouts:
+                    if w.get("athlete_notes"):
+                        continue
+                    oid = w.get("object_id", "")
+                    title = w.get("title", "")
+                    date = w.get("date", "")
+                    notes = (
+                        athlete_notes_map.get(oid)
+                        or athlete_notes_map.get(f"{date}|{title}")
+                    )
+                    if notes:
+                        w["athlete_notes"] = notes
+                        applied += 1
+                        log.info("[athlete_notes] Applied: %s '%s' (%d chars)", date, title, len(notes))
+                log.info("[athlete_notes] Applied notes to %d/%d workouts", applied, len(all_workouts))
+
+            # Fallback: HTTP detail fetch for upcoming workouts that still lack notes
+            # (only works if object_id was available from the weekly XHR)
             missing_notes = [
                 w for w in all_workouts
                 if w.get("object_id") and not w.get("athlete_notes")
                 and w.get("date", "") >= today_iso
-            ][:10]  # limit requests
+            ][:10]
             if missing_notes:
-                log.info("[athlete_notes] Fetching notes for %d upcoming workouts", len(missing_notes))
+                log.info("[athlete_notes] HTTP fallback for %d workouts with object_id", len(missing_notes))
             for w in missing_notes:
                 oid = w["object_id"]
                 for detail_url in [
@@ -1216,11 +1374,11 @@ def fetch_all_workouts_playwright(
                                                       "X-Requested-With": "XMLHttpRequest"})
                         if dr.status_code == 200:
                             ddata = dr.json()
-                            item = ddata.get("data") or ddata if isinstance(ddata, dict) else {}
-                            notes = _extract_athlete_notes(item)
+                            detail_item = ddata.get("data") or ddata if isinstance(ddata, dict) else {}
+                            notes = _extract_athlete_notes(detail_item)
                             if notes:
                                 w["athlete_notes"] = notes
-                                log.info("[athlete_notes] %s '%s': %d chars",
+                                log.info("[athlete_notes] HTTP: %s '%s': %d chars",
                                          w.get("date"), w.get("title", "")[:30], len(notes))
                                 break
                     except Exception as exc:
