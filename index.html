@@ -2375,7 +2375,8 @@
           const pastRuns = runningPlanData
             ? (runningPlanData.workouts || []).filter(s => {
                 const t = s.time || (s.session === 'speed' ? '20:00' : '09:00');
-                return s.date >= cutoffStr && !isUpcoming(s.date, t);
+                // Skip if already shown as a recorded activity card
+                return s.date >= cutoffStr && !isUpcoming(s.date, t) && !activityDates.has(s.date);
               })
             : [];
           const pastItems = [
