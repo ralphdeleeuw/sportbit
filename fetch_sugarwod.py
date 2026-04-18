@@ -2991,7 +2991,7 @@ def _load_previous_coach_context(gist_id: str, token: str) -> dict:
       - _full: full contents of sugarwod_wod.json (used for HEALTH_ONLY / SugarWOD-only caching)
       - _keukenbaas: cached meals from keukenbaas_meals.json
     """
-    empty = {"barbell_lifts_history": [], "recovery_advice_history": [], "_full": {}, "_keukenbaas": [], "_personal_events": [], "_running_plan": {}}
+    empty = {"barbell_lifts_history": [], "recovery_advice_history": [], "_full": {}, "_keukenbaas": [], "_mfp": None, "_personal_events": [], "_running_plan": {}}
     try:
         resp = requests.get(
             f"https://api.github.com/gists/{gist_id}",
@@ -3006,6 +3006,8 @@ def _load_previous_coach_context(gist_id: str, token: str) -> dict:
         existing = json.loads(raw)
         meals_raw = files.get("keukenbaas_meals.json", {}).get("content", "")
         cached_meals = json.loads(meals_raw).get("meals", []) if meals_raw else []
+        mfp_raw = files.get("myfitnesspal_nutrition.json", {}).get("content", "")
+        cached_mfp = json.loads(mfp_raw) if mfp_raw else None
         personal_events_raw = files.get("personal_events.json", {}).get("content", "")
         personal_events = json.loads(personal_events_raw).get("events", []) if personal_events_raw else []
         running_plan_raw = files.get("running_plan.json", {}).get("content", "")
@@ -3015,6 +3017,7 @@ def _load_previous_coach_context(gist_id: str, token: str) -> dict:
             "recovery_advice_history": existing.get("recovery_advice_history", []),
             "_full": existing,
             "_keukenbaas": cached_meals,
+            "_mfp": cached_mfp,
             "_personal_events": personal_events,
             "_running_plan": running_plan,
         }
@@ -3023,7 +3026,7 @@ def _load_previous_coach_context(gist_id: str, token: str) -> dict:
         return empty
 
 
-def save_to_gist(gist_id: str, token: str, wod_data: dict, meals: list[dict] | None = None) -> None:
+def save_to_gist(gist_id: str, token: str, wod_data: dict, meals: list[dict] | None = None, mfp_data: dict | None = None) -> None:
     today_str = datetime.now(AMS).date().isoformat()
 
     # Accumulate barbell lifts history (passed via wod_data to avoid extra gist read)
@@ -3058,6 +3061,10 @@ def save_to_gist(gist_id: str, token: str, wod_data: dict, meals: list[dict] | N
                 ensure_ascii=False,
                 indent=2,
             )
+        }
+    if mfp_data is not None:
+        files["myfitnesspal_nutrition.json"] = {
+            "content": json.dumps(mfp_data, ensure_ascii=False, indent=2)
         }
     payload = {"files": files}
     resp = requests.patch(
@@ -3111,12 +3118,14 @@ def main() -> int:
     prev_coach_ctx: dict = {"barbell_lifts_history": [], "recovery_advice_history": []}
     cached_gist: dict = {}
     cached_keukenbaas: list = []
+    cached_mfp_data: dict | None = None
     personal_events: list[dict] = []
     running_plan: dict = {}
     if gist_id and token:
         full_ctx = _load_previous_coach_context(gist_id, token)
         cached_gist = full_ctx.pop("_full", {})
         cached_keukenbaas = full_ctx.pop("_keukenbaas", [])
+        cached_mfp_data = full_ctx.pop("_mfp", None)
         personal_events = full_ctx.pop("_personal_events", [])
         running_plan = full_ctx.pop("_running_plan", {})
         prev_coach_ctx = full_ctx
@@ -3260,12 +3269,33 @@ def main() -> int:
             except Exception as exc:
                 log.warning("Withings fetch mislukt: %s", exc)
 
+        # MyFitnessPal
+        skip_mfp = os.environ.get("SKIP_MYFITNESSPAL", "false").lower() in ("true", "1", "yes")
+        mfp_data: dict | None = None
+        if skip_mfp:
+            log.info("MyFitnessPal fetch overgeslagen (SKIP_MYFITNESSPAL=true)")
+            mfp_data = cached_mfp_data
+        else:
+            try:
+                from fetch_myfitnesspal import fetch_myfitnesspal_data  # noqa: PLC0415
+                mfp_data = fetch_myfitnesspal_data(days=7)
+                if mfp_data:
+                    n_days = len((mfp_data.get("diary") or {}).get("by_date") or {})
+                    log.info("MyFitnessPal data opgehaald: %d dagen", n_days)
+                else:
+                    log.info("Geen MyFitnessPal data beschikbaar (secrets ontbreken of geen data)")
+                    mfp_data = cached_mfp_data
+            except Exception as exc:
+                log.warning("MyFitnessPal fetch mislukt: %s", exc)
+                mfp_data = cached_mfp_data
+
     else:
         # ── SUGARWOD MODE: Use cached health data from Gist ─────────────────
         strava_data = cached_gist.get("strava_data")
         intervals_data = cached_gist.get("intervals_data")
         withings_data = cached_gist.get("withings_data")
-        log.info("SugarWOD modus: gecachte health data (Strava/Intervals/Withings) geladen uit Gist")
+        mfp_data = cached_mfp_data
+        log.info("SugarWOD modus: gecachte health data (Strava/Intervals/Withings/MFP) geladen uit Gist")
 
     # Subjectieve hersteldata (sliders) is verwijderd uit de UI — niet meer gebruiken.
     health_input: dict | None = None
@@ -3494,6 +3524,7 @@ def main() -> int:
         "intervals_data": intervals_data,
         "withings_data": withings_data,
         "environmental_data": env_data,
+        "myfitnesspal_data": mfp_data,
         "fetched_at": datetime.now(timezone.utc).isoformat(),
         # Internal keys consumed by save_to_gist() — removed before saving
         "_barbell_lifts_history_prev": prev_coach_ctx["barbell_lifts_history"],
@@ -3502,7 +3533,7 @@ def main() -> int:
 
     if gist_id and token:
         try:
-            save_to_gist(gist_id, token, wod_data, meals=keukenbaas_meals)
+            save_to_gist(gist_id, token, wod_data, meals=keukenbaas_meals, mfp_data=mfp_data)
         except requests.HTTPError as exc:
             log.error("Failed to save WOD to Gist: %s", exc)
             return 1

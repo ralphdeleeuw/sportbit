@@ -21,6 +21,11 @@ on:
         required: false
         default: 'false'
         type: boolean
+      skip_myfitnesspal:
+        description: 'MyFitnessPal data overslaan'
+        required: false
+        default: 'false'
+        type: boolean
 
 jobs:
   refresh-health:
@@ -34,7 +39,7 @@ jobs:
           python-version: '3.12'
 
       - name: Install dependencies
-        run: pip install requests beautifulsoup4 anthropic
+        run: pip install requests beautifulsoup4 anthropic myfitnesspal
 
       - name: Refresh Strava / Intervals.icu / Withings / Environmental data + AI coach
         env:
@@ -51,7 +56,10 @@ jobs:
           WITHINGS_REFRESH_TOKEN: ${{ secrets.WITHINGS_REFRESH_TOKEN }}
           WAQI_API_TOKEN: ${{ secrets.WAQI_API_TOKEN }}
           HEALTH_ONLY: 'true'
+          MFP_USERNAME: ${{ secrets.MFP_USERNAME }}
+          MFP_PASSWORD: ${{ secrets.MFP_PASSWORD }}
           SKIP_STRAVA: ${{ inputs.skip_strava || 'false' }}
           SKIP_WITHINGS: ${{ inputs.skip_withings || 'false' }}
           SKIP_INTERVALS: ${{ inputs.skip_intervals || 'false' }}
+          SKIP_MYFITNESSPAL: ${{ inputs.skip_myfitnesspal || 'false' }}
         run: python3 fetch_sugarwod.py

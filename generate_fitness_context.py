@@ -433,10 +433,43 @@ def section_wods(wod_data: dict | None, workout_log: dict | None) -> str:
     return "\n".join(lines)
 
 
-def section_nutrition() -> str:
+def section_nutrition(mfp_data: dict | None = None) -> str:
     lines = [_section("Voeding")]
     lines.append(f"**Ontbijt ({BREAKFAST['time']}):** {BREAKFAST['description']}\n")
     lines.append(f"**Diner:** rondom {DINNER_TIME}")
+
+    diary_by_date: dict = {}
+    if mfp_data:
+        diary_by_date = (mfp_data.get("diary") or {}).get("by_date") or {}
+
+    if diary_by_date:
+        logged = {d: v for d, v in diary_by_date.items() if v.get("calories", 0) > 0}
+        if logged:
+            lines.append("\n**MyFitnessPal dagboek (laatste 7 dagen):**\n")
+            total_kcal = sum(v["calories"] for v in logged.values())
+            total_prot = sum(v.get("protein_g", 0) for v in logged.values())
+            total_carbs = sum(v.get("carbs_g", 0) for v in logged.values())
+            total_fat = sum(v.get("fat_g", 0) for v in logged.values())
+            n = len(logged)
+            lines.append(
+                f"Gemiddeld per dag ({n} gelogde dag{'en' if n != 1 else ''}): "
+                f"**{round(total_kcal / n)} kcal** | "
+                f"{round(total_prot / n)}g eiwit | "
+                f"{round(total_carbs / n)}g KH | "
+                f"{round(total_fat / n)}g vet\n"
+            )
+            for date_str in sorted(logged.keys(), reverse=True):
+                day = logged[date_str]
+                kcal = day["calories"]
+                prot = round(day.get("protein_g", 0))
+                carbs = round(day.get("carbs_g", 0))
+                fat = round(day.get("fat_g", 0))
+                lines.append(
+                    f"- **{date_str}**: {kcal} kcal | {prot}g eiwit | {carbs}g KH | {fat}g vet"
+                )
+        else:
+            lines.append("\n*MyFitnessPal: geen gelogde voeding in de afgelopen 7 dagen.*")
+
     lines.append(
         "\n*Gebruik bovenstaande tijden en voedingsinfo bij het plannen van pre/post-workout "
         "voeding in het fitnessplan.*"
@@ -456,6 +489,7 @@ def generate(output_file: str = "fitness_context.md") -> None:
     health_input: dict | None = None
     hi_history: list[dict] = []
     workout_log: dict | None = None
+    mfp_data: dict | None = None
 
     if gist_id and token:
         print("[info] Gist-data ophalen...", file=sys.stderr)
@@ -476,6 +510,9 @@ def generate(output_file: str = "fitness_context.md") -> None:
             wl_raw = _parse_json(files.get("workout_log.json", ""), "workout_log.json")
             if isinstance(wl_raw, dict):
                 workout_log = {e["date"]: e for e in wl_raw.get("entries", []) if "date" in e}
+            mfp_raw = _parse_json(files.get("myfitnesspal_nutrition.json", ""), "myfitnesspal_nutrition.json")
+            if isinstance(mfp_raw, dict):
+                mfp_data = mfp_raw
             print("[info] Gist-data geladen.", file=sys.stderr)
         except Exception as exc:
             print(f"[waarschuwing] Gist ophalen mislukt: {exc}. Fallback naar hardcoded data.", file=sys.stderr)
@@ -497,7 +534,7 @@ def generate(output_file: str = "fitness_context.md") -> None:
         section_health_metrics(wod_data, health_input, hi_history),
         section_activities(wod_data),
         section_wods(wod_data, workout_log),
-        section_nutrition(),
+        section_nutrition(mfp_data),
         "\n---",
         "\n*Dit document is automatisch gegenereerd door `generate_fitness_context.py`. "
         "Gebruik het als context bij het vragen aan Claude om een persoonlijk fitnessplan.*",
