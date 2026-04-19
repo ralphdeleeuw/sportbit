@@ -3186,9 +3186,26 @@
         </div>`;
       }).join('');
 
+      // Gemiddelde over beschikbare dagen
+      const n = entries.length;
+      const avg = (key) => entries.reduce((s, [, d]) => s + (d[key] || 0), 0) / n;
+      const g0 = entries[0][1].goal || {};
+      const avgRow = `<div class="mfp-day-row" style="border-top:1px solid #2a5020;margin-top:0.3rem;padding-top:0.6rem">
+        <div class="meal-date" style="color:#aaa">∅ ${n}d</div>
+        <div class="mfp-stats">
+          ${statStr('kcal', avg('calories'), g0.calories, '')}
+          ${statStr('E', avg('protein_g'), g0.protein_g, 'g')}
+          ${statStr('KH', avg('carbs_g'), g0.carbs_g, 'g')}
+          ${statStr('V', avg('fat_g'), g0.fat_g, 'g')}
+          ${entries.some(([,d]) => d.fiber_g > 0) ? statStr('vezel', avg('fiber_g'), g0.fiber_g, 'g') : ''}
+          ${entries.some(([,d]) => d.sugar_g > 0) ? statStr('suiker', avg('sugar_g'), g0.sugar_g, 'g') : ''}
+        </div>
+      </div>`;
+
       return `<div class="meals-block">
         <div class="meals-block-label">MyFitnessPal — gegeten (laatste dagen)</div>
         ${rows}
+        ${avgRow}
       </div>`;
     }
 
