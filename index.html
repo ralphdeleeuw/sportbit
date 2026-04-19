@@ -3158,7 +3158,8 @@
       const pct = (val, goal) => goal ? Math.round(val / goal * 100) : null;
       const pctSpan = (p) => {
         if (p == null) return '';
-        const c = p > 110 ? '#e74c3c' : p < 80 ? '#f39c12' : '#2ecc71';
+        // Spieropbouw: meer eten is positief — rood alleen bij te weinig
+        const c = p >= 90 ? '#2ecc71' : p >= 70 ? '#f39c12' : '#e74c3c';
         return ` <span style="color:${c};font-size:0.8em">${p}%</span>`;
       };
       const statStr = (label, val, goalVal, unit) => {
