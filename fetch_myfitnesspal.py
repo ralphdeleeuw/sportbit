@@ -142,21 +142,27 @@ def _parse_html_diary(soup: BeautifulSoup) -> dict | None:
         except ValueError:
             return 0.0
 
-    # Bepaal kolomvolgorde uit de tabelkoppen
+    # Bepaal kolomvolgorde uit de tabelkoppen (th én td met klasse)
     col = {"cal": 1, "carbs": 2, "fat": 3, "protein": 4, "fiber": -1}
-    for th in soup.find_all("th"):
-        h = th.get_text(strip=True).lower()
-        idx = th.parent.find_all("th").index(th)
-        if "calorie" in h:
-            col["cal"] = idx
-        elif "carb" in h:
-            col["carbs"] = idx
-        elif "fat" in h or "vet" in h:
-            col["fat"] = idx
-        elif "protein" in h or "eiwit" in h:
-            col["protein"] = idx
-        elif "fiber" in h or "fibre" in h or "vezel" in h:
-            col["fiber"] = idx
+    # Zoek in alle header-rijen (MFP gebruikt soms <td> in plaats van <th>)
+    for header_row in soup.find_all("tr"):
+        hcs = header_row.find_all(["td", "th"])
+        texts = [c.get_text(strip=True).lower() for c in hcs]
+        if not any("calorie" in t for t in texts):
+            continue
+        for idx, t in enumerate(texts):
+            if "calorie" in t:
+                col["cal"] = idx
+            elif "carb" in t:
+                col["carbs"] = idx
+            elif "fat" in t or "vet" in t:
+                col["fat"] = idx
+            elif "protein" in t or "eiwit" in t:
+                col["protein"] = idx
+            elif "fiber" in t or "fibre" in t or "vezel" in t:
+                col["fiber"] = idx
+        break  # eerste header-rij met 'calorie' is genoeg
+    log.warning("MFP kolom-detectie: %s", col)
 
     MEAL_NAMES = {"breakfast", "lunch", "dinner", "snacks",
                   "ontbijt", "diner", "tussendoor"}
@@ -183,6 +189,8 @@ def _parse_html_diary(soup: BeautifulSoup) -> dict | None:
             meals.append(current)
 
         elif "daily total" in fl or "dagelijks totaal" in fl:
+            raw = [c.get_text(strip=True) for c in cs]
+            log.warning("MFP daily-total rij (%d cellen): %s", len(cs), raw)
             if len(cs) > max(col["cal"], col["protein"]):
                 daily["calories"] = int(num(cs[col["cal"]].get_text()))
                 daily["carbs_g"] = num(cs[col["carbs"]].get_text())
