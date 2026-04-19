@@ -73,9 +73,9 @@ def fetch_myfitnesspal_data(days: int = 7) -> dict | None:
 
     try:
         import myfitnesspal  # noqa: PLC0415
-    except ImportError:
+    except ImportError as exc:
         log.warning(
-            "MyFitnessPal: pakket 'myfitnesspal<2.0' niet geïnstalleerd"
+            "MyFitnessPal: library import mislukt: %s", exc
         )
         return None
 
