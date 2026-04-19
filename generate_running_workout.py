@@ -379,9 +379,6 @@ def _step_to_doc(step: dict) -> dict | None:
             if not dur:
                 return None
             doc = {"type": "active", "duration": dur}
-        if not dur:
-            return None
-        doc = {"type": "active", "duration": dur}
         t = pace_target(step)
         if t:
             doc["target"] = t
