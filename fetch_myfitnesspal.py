@@ -234,21 +234,29 @@ def fetch_myfitnesspal_data(days: int = 7) -> dict | None:
     if not session:
         return None
 
-    # Bepaal de diary-URL: probeer eerst zonder gebruikersnaam (werkt op sessiecookie),
-    # val terug op MFP_USERNAME als dat ingesteld is.
     username = os.environ.get("MFP_USERNAME", "").strip()
-    diary_base = f"{MFP_BASE}/food/diary/{username}" if username else f"{MFP_BASE}/food/diary"
 
-    # Eerste request: check authenticatie en ontdek de echte diary-URL
+    # Probe: altijd eerst /food/diary zonder gebruikersnaam proberen.
+    # MFP stuurt geauthenticeerde gebruikers door naar /food/diary/{username}.
+    # Zo ontdekken we de juiste URL zonder MFP_USERNAME te hoeven weten.
+    diary_base = f"{MFP_BASE}/food/diary"
     try:
-        probe = session.get(f"{diary_base}", timeout=30, allow_redirects=True)
+        probe = session.get(diary_base, timeout=30, allow_redirects=True)
         log.warning("MFP probe: status=%d url=%s", probe.status_code, probe.url)
-        # Als MFP omleidt naar /food/diary/{username}, gebruik die URL voortaan
-        if "/food/diary/" in probe.url and probe.status_code == 200:
+        if probe.status_code == 200 and "/food/diary" in probe.url:
             diary_base = probe.url.split("?")[0]
             log.warning("MFP: diary base URL vastgesteld op %s", diary_base)
+        elif probe.status_code == 404 and username:
+            # Fallback: probeer met expliciete gebruikersnaam
+            diary_base = f"{MFP_BASE}/food/diary/{username}"
+            log.warning("MFP: /food/diary gaf 404, fallback naar username URL")
+        else:
+            log.warning("MFP probe onverwacht resultaat: status=%d url=%s — pagina snippet: %.300s",
+                        probe.status_code, probe.url, probe.text)
     except Exception as exc:
         log.warning("MFP probe mislukt: %s", exc)
+        if username:
+            diary_base = f"{MFP_BASE}/food/diary/{username}"
 
     today = datetime.now(timezone.utc).date()
     diary_by_date: dict[str, dict] = {}
