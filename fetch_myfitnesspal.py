@@ -165,13 +165,19 @@ def _parse_html_diary(soup: BeautifulSoup) -> dict | None:
             continue
         first = cs[0].get_text(strip=True)
         fl = first.lower()
+        row_classes = " ".join(row.get("class", []))
+
+        # Sla goal/remaining rijen over — die bevatten doelen, geen gegeten waarden
+        if any(k in fl for k in ("goal", "doel", "remaining", "resterend")):
+            continue
 
         if fl in MEAL_NAMES:
             current = {"name": first, "calories": 0, "protein_g": 0.0,
-                       "carbs_g": 0.0, "fat_g": 0.0, "entries": []}
+                       "carbs_g": 0.0, "fat_g": 0.0, "entries": [],
+                       "_totals_set": False}
             meals.append(current)
 
-        elif "total" in " ".join(row.get("class", [])) or "daily total" in fl or fl == "totals":
+        elif fl == "totals" and "total" in row_classes:
             if len(cs) <= COL["protein"]:
                 continue
             cal = int(cell_num(cs[COL["cal"]]))
@@ -180,14 +186,16 @@ def _parse_html_diary(soup: BeautifulSoup) -> dict | None:
             protein = cell_num(cs[COL["protein"]])
             fiber = cell_num(cs[COL["fiber"]]) if COL["fiber"] >= 0 and len(cs) > COL["fiber"] else 0.0
 
-            is_daily = "daily" in fl or "dagelijks" in fl or not current
-            if is_daily:
+            if current and not current["_totals_set"]:
+                # Eerste Totals-rij in deze sectie = maaltijdtotaal
+                current.update({"calories": cal, "carbs_g": carbs,
+                                 "fat_g": fat, "protein_g": protein})
+                current["_totals_set"] = True
+            elif not found_daily:
+                # Tweede Totals-rij na laatste maaltijd = dag-grand-total
                 daily.update({"calories": cal, "carbs_g": carbs, "fat_g": fat,
                                "protein_g": protein, "fiber_g": fiber})
                 found_daily = True
-            elif current and cal:
-                current.update({"calories": cal, "carbs_g": carbs,
-                                 "fat_g": fat, "protein_g": protein})
 
         elif current:
             if len(cs) <= COL["cal"]:
@@ -201,6 +209,10 @@ def _parse_html_diary(soup: BeautifulSoup) -> dict | None:
                     "carbs_g": cell_num(cs[COL["carbs"]]) if len(cs) > COL["carbs"] else 0.0,
                     "fat_g": cell_num(cs[COL["fat"]]) if len(cs) > COL["fat"] else 0.0,
                 })
+
+    # Verwijder interne vlag vóór return
+    for m in meals:
+        m.pop("_totals_set", None)
 
     if not found_daily and meals:
         for m in meals:
