@@ -230,14 +230,25 @@ def fetch_myfitnesspal_data(days: int = 7) -> dict | None:
 
     Retourneert None als credentials ontbreken of bij een fout.
     """
-    username = os.environ.get("MFP_USERNAME", "").strip()
-    if not username:
-        log.info("MyFitnessPal: MFP_USERNAME niet geconfigureerd")
-        return None
-
     session = _build_session()
     if not session:
         return None
+
+    # Bepaal de diary-URL: probeer eerst zonder gebruikersnaam (werkt op sessiecookie),
+    # val terug op MFP_USERNAME als dat ingesteld is.
+    username = os.environ.get("MFP_USERNAME", "").strip()
+    diary_base = f"{MFP_BASE}/food/diary/{username}" if username else f"{MFP_BASE}/food/diary"
+
+    # Eerste request: check authenticatie en ontdek de echte diary-URL
+    try:
+        probe = session.get(f"{diary_base}", timeout=30, allow_redirects=True)
+        log.warning("MFP probe: status=%d url=%s", probe.status_code, probe.url)
+        # Als MFP omleidt naar /food/diary/{username}, gebruik die URL voortaan
+        if "/food/diary/" in probe.url and probe.status_code == 200:
+            diary_base = probe.url.split("?")[0]
+            log.warning("MFP: diary base URL vastgesteld op %s", diary_base)
+    except Exception as exc:
+        log.warning("MFP probe mislukt: %s", exc)
 
     today = datetime.now(timezone.utc).date()
     diary_by_date: dict[str, dict] = {}
@@ -248,7 +259,7 @@ def fetch_myfitnesspal_data(days: int = 7) -> dict | None:
 
         try:
             resp = session.get(
-                f"{MFP_BASE}/food/diary/{username}?date={date_str}",
+                f"{diary_base}?date={date_str}",
                 timeout=30,
             )
         except Exception as exc:
@@ -268,8 +279,7 @@ def fetch_myfitnesspal_data(days: int = 7) -> dict | None:
             continue
 
         # Detecteer redirect naar loginpagina (cookies verlopen / geweigerd)
-        expected_path = f"/food/diary/{username}"
-        if expected_path not in resp.url:
+        if "/food/diary" not in resp.url:
             log.warning(
                 "MyFitnessPal: omgeleid naar %s — cookies werken niet of zijn verlopen",
                 resp.url,
