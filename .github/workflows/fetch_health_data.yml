@@ -41,7 +41,7 @@ jobs:
       - name: Install dependencies
         run: |
           pip install requests beautifulsoup4 anthropic
-          pip install "myfitnesspal<2.0"
+          pip install --no-deps "myfitnesspal<2.0"
 
       - name: Refresh Strava / Intervals.icu / Withings / Environmental data + AI coach
         env:
