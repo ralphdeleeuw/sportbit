@@ -39,11 +39,7 @@ jobs:
           python-version: '3.12'
 
       - name: Install dependencies
-        run: |
-          pip install requests beautifulsoup4 anthropic
-          pip install --no-deps "myfitnesspal<2.0"
-          pip install lxml mechanize python-dateutil six future measurement keyring
-          python -c "import myfitnesspal; print('myfitnesspal OK:', myfitnesspal.__version__)" || echo "myfitnesspal import MISLUKT"
+        run: pip install requests beautifulsoup4 lxml anthropic
 
       - name: Refresh Strava / Intervals.icu / Withings / Environmental data + AI coach
         env:
@@ -61,7 +57,9 @@ jobs:
           WAQI_API_TOKEN: ${{ secrets.WAQI_API_TOKEN }}
           HEALTH_ONLY: 'true'
           MFP_USERNAME: ${{ secrets.MFP_USERNAME }}
-          MFP_PASSWORD: ${{ secrets.MFP_PASSWORD }}
+          MFP_SESSION_TOKEN: ${{ secrets.MFP_SESSION_TOKEN }}
+          MFP_CF_CLEARANCE: ${{ secrets.MFP_CF_CLEARANCE }}
+          MFP_REMEMBER_ME: ${{ secrets.MFP_REMEMBER_ME }}
           SKIP_STRAVA: ${{ inputs.skip_strava || 'false' }}
           SKIP_WITHINGS: ${{ inputs.skip_withings || 'false' }}
           SKIP_INTERVALS: ${{ inputs.skip_intervals || 'false' }}
