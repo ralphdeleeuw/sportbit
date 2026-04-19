@@ -201,11 +201,17 @@ def _parse_html_diary(soup: BeautifulSoup) -> dict | None:
                 found_daily = True
 
         elif fl == "totals" and current:
+            raw = [c.get_text(strip=True) for c in cs]
+            log.warning("MFP maaltijd-totaal '%s' (%d cellen): %s", current["name"], len(cs), raw)
             if len(cs) > max(col["cal"], col["protein"]):
                 current["calories"] = int(num(cs[col["cal"]].get_text()))
                 current["protein_g"] = num(cs[col["protein"]].get_text())
                 current["carbs_g"] = num(cs[col["carbs"]].get_text())
                 current["fat_g"] = num(cs[col["fat"]].get_text())
+
+        elif "total" in fl:
+            raw = [c.get_text(strip=True) for c in cs]
+            log.warning("MFP onbekende totaal-rij: '%s' (%d cellen): %s", first, len(cs), raw)
 
         elif current and len(cs) > 1:
             c = int(num(cs[col["cal"]].get_text())) if len(cs) > col["cal"] else 0
