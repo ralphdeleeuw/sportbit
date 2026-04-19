@@ -264,16 +264,28 @@ def fetch_myfitnesspal_data(days: int = 7) -> dict | None:
             break
 
         if resp.status_code != 200:
-            log.debug("MFP %s: HTTP %d", date_str, resp.status_code)
+            log.warning("MFP %s: HTTP %d (final URL: %s)", date_str, resp.status_code, resp.url)
             continue
+
+        # Detecteer redirect naar loginpagina (cookies verlopen / geweigerd)
+        expected_path = f"/food/diary/{username}"
+        if expected_path not in resp.url:
+            log.warning(
+                "MyFitnessPal: omgeleid naar %s — cookies werken niet of zijn verlopen",
+                resp.url,
+            )
+            break
 
         soup = BeautifulSoup(resp.text, "lxml")
 
         # Strategie 1: Next.js __NEXT_DATA__ JSON
         next_data = _extract_next_data(soup)
-        if i == 0 and next_data:
-            page_props_keys = list(next_data.get("props", {}).get("pageProps", {}).keys())
-            log.info("MFP __NEXT_DATA__ pageProps keys: %s", page_props_keys[:15])
+        if i == 0:
+            if next_data:
+                page_props_keys = list(next_data.get("props", {}).get("pageProps", {}).keys())
+                log.warning("MFP __NEXT_DATA__ pageProps keys: %s", page_props_keys[:15])
+            else:
+                log.warning("MFP dag 0: geen __NEXT_DATA__ gevonden (pagina snippet: %s)", resp.text[:300])
 
         day_data = _parse_nextjs_diary(next_data) if next_data else None
 
@@ -283,7 +295,7 @@ def fetch_myfitnesspal_data(days: int = 7) -> dict | None:
 
         if day_data:
             diary_by_date[date_str] = day_data
-            log.info(
+            log.warning(
                 "MFP %s: %d kcal | %dg eiwit | %dg KH | %dg vet",
                 date_str,
                 day_data.get("calories", 0),
@@ -292,7 +304,7 @@ def fetch_myfitnesspal_data(days: int = 7) -> dict | None:
                 round(day_data.get("fat_g", 0)),
             )
         else:
-            log.debug("MFP %s: geen data (dag niet gelogd?)", date_str)
+            log.warning("MFP %s: geen data gevonden (dag niet gelogd of formaat onbekend)", date_str)
 
     if not diary_by_date:
         log.warning("MyFitnessPal: geen dagboekdata opgehaald voor de afgelopen %d dagen", days)
