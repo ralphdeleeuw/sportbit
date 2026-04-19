@@ -312,7 +312,13 @@ def fetch_myfitnesspal_data(days: int = 7) -> dict | None:
                 page_props_keys = list(next_data.get("props", {}).get("pageProps", {}).keys())
                 log.warning("MFP __NEXT_DATA__ pageProps keys: %s", page_props_keys[:15])
             else:
-                log.warning("MFP dag 0: geen __NEXT_DATA__ gevonden (pagina snippet: %s)", resp.text[:300])
+                # Dump HTML van eerste "Totals"-rij voor diagnose
+                for row in soup.find_all("tr"):
+                    cs = row.find_all(["td", "th"])
+                    if cs and cs[0].get_text(strip=True).lower() == "totals":
+                        log.warning("MFP Totals-rij HTML: %s", str(row)[:1000])
+                        break
+                log.warning("MFP dag 0 pagina snippet (500 chars): %s", resp.text[:500])
 
         day_data = _parse_nextjs_diary(next_data) if next_data else None
 
