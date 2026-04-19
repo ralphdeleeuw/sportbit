@@ -3144,14 +3144,20 @@
         const calColor = calPct == null ? '' : calPct > 110 ? 'color:#e74c3c' : calPct < 80 ? 'color:#f39c12' : 'color:#2ecc71';
         const goalStr = g ? ` <span style="color:#999;font-size:0.85em">/ ${g.calories}</span>` : '';
         const pctStr = calPct != null ? ` <span style="${calColor};font-size:0.8em">${calPct}%</span>` : '';
-        const macroGoal = (val, goal) => goal ? `${Math.round(val)}<span style="color:#bbb">/${goal}</span>` : Math.round(val);
-        return `<div class="meal-row">
+        const mv = (val, goal) => goal ? `${Math.round(val)}<span style="color:#bbb">/${Math.round(goal)}</span>` : Math.round(val);
+        const extras = [];
+        if (d.fiber_g > 0) extras.push(`vezel ${mv(d.fiber_g, g?.fiber_g)}g`);
+        if (d.sodium_mg > 0) extras.push(`Na ${Math.round(d.sodium_mg)}mg`);
+        if (d.sugar_g > 0) extras.push(`suiker ${Math.round(d.sugar_g)}g`);
+        if (d.water_cups != null) extras.push(`💧 ${d.water_cups} cups`);
+        return `<div class="meal-row" style="flex-wrap:wrap">
           <div class="meal-date">${label}</div>
           <div class="meal-name" style="flex:1"><strong>${d.calories}</strong>${goalStr} kcal${pctStr}</div>
-          <div class="meal-kcal" style="font-size:0.78em;color:#888">
-            E ${macroGoal(d.protein_g, g?.protein_g)}g &middot;
-            KH ${macroGoal(d.carbs_g, g?.carbs_g)}g &middot;
-            V ${macroGoal(d.fat_g, g?.fat_g)}g
+          <div class="meal-kcal" style="font-size:0.78em;color:#888;width:100%">
+            E ${mv(d.protein_g, g?.protein_g)}g &middot;
+            KH ${mv(d.carbs_g, g?.carbs_g)}g &middot;
+            V ${mv(d.fat_g, g?.fat_g)}g
+            ${extras.length ? '&nbsp;&middot; ' + extras.join(' &middot; ') : ''}
           </div>
         </div>`;
       }).join('');
