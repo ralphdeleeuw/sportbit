@@ -1325,6 +1325,25 @@
       border-bottom: 1px solid #1a3010;
     }
     .meal-row:last-child { border-bottom: none; }
+    .mfp-day-row {
+      display: flex;
+      align-items: baseline;
+      gap: 0.8rem;
+      padding: 0.5rem 0;
+      border-bottom: 1px solid #1a3010;
+      flex-wrap: wrap;
+    }
+    .mfp-day-row:last-child { border-bottom: none; }
+    .mfp-stats {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.5rem 1rem;
+      flex: 1;
+    }
+    .mfp-stat {
+      font-size: 0.85rem;
+      white-space: nowrap;
+    }
     .meal-date {
       font-family: 'Bebas Neue', sans-serif;
       font-size: 0.95rem;
@@ -2314,13 +2333,7 @@
           </div>`;
         }
 
-        // Meals block (Keukenbaas)
-        const mealsHtml = renderMealsBlock();
-        if (mealsHtml) html += mealsHtml;
-
-        // MyFitnessPal dagboek
-        const mfpHtml = renderMfpBlock();
-        if (mfpHtml) html += mfpHtml;
+        // Meals block (Keukenbaas) en MFP worden na de Eerder-sectie getoond
 
         // Upcoming: CrossFit classes + personal events + running plan combined
         _upcomingCrossfit = upcoming;
@@ -2412,6 +2425,12 @@
             html += `</div>`;
           }
         }
+
+        // Voeding (Keukenbaas + MyFitnessPal) na Eerder-sectie
+        const mealsHtml = renderMealsBlock();
+        if (mealsHtml) html += mealsHtml;
+        const mfpHtml = renderMfpBlock();
+        if (mfpHtml) html += mfpHtml;
 
         // Barbell progressie (table + chart)
         if (Object.keys(barbellLifts).length > 0) {
@@ -3136,27 +3155,32 @@
         .slice(0, 7);
       if (entries.length === 0) return '';
 
+      const pct = (val, goal) => goal ? Math.round(val / goal * 100) : null;
+      const pctSpan = (p) => {
+        if (p == null) return '';
+        const c = p > 110 ? '#e74c3c' : p < 80 ? '#f39c12' : '#2ecc71';
+        return ` <span style="color:${c};font-size:0.8em">${p}%</span>`;
+      };
+      const statStr = (label, val, goalVal, unit) => {
+        const p = pct(val, goalVal);
+        const goalPart = goalVal ? `<span style="color:#999">/${Math.round(goalVal)}</span>` : '';
+        return `<span class="mfp-stat"><span style="color:#aaa;font-size:0.8em">${label}</span> <strong>${Math.round(val)}</strong>${goalPart}${unit}${pctSpan(p)}</span>`;
+      };
+
       const rows = entries.map(([dateStr, d]) => {
         const dt = new Date(dateStr + 'T00:00:00');
         const label = `${DAY_NL[dt.getDay()]} ${dt.getDate()}`;
         const g = d.goal;
-        const calPct = g?.calories ? Math.round(d.calories / g.calories * 100) : null;
-        const calColor = calPct == null ? '' : calPct > 110 ? 'color:#e74c3c' : calPct < 80 ? 'color:#f39c12' : 'color:#2ecc71';
-        const goalStr = g ? ` <span style="color:#999;font-size:0.85em">/ ${g.calories}</span>` : '';
-        const pctStr = calPct != null ? ` <span style="${calColor};font-size:0.8em">${calPct}%</span>` : '';
-        const mv = (val, goal) => goal ? `${Math.round(val)}<span style="color:#bbb">/${Math.round(goal)}</span>` : Math.round(val);
-        const extras = [];
-        if (d.fiber_g > 0) extras.push(`vezel ${mv(d.fiber_g, g?.fiber_g)}g`);
-        if (d.sugar_g > 0) extras.push(`suiker ${mv(d.sugar_g, g?.sugar_g)}g`);
-        if (d.water_cups != null) extras.push(`💧 ${d.water_cups} cups`);
-        return `<div class="meal-row" style="flex-wrap:wrap">
+        return `<div class="mfp-day-row">
           <div class="meal-date">${label}</div>
-          <div class="meal-name" style="flex:1"><strong>${d.calories}</strong>${goalStr} kcal${pctStr}</div>
-          <div class="meal-kcal" style="font-size:0.78em;color:#888;width:100%">
-            E ${mv(d.protein_g, g?.protein_g)}g &middot;
-            KH ${mv(d.carbs_g, g?.carbs_g)}g &middot;
-            V ${mv(d.fat_g, g?.fat_g)}g
-            ${extras.length ? '&nbsp;&middot; ' + extras.join(' &middot; ') : ''}
+          <div class="mfp-stats">
+            ${statStr('kcal', d.calories, g?.calories, '')}
+            ${statStr('E', d.protein_g, g?.protein_g, 'g')}
+            ${statStr('KH', d.carbs_g, g?.carbs_g, 'g')}
+            ${statStr('V', d.fat_g, g?.fat_g, 'g')}
+            ${d.fiber_g > 0 ? statStr('vezel', d.fiber_g, g?.fiber_g, 'g') : ''}
+            ${d.sugar_g > 0 ? statStr('suiker', d.sugar_g, g?.sugar_g, 'g') : ''}
+            ${d.water_cups != null ? `<span class="mfp-stat">💧 <strong>${d.water_cups}</strong> cups</span>` : ''}
           </div>
         </div>`;
       }).join('');
