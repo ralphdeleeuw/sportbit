@@ -147,8 +147,9 @@ def _parse_html_diary(soup: BeautifulSoup) -> dict | None:
         span = td.find("span", class_="macro-value")
         return num(span.get_text(strip=True) if span else td.get_text(strip=True))
 
-    # Kolommen zijn vast: 0=label, 1=calories, 2=carbs, 3=fat, 4=protein, 5=sodium, 6=sugar
-    COL = {"cal": 1, "carbs": 2, "fat": 3, "protein": 4, "fiber": -1}
+    # Kolommen: 0=label, 1=calories, 2=carbs, 3=fat, 4=protein, 5=sodium, 6=sugar
+    # Col 7 kan fiber zijn als de gebruiker dat als custom kolom heeft ingesteld
+    COL = {"cal": 1, "carbs": 2, "fat": 3, "protein": 4, "sodium": 5, "sugar": 6}
 
     MEAL_NAMES = {"breakfast", "lunch", "dinner", "snacks",
                   "ontbijt", "diner", "tussendoor"}
@@ -156,9 +157,10 @@ def _parse_html_diary(soup: BeautifulSoup) -> dict | None:
     meals: list[dict] = []
     current: dict | None = None
     daily: dict = {"calories": 0, "protein_g": 0.0, "carbs_g": 0.0,
-                   "fat_g": 0.0, "fiber_g": 0.0}
+                   "fat_g": 0.0, "fiber_g": 0.0, "sodium_mg": 0.0, "sugar_g": 0.0}
     goal: dict = {}
     found_daily = False
+    fiber_col: int = -1  # wordt gezet als col 7 fiber-waarden bevat
 
     for row in soup.find_all("tr"):
         cs = row.find_all(["td", "th"])
@@ -176,7 +178,12 @@ def _parse_html_diary(soup: BeautifulSoup) -> dict | None:
                     "protein_g": cell_num(cs[COL["protein"]]),
                     "carbs_g": cell_num(cs[COL["carbs"]]),
                     "fat_g": cell_num(cs[COL["fat"]]),
+                    "sodium_mg": cell_num(cs[COL["sodium"]]) if len(cs) > COL["sodium"] else 0.0,
+                    "sugar_g": cell_num(cs[COL["sugar"]]) if len(cs) > COL["sugar"] else 0.0,
                 }
+                if len(cs) > 7 and cell_num(cs[7]) > 0:
+                    goal["fiber_g"] = cell_num(cs[7])
+                    fiber_col = 7
             continue
 
         # Sla remaining-rijen over
@@ -196,17 +203,18 @@ def _parse_html_diary(soup: BeautifulSoup) -> dict | None:
             carbs = cell_num(cs[COL["carbs"]])
             fat = cell_num(cs[COL["fat"]])
             protein = cell_num(cs[COL["protein"]])
-            fiber = cell_num(cs[COL["fiber"]]) if COL["fiber"] >= 0 and len(cs) > COL["fiber"] else 0.0
+            sodium = cell_num(cs[COL["sodium"]]) if len(cs) > COL["sodium"] else 0.0
+            sugar = cell_num(cs[COL["sugar"]]) if len(cs) > COL["sugar"] else 0.0
+            fiber = cell_num(cs[fiber_col]) if fiber_col >= 0 and len(cs) > fiber_col else 0.0
 
             if current and not current["_totals_set"]:
-                # Eerste Totals-rij in deze sectie = maaltijdtotaal
                 current.update({"calories": cal, "carbs_g": carbs,
                                  "fat_g": fat, "protein_g": protein})
                 current["_totals_set"] = True
             elif not found_daily:
-                # Tweede Totals-rij na laatste maaltijd = dag-grand-total
                 daily.update({"calories": cal, "carbs_g": carbs, "fat_g": fat,
-                               "protein_g": protein, "fiber_g": fiber})
+                               "protein_g": protein, "fiber_g": fiber,
+                               "sodium_mg": sodium, "sugar_g": sugar})
                 found_daily = True
 
         elif current:
@@ -240,6 +248,38 @@ def _parse_html_diary(soup: BeautifulSoup) -> dict | None:
     if goal:
         result["goal"] = goal
     return result
+
+
+def _extract_water(soup: BeautifulSoup) -> float | None:
+    """Extraheer water-intake (cups of ml) uit de MFP XHTML diary."""
+    # Patroon 1: <span id="total-water-count">5</span>
+    el = soup.find(id="total-water-count")
+    if el:
+        try:
+            return float(el.get_text(strip=True))
+        except ValueError:
+            pass
+
+    # Patroon 2: input met name/class water
+    for inp in soup.find_all("input"):
+        name = inp.get("name", "") + inp.get("id", "") + inp.get("class", [""])[0]
+        if "water" in name.lower():
+            try:
+                return float(inp.get("value", "") or "")
+            except ValueError:
+                pass
+
+    # Patroon 3: zoek in tekst van alle elementen met 'water' in id/class
+    for el in soup.find_all(True, {"id": lambda x: x and "water" in x.lower()}):
+        t = el.get_text(strip=True)
+        digits = "".join(c for c in t if c.isdigit() or c == ".")
+        if digits:
+            try:
+                return float(digits)
+            except ValueError:
+                pass
+
+    return None
 
 
 def fetch_myfitnesspal_data(days: int = 7) -> dict | None:
@@ -327,6 +367,11 @@ def fetch_myfitnesspal_data(days: int = 7) -> dict | None:
         # Strategie 2: HTML-tabel fallback
         if not day_data or day_data.get("calories", 0) == 0:
             day_data = _parse_html_diary(soup)
+
+        if day_data:
+            water = _extract_water(soup)
+            if water is not None:
+                day_data["water_cups"] = water
 
         if day_data:
             diary_by_date[date_str] = day_data
