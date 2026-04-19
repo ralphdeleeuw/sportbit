@@ -246,14 +246,14 @@ def fetch_myfitnesspal_data(days: int = 7) -> dict | None:
     diary_base = f"{MFP_BASE}/food/diary"
     try:
         probe = session.get(diary_base, timeout=30, allow_redirects=True)
-        log.warning("MFP probe: status=%d url=%s", probe.status_code, probe.url)
+        log.info("MFP probe: status=%d url=%s", probe.status_code, probe.url)
         if probe.status_code == 200 and "/food/diary" in probe.url:
             diary_base = probe.url.split("?")[0]
-            log.warning("MFP: diary base URL vastgesteld op %s", diary_base)
+            log.info("MFP: diary base URL vastgesteld op %s", diary_base)
         elif probe.status_code == 404 and username:
             # Fallback: probeer met expliciete gebruikersnaam
             diary_base = f"{MFP_BASE}/food/diary/{username}"
-            log.warning("MFP: /food/diary gaf 404, fallback naar username URL")
+            log.info("MFP: /food/diary gaf 404, fallback naar username URL")
         else:
             log.warning("MFP probe onverwacht resultaat: status=%d url=%s — pagina snippet: %.300s",
                         probe.status_code, probe.url, probe.text)
@@ -305,15 +305,7 @@ def fetch_myfitnesspal_data(days: int = 7) -> dict | None:
         if i == 0:
             if next_data:
                 page_props_keys = list(next_data.get("props", {}).get("pageProps", {}).keys())
-                log.warning("MFP __NEXT_DATA__ pageProps keys: %s", page_props_keys[:15])
-            else:
-                # Dump HTML van eerste "Totals"-rij voor diagnose
-                for row in soup.find_all("tr"):
-                    cs = row.find_all(["td", "th"])
-                    if cs and cs[0].get_text(strip=True).lower() == "totals":
-                        log.warning("MFP Totals-rij HTML: %s", str(row)[:1000])
-                        break
-                log.warning("MFP dag 0 pagina snippet (500 chars): %s", resp.text[:500])
+                log.debug("MFP __NEXT_DATA__ pageProps keys: %s", page_props_keys[:15])
 
         day_data = _parse_nextjs_diary(next_data) if next_data else None
 
@@ -323,7 +315,7 @@ def fetch_myfitnesspal_data(days: int = 7) -> dict | None:
 
         if day_data:
             diary_by_date[date_str] = day_data
-            log.warning(
+            log.info(
                 "MFP %s: %d kcal | %dg eiwit | %dg KH | %dg vet",
                 date_str,
                 day_data.get("calories", 0),
@@ -332,7 +324,7 @@ def fetch_myfitnesspal_data(days: int = 7) -> dict | None:
                 round(day_data.get("fat_g", 0)),
             )
         else:
-            log.warning("MFP %s: geen data gevonden (dag niet gelogd of formaat onbekend)", date_str)
+            log.debug("MFP %s: geen data (dag niet gelogd?)", date_str)
 
     if not diary_by_date:
         log.warning("MyFitnessPal: geen dagboekdata opgehaald voor de afgelopen %d dagen", days)
