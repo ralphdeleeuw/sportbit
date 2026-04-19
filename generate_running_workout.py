@@ -332,7 +332,11 @@ def _pace_to_sec_per_km(pace: str) -> int:
 
 def _step_to_doc(step: dict) -> dict | None:
     """Converteer een Claude-stap naar intervals.icu workout_doc stap.
-    Durations altijd in seconden — intervals.icu ondersteunt geen durationType Distance."""
+
+    Warmup/cooldown: tijd in seconden (afstand → berekend via pace).
+    Run/intervalstap: afstand in meters als distance_m aanwezig is,
+    anders tijd in seconden. Garmin toont dan "Xm remaining" i.p.v. afteltimer.
+    """
     stype = step.get("type")
 
     def to_secs(s: dict) -> int | None:
@@ -342,7 +346,7 @@ def _step_to_doc(step: dict) -> dict | None:
             return int(s["duration_min"] * 60)
         if s.get("distance_m"):
             pace_str = s.get("pace_target") or s.get("pace_max")
-            pace_sec = _pace_to_sec_per_km(pace_str) if pace_str else 400  # fallback 6:40/km
+            pace_sec = _pace_to_sec_per_km(pace_str) if pace_str else 400
             return int(s["distance_m"] / 1000 * pace_sec)
         return None
 
@@ -356,6 +360,7 @@ def _step_to_doc(step: dict) -> dict | None:
         return None
 
     if stype in ("warmup", "cooldown"):
+        # Warmup/cooldown: altijd tijd — geen harde afstandsdoelen
         dur = to_secs(step)
         if not dur:
             return None
@@ -366,7 +371,14 @@ def _step_to_doc(step: dict) -> dict | None:
         return doc
 
     if stype == "run":
-        dur = to_secs(step)
+        # Interval/run stap: gebruik afstand als die bekend is (Fenix toont "Xm remaining")
+        if step.get("distance_m"):
+            doc = {"type": "active", "duration": step["distance_m"], "durationType": "Distance"}
+        else:
+            dur = to_secs(step)
+            if not dur:
+                return None
+            doc = {"type": "active", "duration": dur}
         if not dur:
             return None
         doc = {"type": "active", "duration": dur}
