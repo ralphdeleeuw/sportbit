@@ -496,6 +496,24 @@ def _build_intervals_event(spec: dict) -> dict:
 
 # ── Push naar intervals.icu ────────────────────────────────────────────────────
 
+def _delete_old_intervals_events(athlete_id: str, api_key: str, existing_plan: dict) -> None:
+    """Verwijder bestaande intervals.icu events zodat er geen duplicaten ontstaan bij herhaalde runs."""
+    old_ids = [w["event_id"] for w in existing_plan.get("workouts", []) if w.get("event_id")]
+    if not old_ids:
+        return
+    session = requests.Session()
+    session.auth = ("API_KEY", api_key)
+    for eid in old_ids:
+        try:
+            resp = session.delete(f"{INTERVALS_BASE}/{athlete_id}/events/{eid}", timeout=20)
+            if resp.ok:
+                log.info("Oud intervals.icu event %s verwijderd", eid)
+            else:
+                log.warning("Kon oud event %s niet verwijderen: %s", eid, resp.status_code)
+        except Exception as exc:
+            log.warning("Fout bij verwijderen oud event %s: %s", eid, exc)
+
+
 def _push_to_intervals(athlete_id: str, api_key: str, events: list[dict]) -> list[dict | None]:
     session = requests.Session()
     session.auth = ("API_KEY", api_key)
@@ -791,6 +809,9 @@ def main() -> None:
             s.setdefault("time", _run2_time)
 
     events = [_build_intervals_event(s) for s in specs]
+
+    log.info("Oude intervals.icu events opruimen...")
+    _delete_old_intervals_events(athlete_id, api_key, ctx.get("running_plan", {}))
 
     log.info("Workouts pushen naar intervals.icu...")
     results = _push_to_intervals(athlete_id, api_key, events)
