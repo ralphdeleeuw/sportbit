@@ -157,6 +157,7 @@ def _parse_html_diary(soup: BeautifulSoup) -> dict | None:
     current: dict | None = None
     daily: dict = {"calories": 0, "protein_g": 0.0, "carbs_g": 0.0,
                    "fat_g": 0.0, "fiber_g": 0.0}
+    goal: dict = {}
     found_daily = False
 
     for row in soup.find_all("tr"):
@@ -167,8 +168,19 @@ def _parse_html_diary(soup: BeautifulSoup) -> dict | None:
         fl = first.lower()
         row_classes = " ".join(row.get("class", []))
 
-        # Sla goal/remaining rijen over — die bevatten doelen, geen gegeten waarden
-        if any(k in fl for k in ("goal", "doel", "remaining", "resterend")):
+        # Goal-rij apart parsen
+        if any(k in fl for k in ("goal", "doel")) and "total" in row_classes:
+            if len(cs) > COL["protein"]:
+                goal = {
+                    "calories": int(cell_num(cs[COL["cal"]])),
+                    "protein_g": cell_num(cs[COL["protein"]]),
+                    "carbs_g": cell_num(cs[COL["carbs"]]),
+                    "fat_g": cell_num(cs[COL["fat"]]),
+                }
+            continue
+
+        # Sla remaining-rijen over
+        if any(k in fl for k in ("remaining", "resterend")):
             continue
 
         if fl in MEAL_NAMES:
@@ -224,7 +236,10 @@ def _parse_html_diary(soup: BeautifulSoup) -> dict | None:
     if daily["calories"] == 0 and not meals:
         return None
 
-    return {**daily, "meals": meals}
+    result = {**daily, "meals": meals}
+    if goal:
+        result["goal"] = goal
+    return result
 
 
 def fetch_myfitnesspal_data(days: int = 7) -> dict | None:
