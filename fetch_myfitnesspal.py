@@ -132,7 +132,7 @@ def _parse_nextjs_diary(next_data: dict) -> dict | None:
 
 
 def _parse_html_diary(soup: BeautifulSoup) -> dict | None:
-    """Parse de oude MFP XHTML diary via CSS-klassen op <td>-elementen."""
+    """Parse de oude MFP XHTML diary. Kolommen: 0=label, 1=cal, 2=carbs, 3=fat, 4=protein, 5=sodium, 6=sugar."""
     def num(text: str) -> float:
         if not text or text.strip() in ("-", "—"):
             return 0.0
@@ -142,23 +142,13 @@ def _parse_html_diary(soup: BeautifulSoup) -> dict | None:
         except ValueError:
             return 0.0
 
-    def nutrients_from_row(row) -> dict:
-        """Lees nutriënten uit een rij op basis van CSS-klassen."""
-        nc = {}
-        for td in row.find_all(["td", "th"]):
-            cls = " ".join(td.get("class", []))
-            t = td.get_text(strip=True)
-            if "calorie" in cls:
-                nc["calories"] = num(t)
-            elif "carbs" in cls or "carbohydrates" in cls:
-                nc["carbs"] = num(t)
-            elif "fat" in cls:
-                nc["fat"] = num(t)
-            elif "protein" in cls:
-                nc["protein"] = num(t)
-            elif "fiber" in cls or "fibre" in cls:
-                nc["fiber"] = num(t)
-        return nc
+    def cell_num(td) -> float:
+        """Lees waarde uit <td>, gebruik <span class="macro-value"> als aanwezig."""
+        span = td.find("span", class_="macro-value")
+        return num(span.get_text(strip=True) if span else td.get_text(strip=True))
+
+    # Kolommen zijn vast: 0=label, 1=calories, 2=carbs, 3=fat, 4=protein, 5=sodium, 6=sugar
+    COL = {"cal": 1, "carbs": 2, "fat": 3, "protein": 4, "fiber": -1}
 
     MEAL_NAMES = {"breakfast", "lunch", "dinner", "snacks",
                   "ontbijt", "diner", "tussendoor"}
@@ -170,53 +160,46 @@ def _parse_html_diary(soup: BeautifulSoup) -> dict | None:
     found_daily = False
 
     for row in soup.find_all("tr"):
-        row_classes = " ".join(row.get("class", []))
         cs = row.find_all(["td", "th"])
         if not cs:
             continue
         first = cs[0].get_text(strip=True)
         fl = first.lower()
 
-        # Maaltijd-header
         if fl in MEAL_NAMES:
             current = {"name": first, "calories": 0, "protein_g": 0.0,
                        "carbs_g": 0.0, "fat_g": 0.0, "entries": []}
             meals.append(current)
 
-        # Totaal-rijen: herken op basis van row-class of tekst
-        elif "total" in row_classes or "daily_total" in row_classes or \
-             "daily total" in fl or "dagelijks totaal" in fl or fl == "totals":
+        elif "total" in " ".join(row.get("class", [])) or "daily total" in fl or fl == "totals":
+            if len(cs) <= COL["protein"]:
+                continue
+            cal = int(cell_num(cs[COL["cal"]]))
+            carbs = cell_num(cs[COL["carbs"]])
+            fat = cell_num(cs[COL["fat"]])
+            protein = cell_num(cs[COL["protein"]])
+            fiber = cell_num(cs[COL["fiber"]]) if COL["fiber"] >= 0 and len(cs) > COL["fiber"] else 0.0
 
-            nc = nutrients_from_row(row)
             is_daily = "daily" in fl or "dagelijks" in fl or not current
+            if is_daily:
+                daily.update({"calories": cal, "carbs_g": carbs, "fat_g": fat,
+                               "protein_g": protein, "fiber_g": fiber})
+                found_daily = True
+            elif current and cal:
+                current.update({"calories": cal, "carbs_g": carbs,
+                                 "fat_g": fat, "protein_g": protein})
 
-            if is_daily or "daily_total" in row_classes:
-                if nc.get("calories", 0):
-                    daily["calories"] = int(nc["calories"])
-                    daily["carbs_g"] = nc.get("carbs", 0.0)
-                    daily["fat_g"] = nc.get("fat", 0.0)
-                    daily["protein_g"] = nc.get("protein", 0.0)
-                    daily["fiber_g"] = nc.get("fiber", 0.0)
-                    found_daily = True
-                    log.warning("MFP daily-totaal via CSS: %d kcal | %.0fg KH | %.0fg vet | %.0fg eiwit",
-                                daily["calories"], daily["carbs_g"], daily["fat_g"], daily["protein_g"])
-            elif current and nc.get("calories", 0):
-                current["calories"] = int(nc["calories"])
-                current["carbs_g"] = nc.get("carbs", 0.0)
-                current["fat_g"] = nc.get("fat", 0.0)
-                current["protein_g"] = nc.get("protein", 0.0)
-
-        # Voedingsitem-rijen
         elif current:
-            nc = nutrients_from_row(row)
-            cal = int(nc.get("calories", 0) or 0)
+            if len(cs) <= COL["cal"]:
+                continue
+            cal = int(cell_num(cs[COL["cal"]]))
             if cal > 0:
                 current["entries"].append({
                     "food": first,
                     "calories": cal,
-                    "protein_g": nc.get("protein", 0.0),
-                    "carbs_g": nc.get("carbs", 0.0),
-                    "fat_g": nc.get("fat", 0.0),
+                    "protein_g": cell_num(cs[COL["protein"]]) if len(cs) > COL["protein"] else 0.0,
+                    "carbs_g": cell_num(cs[COL["carbs"]]) if len(cs) > COL["carbs"] else 0.0,
+                    "fat_g": cell_num(cs[COL["fat"]]) if len(cs) > COL["fat"] else 0.0,
                 })
 
     if not found_daily and meals:
