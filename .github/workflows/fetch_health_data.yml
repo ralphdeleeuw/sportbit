@@ -42,7 +42,7 @@ jobs:
         run: |
           pip install requests beautifulsoup4 anthropic
           pip install --no-deps "myfitnesspal<2.0"
-          pip install lxml mechanize python-dateutil six future
+          pip install lxml mechanize python-dateutil six future measurement
           python -c "import myfitnesspal; print('myfitnesspal OK:', myfitnesspal.__version__)" || echo "myfitnesspal import MISLUKT"
 
       - name: Refresh Strava / Intervals.icu / Withings / Environmental data + AI coach
