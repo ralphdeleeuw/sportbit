@@ -3147,8 +3147,7 @@
         const mv = (val, goal) => goal ? `${Math.round(val)}<span style="color:#bbb">/${Math.round(goal)}</span>` : Math.round(val);
         const extras = [];
         if (d.fiber_g > 0) extras.push(`vezel ${mv(d.fiber_g, g?.fiber_g)}g`);
-        if (d.sodium_mg > 0) extras.push(`Na ${Math.round(d.sodium_mg)}mg`);
-        if (d.sugar_g > 0) extras.push(`suiker ${Math.round(d.sugar_g)}g`);
+        if (d.sugar_g > 0) extras.push(`suiker ${mv(d.sugar_g, g?.sugar_g)}g`);
         if (d.water_cups != null) extras.push(`💧 ${d.water_cups} cups`);
         return `<div class="meal-row" style="flex-wrap:wrap">
           <div class="meal-date">${label}</div>

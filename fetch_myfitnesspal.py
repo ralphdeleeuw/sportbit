@@ -147,9 +147,8 @@ def _parse_html_diary(soup: BeautifulSoup) -> dict | None:
         span = td.find("span", class_="macro-value")
         return num(span.get_text(strip=True) if span else td.get_text(strip=True))
 
-    # Kolommen: 0=label, 1=calories, 2=carbs, 3=fat, 4=protein, 5=sodium, 6=sugar
-    # Col 7 kan fiber zijn als de gebruiker dat als custom kolom heeft ingesteld
-    COL = {"cal": 1, "carbs": 2, "fat": 3, "protein": 4, "sodium": 5, "sugar": 6}
+    # Kolommen: 0=label, 1=calories, 2=carbs, 3=fat, 4=protein, 5=fiber, 6=sugar
+    COL = {"cal": 1, "carbs": 2, "fat": 3, "protein": 4, "fiber": 5, "sugar": 6}
 
     MEAL_NAMES = {"breakfast", "lunch", "dinner", "snacks",
                   "ontbijt", "diner", "tussendoor"}
@@ -157,10 +156,9 @@ def _parse_html_diary(soup: BeautifulSoup) -> dict | None:
     meals: list[dict] = []
     current: dict | None = None
     daily: dict = {"calories": 0, "protein_g": 0.0, "carbs_g": 0.0,
-                   "fat_g": 0.0, "fiber_g": 0.0, "sodium_mg": 0.0, "sugar_g": 0.0}
+                   "fat_g": 0.0, "fiber_g": 0.0, "sugar_g": 0.0}
     goal: dict = {}
     found_daily = False
-    fiber_col: int = -1  # wordt gezet als col 7 fiber-waarden bevat
 
     for row in soup.find_all("tr"):
         cs = row.find_all(["td", "th"])
@@ -178,12 +176,9 @@ def _parse_html_diary(soup: BeautifulSoup) -> dict | None:
                     "protein_g": cell_num(cs[COL["protein"]]),
                     "carbs_g": cell_num(cs[COL["carbs"]]),
                     "fat_g": cell_num(cs[COL["fat"]]),
-                    "sodium_mg": cell_num(cs[COL["sodium"]]) if len(cs) > COL["sodium"] else 0.0,
+                    "fiber_g": cell_num(cs[COL["fiber"]]) if len(cs) > COL["fiber"] else 0.0,
                     "sugar_g": cell_num(cs[COL["sugar"]]) if len(cs) > COL["sugar"] else 0.0,
                 }
-                if len(cs) > 7 and cell_num(cs[7]) > 0:
-                    goal["fiber_g"] = cell_num(cs[7])
-                    fiber_col = 7
             continue
 
         # Sla remaining-rijen over
@@ -203,9 +198,8 @@ def _parse_html_diary(soup: BeautifulSoup) -> dict | None:
             carbs = cell_num(cs[COL["carbs"]])
             fat = cell_num(cs[COL["fat"]])
             protein = cell_num(cs[COL["protein"]])
-            sodium = cell_num(cs[COL["sodium"]]) if len(cs) > COL["sodium"] else 0.0
+            fiber = cell_num(cs[COL["fiber"]]) if len(cs) > COL["fiber"] else 0.0
             sugar = cell_num(cs[COL["sugar"]]) if len(cs) > COL["sugar"] else 0.0
-            fiber = cell_num(cs[fiber_col]) if fiber_col >= 0 and len(cs) > fiber_col else 0.0
 
             if current and not current["_totals_set"]:
                 current.update({"calories": cal, "carbs_g": carbs,
@@ -213,8 +207,7 @@ def _parse_html_diary(soup: BeautifulSoup) -> dict | None:
                 current["_totals_set"] = True
             elif not found_daily:
                 daily.update({"calories": cal, "carbs_g": carbs, "fat_g": fat,
-                               "protein_g": protein, "fiber_g": fiber,
-                               "sodium_mg": sodium, "sugar_g": sugar})
+                               "protein_g": protein, "fiber_g": fiber, "sugar_g": sugar})
                 found_daily = True
 
         elif current:
