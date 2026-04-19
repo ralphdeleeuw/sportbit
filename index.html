@@ -1644,6 +1644,7 @@
     let healthHistory = []; // [{date, slaap, energie, spierpijn, stress}]
     let classCapacity = {}; // {"YYYY-MM-DD_HH:MM": {current, max, checked_at}}
     let keukenbaasData = null; // {meals: [...], fetched_at}
+    let mfpData = null;        // {diary: {by_date: {...}}, fetched_at}
     let personalEvents = []; // [{id, title, date, time?, location?, notes?, created_at}]
     let intervalsData = null;   // {wellness: {by_date: {...}}, activities: {by_date: {...}}, fetched_at}
     let withingsData = null;    // {measurements: [...], fetched_at}
@@ -1751,6 +1752,12 @@
       const mealsFile = files['keukenbaas_meals.json'];
       if (mealsFile) {
         try { keukenbaasData = JSON.parse(mealsFile.content); } catch(e) {}
+      }
+
+      // myfitnesspal_nutrition.json
+      const mfpFile = files['myfitnesspal_nutrition.json'];
+      if (mfpFile) {
+        try { mfpData = JSON.parse(mfpFile.content); } catch(e) {}
       }
 
       // personal_events.json
@@ -2310,6 +2317,10 @@
         // Meals block (Keukenbaas)
         const mealsHtml = renderMealsBlock();
         if (mealsHtml) html += mealsHtml;
+
+        // MyFitnessPal dagboek
+        const mfpHtml = renderMfpBlock();
+        if (mfpHtml) html += mfpHtml;
 
         // Upcoming: CrossFit classes + personal events + running plan combined
         _upcomingCrossfit = upcoming;
@@ -3112,6 +3123,33 @@
 
       return `<div class="meals-block">
         <div class="meals-block-label">Maaltijden komende week</div>
+        ${rows}
+      </div>`;
+    }
+
+    function renderMfpBlock() {
+      const byDate = mfpData?.diary?.by_date;
+      if (!byDate) return '';
+      const entries = Object.entries(byDate)
+        .filter(([, d]) => d.calories > 0)
+        .sort(([a], [b]) => b.localeCompare(a))
+        .slice(0, 7);
+      if (entries.length === 0) return '';
+
+      const rows = entries.map(([dateStr, d]) => {
+        const dt = new Date(dateStr + 'T00:00:00');
+        const label = `${DAY_NL[dt.getDay()]} ${dt.getDate()}`;
+        return `<div class="meal-row">
+          <div class="meal-date">${label}</div>
+          <div class="meal-name" style="flex:1"><strong>${d.calories}</strong> kcal</div>
+          <div class="meal-kcal" style="font-size:0.78em;color:#888">
+            E ${Math.round(d.protein_g)}g &middot; KH ${Math.round(d.carbs_g)}g &middot; V ${Math.round(d.fat_g)}g
+          </div>
+        </div>`;
+      }).join('');
+
+      return `<div class="meals-block">
+        <div class="meals-block-label">MyFitnessPal — gegeten (laatste dagen)</div>
         ${rows}
       </div>`;
     }
