@@ -446,27 +446,55 @@ def section_nutrition(mfp_data: dict | None = None) -> str:
         logged = {d: v for d, v in diary_by_date.items() if v.get("calories", 0) > 0}
         if logged:
             lines.append("\n**MyFitnessPal dagboek (laatste 7 dagen):**\n")
-            total_kcal = sum(v["calories"] for v in logged.values())
-            total_prot = sum(v.get("protein_g", 0) for v in logged.values())
-            total_carbs = sum(v.get("carbs_g", 0) for v in logged.values())
-            total_fat = sum(v.get("fat_g", 0) for v in logged.values())
             n = len(logged)
+
+            def avg(key):
+                return sum(v.get(key, 0) for v in logged.values()) / n
+
+            recent_goal = next(
+                (v.get("goal") for v in (logged[d] for d in sorted(logged, reverse=True)) if v.get("goal")),
+                None,
+            )
+
+            def pct_str(val, goal_val):
+                if not goal_val:
+                    return ""
+                p = round(val / goal_val * 100)
+                flag = "✅" if p >= 90 else "⚠️" if p >= 70 else "❌"
+                return f" ({p}% van doel {flag})"
+
+            g = recent_goal or {}
+            avg_fiber = avg("fiber_g")
             lines.append(
                 f"Gemiddeld per dag ({n} gelogde dag{'en' if n != 1 else ''}): "
-                f"**{round(total_kcal / n)} kcal** | "
-                f"{round(total_prot / n)}g eiwit | "
-                f"{round(total_carbs / n)}g KH | "
-                f"{round(total_fat / n)}g vet\n"
+                f"**{round(avg('calories'))} kcal**{pct_str(avg('calories'), g.get('calories'))} | "
+                f"{round(avg('protein_g'))}g eiwit{pct_str(avg('protein_g'), g.get('protein_g'))} | "
+                f"{round(avg('carbs_g'))}g KH{pct_str(avg('carbs_g'), g.get('carbs_g'))} | "
+                f"{round(avg('fat_g'))}g vet{pct_str(avg('fat_g'), g.get('fat_g'))}"
+                + (f" | {round(avg_fiber)}g vezel{pct_str(avg_fiber, g.get('fiber_g'))}" if avg_fiber > 0 else "")
+                + "\n"
             )
+
             for date_str in sorted(logged.keys(), reverse=True):
                 day = logged[date_str]
+                dg = day.get("goal") or {}
                 kcal = day["calories"]
                 prot = round(day.get("protein_g", 0))
                 carbs = round(day.get("carbs_g", 0))
                 fat = round(day.get("fat_g", 0))
-                lines.append(
-                    f"- **{date_str}**: {kcal} kcal | {prot}g eiwit | {carbs}g KH | {fat}g vet"
-                )
+                fiber = round(day.get("fiber_g", 0))
+                sugar = round(day.get("sugar_g", 0))
+                parts = [
+                    f"{kcal} kcal{pct_str(kcal, dg.get('calories'))}",
+                    f"{prot}g eiwit{pct_str(prot, dg.get('protein_g'))}",
+                    f"{carbs}g KH{pct_str(carbs, dg.get('carbs_g'))}",
+                    f"{fat}g vet{pct_str(fat, dg.get('fat_g'))}",
+                ]
+                if fiber > 0:
+                    parts.append(f"{fiber}g vezel{pct_str(fiber, dg.get('fiber_g'))}")
+                if sugar > 0:
+                    parts.append(f"{sugar}g suiker")
+                lines.append(f"- **{date_str}**: " + " | ".join(parts))
         else:
             lines.append("\n*MyFitnessPal: geen gelogde voeding in de afgelopen 7 dagen.*")
 
