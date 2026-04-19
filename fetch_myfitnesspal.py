@@ -2,13 +2,9 @@
 """
 MyFitnessPal data fetcher voor het SportBit CrossFit dashboard.
 
-Haalt het voedingsdagboek op van MyFitnessPal via Playwright (headless
-browser). MyFitnessPal heeft geen publieke API meer (gesloten in 2020),
-en de python-myfitnesspal scraping-bibliotheek werkt niet meer door
-JavaScript-gebaseerde auth op de MFP-website.
-
-Deze fetcher draait als onderdeel van de fetch_sugarwod.yml workflow,
-die al Playwright en Chromium installeert.
+Haalt het voedingsdagboek op via de python-myfitnesspal bibliotheek
+(coddingtonbear). Draait als onderdeel van de fetch_health_data.yml
+workflow (elke 4 uur).
 
 ══════════════════════════════════════════════════════════════
 SETUP
@@ -37,20 +33,12 @@ Return formaat:
         "fiber_g": float,
         "meals": [
           {
-            "name": str,          # "Breakfast", "Lunch", "Dinner", "Snacks"
+            "name": str,
             "calories": int,
             "protein_g": float,
             "carbs_g": float,
             "fat_g": float,
-            "entries": [
-              {
-                "food": str,
-                "calories": int,
-                "protein_g": float,
-                "carbs_g": float,
-                "fat_g": float,
-              }
-            ]
+            "entries": [{"food": str, "calories": int, ...}]
           }
         ]
       }
@@ -66,308 +54,13 @@ from datetime import datetime, timedelta, timezone
 
 log = logging.getLogger(__name__)
 
-MFP_BASE = "https://www.myfitnesspal.com"
-
-
-def _parse_num(text: str) -> float:
-    """Parseer een getal uit een MFP-cel (verwijdert komma's, eenheden)."""
-    if not text:
-        return 0.0
-    cleaned = text.strip().replace(",", "").replace("g", "").replace("mg", "").strip()
-    try:
-        return float(cleaned)
-    except ValueError:
-        return 0.0
-
-
-def _extract_from_xhr(captured: list[dict]) -> dict | None:
-    """
-    Probeer voedingsdata te halen uit onderschepte XHR-responses.
-
-    MFP's SPA roept interne API-endpoints aan wanneer de dagboekpagina laadt.
-    We zoeken naar responses van api.myfitnesspal.com die macro-data bevatten.
-    """
-    for item in captured:
-        url = item["url"]
-        data = item["data"]
-
-        if "api.myfitnesspal.com" not in url and "myfitnesspal.com/api" not in url:
-            continue
-
-        # Zoek naar een 'items' of 'diary' key met voedingsdata
-        items = None
-        if isinstance(data, list):
-            items = data
-        elif isinstance(data, dict):
-            for key in ("items", "diary", "entries", "food_entries", "meals"):
-                if key in data and isinstance(data[key], list):
-                    items = data[key]
-                    break
-
-        if not items:
-            continue
-
-        # Controleer of het voedingsitems zijn (hebben nutritional_contents of macros)
-        sample = items[0] if items else {}
-        has_nutrition = (
-            "nutritional_contents" in sample
-            or "nutrition" in sample
-            or "calories" in sample
-            or "energy" in sample
-        )
-        if not has_nutrition:
-            continue
-
-        log.info("MFP XHR: voedingsdata gevonden in %s (%d items)", url, len(items))
-
-        # Aggregeer totalen en bouw maaltijdstructuur op
-        totals: dict[str, float] = {"calories": 0, "protein_g": 0, "carbs_g": 0, "fat_g": 0, "fiber_g": 0}
-        meals: list[dict] = []
-
-        for entry in items:
-            nc = entry.get("nutritional_contents") or entry.get("nutrition") or entry
-            kcal = float(nc.get("calories") or nc.get("energy", {}).get("value", 0) or 0)
-            prot = float(nc.get("protein", 0) or 0)
-            carbs = float(nc.get("carbohydrates", 0) or nc.get("carbs", 0) or 0)
-            fat = float(nc.get("fat", 0) or 0)
-            fiber = float(nc.get("fiber", 0) or nc.get("dietary_fiber", 0) or 0)
-
-            totals["calories"] += kcal
-            totals["protein_g"] += prot
-            totals["carbs_g"] += carbs
-            totals["fat_g"] += fat
-            totals["fiber_g"] += fiber
-
-            meal_name = entry.get("meal_name") or entry.get("meal") or "Overig"
-            food_name = (
-                (entry.get("food") or {}).get("description")
-                or entry.get("food_name")
-                or entry.get("name")
-                or ""
-            )
-
-            # Voeg toe aan bestaande maaltijd of maak nieuwe aan
-            existing = next((m for m in meals if m["name"] == meal_name), None)
-            food_entry = {
-                "food": food_name,
-                "calories": int(kcal),
-                "protein_g": prot,
-                "carbs_g": carbs,
-                "fat_g": fat,
-            }
-            if existing:
-                existing["calories"] += int(kcal)
-                existing["protein_g"] += prot
-                existing["carbs_g"] += carbs
-                existing["fat_g"] += fat
-                existing["entries"].append(food_entry)
-            else:
-                meals.append({
-                    "name": meal_name,
-                    "calories": int(kcal),
-                    "protein_g": prot,
-                    "carbs_g": carbs,
-                    "fat_g": fat,
-                    "entries": [food_entry],
-                })
-
-        return {**totals, "calories": int(totals["calories"]), "meals": meals}
-
-    return None
-
-
-def _extract_from_dom(page) -> dict | None:
-    """
-    Scrapt voedingstotalen direct uit de MFP-dagboekpagina via JavaScript.
-
-    Probeert meerdere strategieën omdat MFP hun HTML-structuur regelmatig
-    wijzigt. Extraheert minimaal de dagelijkse totalen.
-    """
-    try:
-        result = page.evaluate("""
-        () => {
-            function parseNum(text) {
-                if (!text) return 0;
-                const n = parseFloat(text.replace(/,/g, '').replace(/[^0-9.-]/g, ''));
-                return isNaN(n) ? 0 : n;
-            }
-
-            // Zoek kolom-volgorde op basis van tabelkoppen
-            let colCalories = 1, colCarbs = 2, colFat = 3, colProtein = 4, colFiber = -1;
-            const headerCells = document.querySelectorAll('table thead th, .main-title-2 th');
-            [...headerCells].forEach((th, i) => {
-                const h = th.textContent.trim().toLowerCase();
-                if (h.includes('calorie')) colCalories = i;
-                else if (h.includes('carb')) colCarbs = i;
-                else if (h.includes('fat')) colFat = i;
-                else if (h.includes('protein') || h.includes('eiwit')) colProtein = i;
-                else if (h.includes('fiber') || h.includes('fibre') || h.includes('vezel')) colFiber = i;
-            });
-
-            const out = {calories: 0, protein_g: 0, carbs_g: 0, fat_g: 0, fiber_g: 0, meals: []};
-
-            // Strategie 1: zoek "Your Daily Total" rij of "Totals" rij
-            const allRows = [...document.querySelectorAll('tr')];
-            const dailyTotalRow = allRows.find(tr => {
-                const t = tr.textContent.toLowerCase();
-                return t.includes('your daily total') || t.includes('dagelijks totaal');
-            });
-            const totalsRow = allRows.find(tr => {
-                const cells = [...tr.querySelectorAll('td, th')];
-                return cells.length > 1 && cells[0].textContent.trim().toLowerCase() === 'totals';
-            });
-            const targetRow = dailyTotalRow || totalsRow;
-            if (targetRow) {
-                const cells = [...targetRow.querySelectorAll('td, th')];
-                if (cells.length > Math.max(colCalories, colProtein)) {
-                    out.calories  = parseNum(cells[colCalories]?.textContent);
-                    out.carbs_g   = parseNum(cells[colCarbs]?.textContent);
-                    out.fat_g     = parseNum(cells[colFat]?.textContent);
-                    out.protein_g = parseNum(cells[colProtein]?.textContent);
-                    if (colFiber >= 0) out.fiber_g = parseNum(cells[colFiber]?.textContent);
-                }
-            }
-
-            // Strategie 2: zoek per-maaltijd totaalrijen
-            const mealNames = ['breakfast', 'lunch', 'dinner', 'snacks'];
-            const mealRows = allRows.filter(tr => {
-                const first = tr.querySelector('td.first, td:first-child, th:first-child');
-                if (!first) return false;
-                const t = first.textContent.trim().toLowerCase();
-                return mealNames.includes(t) || tr.className.toLowerCase().includes('meal');
-            });
-
-            const meals = [];
-            let currentMeal = null;
-            for (const row of allRows) {
-                const firstCell = row.querySelector('td:first-child, th:first-child');
-                if (!firstCell) continue;
-                const cellText = firstCell.textContent.trim();
-                const cellLower = cellText.toLowerCase();
-
-                // Maaltijdkop detecteren
-                if (mealNames.includes(cellLower) || row.classList.contains('main-title-2')) {
-                    currentMeal = {
-                        name: cellText.charAt(0).toUpperCase() + cellText.slice(1),
-                        calories: 0, protein_g: 0, carbs_g: 0, fat_g: 0,
-                        entries: []
-                    };
-                    meals.push(currentMeal);
-                    continue;
-                }
-
-                // Maaltijdtotaalrij detecteren
-                if (currentMeal && cellLower === 'totals') {
-                    const cells = [...row.querySelectorAll('td, th')];
-                    if (cells.length > Math.max(colCalories, colProtein)) {
-                        currentMeal.calories  = parseNum(cells[colCalories]?.textContent);
-                        currentMeal.carbs_g   = parseNum(cells[colCarbs]?.textContent);
-                        currentMeal.fat_g     = parseNum(cells[colFat]?.textContent);
-                        currentMeal.protein_g = parseNum(cells[colProtein]?.textContent);
-                    }
-                    continue;
-                }
-
-                // Voedingsrij: heeft numerieke waarden in de cellen
-                if (currentMeal) {
-                    const cells = [...row.querySelectorAll('td')];
-                    if (cells.length > 1) {
-                        const maybeCal = parseNum(cells[colCalories]?.textContent);
-                        if (maybeCal > 0) {
-                            currentMeal.entries.push({
-                                food: cells[0].textContent.trim(),
-                                calories: maybeCal,
-                                protein_g: parseNum(cells[colProtein]?.textContent),
-                                carbs_g:   parseNum(cells[colCarbs]?.textContent),
-                                fat_g:     parseNum(cells[colFat]?.textContent),
-                            });
-                        }
-                    }
-                }
-            }
-
-            if (meals.length > 0) out.meals = meals;
-
-            // Herbereken dagelijkse totalen uit maaltijden als strategie 1 geen data gaf
-            if (out.calories === 0 && meals.length > 0) {
-                for (const m of meals) {
-                    out.calories  += m.calories;
-                    out.protein_g += m.protein_g;
-                    out.carbs_g   += m.carbs_g;
-                    out.fat_g     += m.fat_g;
-                }
-            }
-
-            return out;
-        }
-        """)
-
-        if result and result.get("calories", 0) > 0:
-            log.info("MFP DOM: dagelijkse totalen gevonden via DOM-scraping")
-            return {
-                "calories": int(result.get("calories", 0)),
-                "protein_g": float(result.get("protein_g", 0)),
-                "carbs_g": float(result.get("carbs_g", 0)),
-                "fat_g": float(result.get("fat_g", 0)),
-                "fiber_g": float(result.get("fiber_g", 0)),
-                "meals": result.get("meals", []),
-            }
-
-    except Exception as exc:
-        log.debug("MFP DOM extractie mislukt: %s", exc)
-
-    return None
-
-
-def _dismiss_consent_popup(page) -> None:
-    """
-    Sluit een Sourcepoint CMP privacy popup als aanwezig.
-
-    MFP toont een consent iframe (sp_message_iframe_*) dat pointer events
-    op het loginformulier blokkeert. We proberen eerst een knop in het
-    iframe te klikken, daarna verwijderen we de overlay via JavaScript.
-    """
-    # Probeer de knop in het Sourcepoint iframe te klikken
-    try:
-        consent_frame = page.frame_locator('iframe[title="SP Consent Message"]')
-        btn = consent_frame.locator(
-            'button:has-text("Accept All"), '
-            'button:has-text("Accept"), '
-            'button:has-text("Reject All"), '
-            'button:has-text("Continue without Accepting")'
-        ).first
-        btn.click(timeout=5_000)
-        page.wait_for_timeout(500)
-        log.info("MyFitnessPal: privacy popup gesloten via iframe-knop")
-        return
-    except Exception:
-        pass
-
-    # Fallback: verwijder de overlay-container direct via JavaScript
-    try:
-        removed = page.evaluate("""
-            () => {
-                let n = 0;
-                document.querySelectorAll('[id^="sp_message_container"]').forEach(el => {
-                    el.remove(); n++;
-                });
-                return n;
-            }
-        """)
-        if removed:
-            log.info("MyFitnessPal: %d privacy popup(s) verwijderd via JavaScript", removed)
-    except Exception:
-        pass
-
 
 def fetch_myfitnesspal_data(days: int = 7) -> dict | None:
     """
-    Haal MyFitnessPal voedingsdagboek op voor de afgelopen `days` dagen
-    via Playwright (headless Chromium).
+    Haal MyFitnessPal voedingsdagboek op voor de afgelopen `days` dagen.
 
-    Vereist playwright geïnstalleerd + Chromium via `playwright install chromium`.
-    Retourneert None als credentials ontbreken, Playwright niet beschikbaar is,
-    of als inloggen mislukt.
+    Retourneert None als credentials ontbreken, de bibliotheek niet
+    geïnstalleerd is, of bij een fout.
     """
     username = os.environ.get("MFP_USERNAME", "").strip()
     password = os.environ.get("MFP_PASSWORD", "").strip()
@@ -379,201 +72,70 @@ def fetch_myfitnesspal_data(days: int = 7) -> dict | None:
         return None
 
     try:
-        from playwright.sync_api import sync_playwright  # noqa: PLC0415
+        import myfitnesspal  # noqa: PLC0415
     except ImportError:
         log.warning(
-            "MyFitnessPal: playwright niet geïnstalleerd — "
-            "voeg 'playwright' toe aan pip install en draai 'playwright install chromium'"
+            "MyFitnessPal: pakket 'myfitnesspal<2.0' niet geïnstalleerd"
         )
+        return None
+
+    try:
+        client = myfitnesspal.Client(username, password=password)
+        log.info("MyFitnessPal: ingelogd als %s", username)
+    except Exception as exc:
+        log.warning("MyFitnessPal: inloggen mislukt: %s", exc)
         return None
 
     today = datetime.now(timezone.utc).date()
     diary_by_date: dict[str, dict] = {}
 
-    # XHR-responses worden opgeslagen per paginabezoek
-    captured: list[dict] = []
-
-    def _on_response(response) -> None:
+    for i in range(days):
+        date = today - timedelta(days=i)
+        date_str = date.isoformat()
         try:
-            if response.status != 200:
-                return
-            ct = response.headers.get("content-type", "")
-            if "json" not in ct:
-                return
-            if "myfitnesspal.com" not in response.url:
-                return
-            data = response.json()
-            captured.append({"url": response.url, "data": data})
-        except Exception:
-            pass
+            day = client.get_date(date.year, date.month, date.day)
+        except Exception as exc:
+            log.debug("MFP dag %s ophalen mislukt: %s", date_str, exc)
+            continue
 
-    try:
-        with sync_playwright() as pw:
-            browser = pw.chromium.launch(
-                headless=True,
-                args=[
-                    "--no-sandbox",
-                    "--disable-blink-features=AutomationControlled",
-                ],
-            )
-            context = browser.new_context(
-                user_agent=(
-                    "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 "
-                    "(KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36"
-                ),
-                viewport={"width": 1280, "height": 720},
-            )
-            # Verberg Playwright/webdriver-kenmerken die bot-detectie triggeren
-            context.add_init_script("""
-                Object.defineProperty(navigator, 'webdriver', {get: () => undefined});
-                Object.defineProperty(navigator, 'plugins', {get: () => [1, 2, 3]});
-                Object.defineProperty(navigator, 'languages', {get: () => ['nl-NL', 'nl', 'en-US', 'en']});
-                window.chrome = {runtime: {}};
-            """)
-            page = context.new_page()
-            page.on("response", _on_response)
+        totals = day.totals or {}
 
-            # ── 1. Inloggen ───────────────────────────────────────────────────
-            log.info("MyFitnessPal: navigeren naar inlogpagina")
-            page.goto(
-                f"{MFP_BASE}/account/login",
-                wait_until="domcontentloaded",
-                timeout=30_000,
-            )
+        meals = []
+        for meal in day.meals:
+            entries = []
+            for entry in meal.entries:
+                nc = entry.nutrition_information or {}
+                entries.append({
+                    "food": entry.name or "",
+                    "calories": int(nc.get("calories", 0) or 0),
+                    "protein_g": float(nc.get("protein", 0) or 0),
+                    "carbs_g": float(nc.get("carbohydrates", 0) or 0),
+                    "fat_g": float(nc.get("fat", 0) or 0),
+                })
+            mt = meal.totals or {}
+            meals.append({
+                "name": meal.name or "",
+                "calories": int(mt.get("calories", 0) or 0),
+                "protein_g": float(mt.get("protein", 0) or 0),
+                "carbs_g": float(mt.get("carbohydrates", 0) or 0),
+                "fat_g": float(mt.get("fat", 0) or 0),
+                "entries": entries,
+            })
 
-            # Log formulierelementen voor diagnose
-            try:
-                inputs = page.evaluate(
-                    "() => [...document.querySelectorAll('input')]"
-                    ".map(i => ({type: i.type, name: i.name, id: i.id}))"
-                )
-                log.info("MFP login inputs: %s", inputs)
-                buttons = page.evaluate(
-                    "() => [...document.querySelectorAll('button')]"
-                    ".map(b => ({type: b.type, text: b.textContent.trim().slice(0,40)}))"
-                )
-                log.info("MFP login buttons: %s", buttons)
-            except Exception as dbg_exc:
-                log.debug("MFP: formulier inspecteren mislukt: %s", dbg_exc)
-
-            # Sluit Sourcepoint privacy/consent popup als aanwezig.
-            # Het iframe blokkeert anders pointer events op het loginformulier.
-            _dismiss_consent_popup(page)
-            # Wacht even zodat React de popup-verwijdering kan verwerken
-            page.wait_for_timeout(1_500)
-
-            # Gebruikersveld invullen (MFP gebruikt name="email" / id="email")
-            user_input = page.locator(
-                'input[name="email"], input[id="email"], '
-                'input[name="username"], input[id="username"]'
-            ).first
-            user_input.click(force=True)
-            user_input.type(username, delay=60)
-
-            # Kleine pauze — menselijker gedrag
-            page.wait_for_timeout(400)
-
-            # Wachtwoordveld invullen
-            pw_input = page.locator(
-                'input[name="password"], input[type="password"]'
-            ).first
-            pw_input.click(force=True)
-            pw_input.type(password, delay=60)
-
-            page.wait_for_timeout(400)
-
-            # Formulier verzenden — probeer "Log in" knop, dan Enter
-            try:
-                submit = page.locator(
-                    'button[type="submit"], '
-                    'button:has-text("Log in"), button:has-text("Log In")'
-                ).first
-                submit.click(force=True, timeout=5_000)
-            except Exception:
-                pw_input.press("Enter")
-
-            # Formulier verzenden
-            try:
-                submit = page.locator(
-                    'button[type="submit"], input[type="submit"]'
-                ).first
-                submit.click()
-            except Exception:
-                pw_input.press("Enter")
-
-            # Wacht tot we van de loginpagina af zijn
-            try:
-                page.wait_for_function(
-                    "!window.location.href.includes('/account/login')",
-                    timeout=20_000,
-                )
-                log.info("MyFitnessPal: succesvol ingelogd als %s", username)
-            except Exception:
-                current_url = page.url
-                try:
-                    errors = page.evaluate("""
-                        () => [...document.querySelectorAll(
-                            '[class*="error" i], [role="alert"], [class*="alert" i]'
-                        )].map(e => e.textContent.trim())
-                         .filter(t => t.length > 0)
-                         .slice(0, 3)
-                         .join(' | ')
-                    """)
-                    if errors:
-                        log.warning("MFP paginafout: %s", errors[:300])
-                except Exception:
-                    pass
-                log.warning(
-                    "MyFitnessPal: inloggen mislukt (URL: %s) — "
-                    "controleer MFP_USERNAME / MFP_PASSWORD secrets",
-                    current_url,
-                )
-                browser.close()
-                return None
-
-            # ── 2. Dagboek per dag ophalen ────────────────────────────────────
-            for i in range(days):
-                date = today - timedelta(days=i)
-                date_str = date.isoformat()
-                captured.clear()
-
-                page.goto(
-                    f"{MFP_BASE}/food/diary?date={date_str}",
-                    wait_until="networkidle",
-                    timeout=30_000,
-                )
-
-                # Strategie 1: XHR-response van MFP-API
-                day_data = _extract_from_xhr(captured)
-
-                # Strategie 2: DOM-scraping
-                if not day_data or day_data.get("calories", 0) == 0:
-                    day_data = _extract_from_dom(page)
-
-                if day_data:
-                    diary_by_date[date_str] = day_data
-                    log.info(
-                        "MFP %s: %d kcal | %dg eiwit | %dg KH | %dg vet",
-                        date_str,
-                        day_data.get("calories", 0),
-                        round(day_data.get("protein_g", 0)),
-                        round(day_data.get("carbs_g", 0)),
-                        round(day_data.get("fat_g", 0)),
-                    )
-                else:
-                    log.debug("MFP %s: geen data gevonden (dag mogelijk niet gelogd)", date_str)
-
-            browser.close()
-
-    except Exception as exc:
-        log.warning("MyFitnessPal: scraping mislukt: %s", exc)
-        return None
+        diary_by_date[date_str] = {
+            "calories": int(totals.get("calories", 0) or 0),
+            "protein_g": float(totals.get("protein", 0) or 0),
+            "carbs_g": float(totals.get("carbohydrates", 0) or 0),
+            "fat_g": float(totals.get("fat", 0) or 0),
+            "fiber_g": float(totals.get("fiber", 0) or 0),
+            "meals": meals,
+        }
 
     if not diary_by_date:
-        log.warning("MyFitnessPal: geen dagboekdata opgehaald voor de afgelopen %d dagen", days)
+        log.warning("MyFitnessPal: geen data opgehaald voor de afgelopen %d dagen", days)
         return None
 
-    logged_days = sum(1 for d in diary_by_date.values() if d.get("calories", 0) > 0)
+    logged_days = sum(1 for d in diary_by_date.values() if d["calories"] > 0)
     log.info(
         "MyFitnessPal: %d dagen opgehaald, %d met gelogde calorieën",
         len(diary_by_date),
