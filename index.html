@@ -3478,9 +3478,9 @@
       const wodContent = (descText ? `<div style="font-size:0.82rem;color:#a0e8b0;white-space:pre-wrap;line-height:1.6">${escapeHtml(descText)}</div>` : '')
                        + actualHtml;
       const descHtml = wodContent
-        ? `<div class="card-wod" style="display:block">${wodContent}</div>`
+        ? `<div class="card-wod">${wodContent}</div>`
         : '';
-      const hasWod = wodContent ? ' has-wod open' : '';
+      const hasWod = wodContent ? ' has-wod' : '';
       const chevron = wodContent ? `<div class="wod-chevron" style="color:#00c853">▾</div>` : '';
 
       const rescheduleBtn = isUpcoming
