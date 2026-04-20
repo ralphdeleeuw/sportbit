@@ -23,6 +23,13 @@ jobs:
         run: |
           BRANCH="${GITHUB_REF#refs/heads/}"
 
+          # Controleer of er commits zijn die nog niet in main zitten
+          AHEAD=$(git rev-list --count origin/main..HEAD)
+          if [ "$AHEAD" -eq 0 ]; then
+            echo "Geen nieuwe commits t.o.v. main — niets te mergen."
+            exit 0
+          fi
+
           # Maak PR aan als die nog niet bestaat
           PR_URL=$(gh pr list --head "$BRANCH" --json url -q '.[0].url')
 
@@ -35,6 +42,16 @@ jobs:
             echo "PR aangemaakt: $PR_URL"
           else
             echo "Bestaande PR gevonden: $PR_URL"
+            # Los eventuele merge-conflicten op door main te mergen in de branch
+            git config user.email "claude@anthropic.com"
+            git config user.name "Claude"
+            git fetch origin main
+            git merge origin/main --no-edit || {
+              echo "Merge conflict kon niet automatisch worden opgelost."
+              exit 1
+            }
+            git push origin "$BRANCH"
+            sleep 3
           fi
 
           # Wacht even en merge
