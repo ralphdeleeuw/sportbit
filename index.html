@@ -1568,11 +1568,11 @@
       const today = new Date(); today.setHours(0,0,0,0);
       const d = new Date(dateStr + 'T00:00:00');
       const diff = Math.round((d - today) / 86400000);
-      if (diff === 0) return 'vandaag';
-      if (diff === 1) return 'morgen';
-      if (diff === -1) return 'gisteren';
-      if (diff > 1) return `over ${diff} dagen`;
-      return `${Math.abs(diff)} dagen geleden`;
+      if (diff === 0) return 'today';
+      if (diff === 1) return 'tomorrow';
+      if (diff === -1) return 'yesterday';
+      if (diff > 1) return `in ${diff} days`;
+      return `${Math.abs(diff)} days ago`;
     }
 
     function isUpcoming(dateStr, timeStr) {
