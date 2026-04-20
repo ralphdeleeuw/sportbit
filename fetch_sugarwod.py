@@ -1843,41 +1843,41 @@ def _training_time_context(date_str: str, signed_up_times: dict[str, str] | None
     if train_minutes <= breakfast_minutes + 30:
         # Training at or just after breakfast — likely fasted or very light pre-workout
         meal_relation = (
-            f"De training is vroeg ({time_str}), rond of vlak na het ontbijt ({BREAKFAST['time']}). "
-            f"Vaste ontbijt: {BREAKFAST['description']} "
-            "De atleet traint waarschijnlijk (half-)nuchter. Adviseer of ze beter iets kleins eten of nuchter trainen, "
-            "en benadruk herstelvoeding daarna."
+            f"Training is early ({time_str}), around or just after breakfast ({BREAKFAST['time']}). "
+            f"Standard breakfast: {BREAKFAST['description']} "
+            "The athlete is probably training fasted or semi-fasted. Advise whether to eat something small or train fasted, "
+            "and emphasize recovery nutrition afterward."
         )
     elif train_minutes < dinner_minutes - 60:
         # Morning/midday workout well before dinner — had breakfast, dinner is recovery meal
         meal_relation = (
-            f"De training is 's ochtends ({time_str}). "
-            f"Vaste ontbijt (~{BREAKFAST['time']}): {BREAKFAST['description']} "
-            "De atleet heeft voor de training ontbeten (eiwitrijk). Het avondeten is de herstelmaaltijd."
+            f"Training is in the morning ({time_str}). "
+            f"Standard breakfast (~{BREAKFAST['time']}): {BREAKFAST['description']} "
+            "The athlete ate breakfast before training (protein-rich). Dinner is the recovery meal."
         )
     elif train_minutes < dinner_minutes:
         meal_relation = (
-            f"De training is kort vóór het avondeten ({time_str}, avondeten om {DINNER_TIME}). "
-            "De atleet kan direct na de training de avondmaaltijd als herstelmaaltijd nuttigen — ideaal timingsvenster."
+            f"Training is shortly before dinner ({time_str}, dinner at {DINNER_TIME}). "
+            "The athlete can have dinner immediately after training as a recovery meal — ideal timing window."
         )
     else:
         meal_relation = (
-            f"De training is 's avonds ({time_str}), ná het avondeten ({DINNER_TIME}). "
-            "De atleet heeft al gegeten voor de training; de maaltijdkeuze is minder kritisch voor direct herstel."
+            f"Training is in the evening ({time_str}), after dinner ({DINNER_TIME}). "
+            "The athlete has already eaten before training; meal choice is less critical for immediate recovery."
         )
-    return f"\nTrainingstijdstip: {time_str}. {meal_relation}"
+    return f"\nTraining time: {time_str}. {meal_relation}"
 
 
-_NL_WEEKDAYS = ["maandag", "dinsdag", "woensdag", "donderdag", "vrijdag", "zaterdag", "zondag"]
-_NL_MONTHS = ["januari", "februari", "maart", "april", "mei", "juni",
-               "juli", "augustus", "september", "oktober", "november", "december"]
+_EN_WEEKDAYS = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
+_EN_MONTHS = ["January", "February", "March", "April", "May", "June",
+               "July", "August", "September", "October", "November", "December"]
 
 
 def _nl_date(date_str: str) -> str:
-    """Format an ISO date string as 'weekdag D maand' in Dutch, e.g. 'zondag 12 april'."""
+    """Format an ISO date string as 'Weekday D Month' in English, e.g. 'Sunday 12 April'."""
     try:
         d = date_cls.fromisoformat(date_str)
-        return f"{_NL_WEEKDAYS[d.weekday()]} {d.day} {_NL_MONTHS[d.month - 1]}"
+        return f"{_EN_WEEKDAYS[d.weekday()]} {d.day} {_EN_MONTHS[d.month - 1]}"
     except Exception:
         return date_str
 
@@ -2105,9 +2105,9 @@ def generate_recovery_advice(
                     pace_str = f", {dist_m / 1000:.2f}km @ {pace_min}:{pace_sec:02d}/km"
                 strava_line = (
                     f"  ↳ Strava: {dur}min"
-                    + (f" (totaal {elapsed}min)" if elapsed else "")
+                    + (f" (total {elapsed}min)" if elapsed else "")
                     + (f" ({act_name})" if act_name else "")
-                    + (f", gem.HR {avg_hr:.0f} bpm" if avg_hr else "")
+                    + (f", avg.HR {avg_hr:.0f} bpm" if avg_hr else "")
                     + (f", max.HR {max_hr:.0f} bpm" if max_hr else "")
                     + (f", {cal:.0f} kcal" if cal else "")
                     + (f", RE {suffer:.0f}" if suffer else "")
@@ -2126,7 +2126,7 @@ def generate_recovery_advice(
         upcoming_text = f"**{date} — {title}**\n{desc}"
         upcoming_timing_context = _training_time_context(date, signed_up_times)
     else:
-        upcoming_text = "Geen aankomende workout bekend."
+        upcoming_text = "No upcoming workout known."
 
     barbell_text = (
         "\n".join(
@@ -2139,7 +2139,7 @@ def generate_recovery_advice(
 
     skill_focus_text = "\n".join(f"- {s}" for s in athlete_profile.get("skill_focus", []))
 
-    today_str = today.isoformat() if today else "onbekend"
+    today_str = today.isoformat() if today else "unknown"
 
     # Build meal context: recent dinners + upcoming dinner on next workout day
     meals_text = ""
@@ -2149,26 +2149,26 @@ def generate_recovery_advice(
         recent = [m for m in meals if m["date"] < today_iso][-5:]
         upcoming_meal = next((m for m in meals if m["date"] == upcoming_date), None)
         if recent or upcoming_meal:
-            meals_text = "\n\nMaaltijdinformatie (avondmaaltijden uit Keukenbaas):\n"
+            meals_text = "\n\nMeal information (evening meals from Keukenbaas):\n"
             if recent:
-                meals_text += "Recente maaltijden:\n"
+                meals_text += "Recent meals:\n"
                 for m in recent:
                     meals_text += f"- {m['date']}: {m['meal_name']}"
                     if m['category']:
                         meals_text += f" ({m['category']})"
                     meals_text += "\n"
             if upcoming_meal:
-                meals_text += f"Avondmaaltijd op de dag van de volgende workout ({upcoming_date}): {upcoming_meal['meal_name']}"
+                meals_text += f"Evening meal on the day of the next workout ({upcoming_date}): {upcoming_meal['meal_name']}"
                 if upcoming_meal['category']:
                     meals_text += f" ({upcoming_meal['category']})"
                 meals_text += "\n"
                 nutrition_parts = []
-                for label, key in [("kcal", "energy_kcal"), ("eiwit", "proteins_g"), ("koolh.", "carbohydrates_g"), ("vet", "fat_g"), ("vezel", "fiber_g")]:
+                for label, key in [("kcal", "energy_kcal"), ("protein", "proteins_g"), ("carbs", "carbohydrates_g"), ("fat", "fat_g"), ("fiber", "fiber_g")]:
                     val = upcoming_meal.get(key)
                     if val is not None:
                         nutrition_parts.append(f"{label}: {val}")
                 if nutrition_parts:
-                    meals_text += f"  Voedingswaarden: {', '.join(nutrition_parts)}\n"
+                    meals_text += f"  Nutritional values: {', '.join(nutrition_parts)}\n"
                 if upcoming_meal.get("ingredients"):
                     for ing in upcoming_meal["ingredients"]:
                         qty = f"{ing['quantity']} {ing['unit']}".strip() if ing.get("quantity") else ""
@@ -2182,21 +2182,21 @@ def generate_recovery_advice(
         energie = health_input.get("energie")
         spierpijn = health_input.get("spierpijn")
         if slaap is not None:
-            lines.append(f"- Slaapkwaliteit vandaag: {slaap}/5")
+            lines.append(f"- Sleep quality today: {slaap}/5")
         if energie is not None:
-            lines.append(f"- Energieniveau vandaag: {energie}/5")
+            lines.append(f"- Energy level today: {energie}/5")
         if spierpijn is not None:
-            lines.append(f"- Spierpijn/vermoeidheid vandaag: {spierpijn}/5")
+            lines.append(f"- Muscle soreness/fatigue today: {spierpijn}/5")
         stress = health_input.get("stress")
         if stress is not None:
-            lines.append(f"- Stress vandaag: {stress}/5 (1=geen stress, 5=veel stress/drukke dag)")
+            lines.append(f"- Stress today: {stress}/5 (1=no stress, 5=high stress/busy day)")
         # Append recent history trend (last 14 days)
         if health_history:
             today_iso = today.isoformat() if today else ""
             recent = [h for h in health_history if h.get("date", "") < today_iso]
             recent = sorted(recent, key=lambda h: h.get("date", ""), reverse=True)[:14]
             if recent:
-                lines.append("\nTrend afgelopen 14 dagen (datum: slaap/energie/spierpijn/stress):")
+                lines.append("\nTrend last 14 days (date: sleep/energy/muscle soreness/stress):")
                 for h in reversed(recent):
                     d = h.get("date", "?")
                     s = h.get("slaap", "?")
@@ -2204,11 +2204,11 @@ def generate_recovery_advice(
                     p = h.get("spierpijn", "?")
                     st = h.get("stress")
                     stress_str = f" stress={st}" if st is not None else ""
-                    lines.append(f"  {d}: slaap={s} energie={e} spierpijn={p}{stress_str}")
+                    lines.append(f"  {d}: sleep={s} energy={e} soreness={p}{stress_str}")
         if lines:
             health_block = (
-                "\nSubjectieve hersteldata (ingevuld door atleet — gebruik dit als primaire "
-                "fysiologische herstelIndicator):\n"
+                "\nSubjective recovery data (filled in by athlete — use this as primary "
+                "physiological recovery indicator):\n"
                 + "\n".join(lines)
                 + "\n"
             )
@@ -2233,60 +2233,60 @@ def generate_recovery_advice(
         if garmin_entry:
             g_lines = []
             if garmin_entry.get("resting_hr") is not None:
-                g_lines.append(f"- Rustpols: {garmin_entry['resting_hr']} bpm")
+                g_lines.append(f"- Resting HR: {garmin_entry['resting_hr']} bpm")
             if garmin_entry.get("hrv") is not None:
                 _hrv_val = garmin_entry["hrv"]
                 _hrv_line = f"- HRV (RMSSD): {_hrv_val:.0f} ms"
                 if _hrv_baseline:
                     _ratio = _hrv_val / _hrv_baseline
                     if _hrv_baseline_low is not None and _hrv_val >= _hrv_baseline_low:
-                        _hrv_status = "Evenwichtig"
+                        _hrv_status = "Balanced"
                     elif _ratio >= 0.75:
-                        _hrv_status = "Ongebalanceerd"
+                        _hrv_status = "Unbalanced"
                     else:
-                        _hrv_status = "Laag"
+                        _hrv_status = "Low"
                     if _hrv_baseline_low is not None and _hrv_baseline_high is not None:
-                        _hrv_line += f" — basislijn {_hrv_baseline_low}–{_hrv_baseline_high} ms, status: {_hrv_status}"
+                        _hrv_line += f" — baseline {_hrv_baseline_low}–{_hrv_baseline_high} ms, status: {_hrv_status}"
                     else:
-                        _hrv_line += f" — 28d gem: {_hrv_baseline:.0f} ms, status: {_hrv_status}"
+                        _hrv_line += f" — 28d avg: {_hrv_baseline:.0f} ms, status: {_hrv_status}"
                 g_lines.append(_hrv_line)
             if garmin_entry.get("sleep_hrs") is not None:
-                g_lines.append(f"- Slaap: {garmin_entry['sleep_hrs']:.1f} uur")
+                g_lines.append(f"- Sleep: {garmin_entry['sleep_hrs']:.1f} hours")
             if garmin_entry.get("sleep_score") is not None:
-                g_lines.append(f"- Slaapscore: {garmin_entry['sleep_score']}/100")
+                g_lines.append(f"- Sleep score: {garmin_entry['sleep_score']}/100")
             ctl = garmin_entry.get("ctl")
             atl = garmin_entry.get("atl")
             tsb = garmin_entry.get("tsb")
             if ctl is not None and atl is not None:
                 if tsb is not None:
-                    tsb_label = "fris" if tsb > 5 else "vermoeid" if tsb < -10 else "neutraal"
-                    g_lines.append(f"- Trainingsvorm (TSB): {tsb:+.0f} ({tsb_label}) — fitness {ctl:.0f}, vermoeidheid {atl:.0f}")
+                    tsb_label = "fresh" if tsb > 5 else "fatigued" if tsb < -10 else "neutral"
+                    g_lines.append(f"- Training Form (TSB): {tsb:+.0f} ({tsb_label}) — fitness {ctl:.0f}, fatigue {atl:.0f}")
                 else:
-                    g_lines.append(f"- Fitness (CTL): {ctl:.0f}, vermoeidheid (ATL): {atl:.0f}")
+                    g_lines.append(f"- Fitness (CTL): {ctl:.0f}, fatigue (ATL): {atl:.0f}")
             if garmin_entry.get("steps") is not None:
-                g_lines.append(f"- Stappen: {garmin_entry['steps']:,}")
+                g_lines.append(f"- Steps: {garmin_entry['steps']:,}")
             if garmin_entry.get("vo2max") is not None:
                 g_lines.append(f"- VO2max: {garmin_entry['vo2max']:.1f}")
             if garmin_entry.get("spo2") is not None:
                 g_lines.append(f"- SpO₂: {garmin_entry['spo2']:.1f}%")
-            # Subjectieve metrics (schaal 1-4 in intervals.icu)
-            # Soreness/fatigue/stress: 1=laag/goed, 4=extreem/slecht
-            # Mood/motivatie: 1=super/extreem hoog (BEST), 4=nors/laag (SLECHTST)
+            # Subjective metrics (scale 1-4 in intervals.icu)
+            # Soreness/fatigue/stress: 1=low/good, 4=extreme/bad
+            # Mood/motivation: 1=great/very high (BEST), 4=grumpy/low (WORST)
             subj = []
             if garmin_entry.get("soreness") is not None:
-                subj.append(f"spierpijn {garmin_entry['soreness']}/4 (1=geen, 4=extreem)")
+                subj.append(f"soreness {garmin_entry['soreness']}/4 (1=none, 4=extreme)")
             if garmin_entry.get("fatigue") is not None:
-                subj.append(f"vermoeidheid {garmin_entry['fatigue']}/4 (1=geen, 4=extreem)")
+                subj.append(f"fatigue {garmin_entry['fatigue']}/4 (1=none, 4=extreme)")
             if garmin_entry.get("stress") is not None:
-                subj.append(f"stress {garmin_entry['stress']}/4 (1=laag, 4=extreem)")
+                subj.append(f"stress {garmin_entry['stress']}/4 (1=low, 4=extreme)")
             if garmin_entry.get("mood") is not None:
-                subj.append(f"stemming {garmin_entry['mood']}/4 (1=super=best, 4=nors=slechtst)")
+                subj.append(f"mood {garmin_entry['mood']}/4 (1=great=best, 4=grumpy=worst)")
             if garmin_entry.get("motivation") is not None:
-                subj.append(f"motivatie {garmin_entry['motivation']}/4 (1=extreem hoog=best, 4=laag=slechtst)")
+                subj.append(f"motivation {garmin_entry['motivation']}/4 (1=very high=best, 4=low=worst)")
             if subj:
-                g_lines.append(f"- Subjectief: {', '.join(subj)}")
+                g_lines.append(f"- Subjective: {', '.join(subj)}")
             if g_lines:
-                garmin_block = "\nGarmin hersteldata (via intervals.icu):\n" + "\n".join(g_lines) + "\n"
+                garmin_block = "\nGarmin recovery data (via intervals.icu):\n" + "\n".join(g_lines) + "\n"
 
     # Withings lichaamssamenstelling
     withings_block = ""
@@ -2294,21 +2294,21 @@ def generate_recovery_advice(
         m = withings_data["measurements"][0]
         w_lines = []
         if m.get("weight_kg") is not None:
-            w_lines.append(f"- Gewicht: {m['weight_kg']} kg")
+            w_lines.append(f"- Weight: {m['weight_kg']} kg")
         if m.get("fat_pct") is not None:
-            w_lines.append(f"- Vetpercentage: {m['fat_pct']}%")
+            w_lines.append(f"- Body fat: {m['fat_pct']}%")
         if m.get("muscle_kg") is not None:
-            w_lines.append(f"- Spiermassa: {m['muscle_kg']} kg")
+            w_lines.append(f"- Muscle mass: {m['muscle_kg']} kg")
         if m.get("hydration_kg") is not None:
-            w_lines.append(f"- Hydratatie: {m['hydration_kg']} kg")
+            w_lines.append(f"- Hydration: {m['hydration_kg']} kg")
         if m.get("visceral_fat") is not None:
-            w_lines.append(f"- Visceraal vet: {m['visceral_fat']}")
+            w_lines.append(f"- Visceral fat: {m['visceral_fat']}")
         if m.get("nerve_health") is not None:
-            w_lines.append(f"- Zenuwgezondheid: {m['nerve_health']}/100")
+            w_lines.append(f"- Nerve health: {m['nerve_health']}/100")
         if m.get("pwv_ms") is not None:
             w_lines.append(f"- Pulse Wave Velocity: {m['pwv_ms']} m/s")
         if w_lines:
-            withings_block = f"\nLichaamssamenstelling (Withings, {m['date']}):\n" + "\n".join(w_lines) + "\n"
+            withings_block = f"\nBody composition (Withings, {m['date']}):\n" + "\n".join(w_lines) + "\n"
 
     # Omgevingsdata: weer + AQI bij volgende training
     env_block = ""
@@ -2320,27 +2320,27 @@ def generate_recovery_advice(
         env_lines = []
         if cond:
             env_lines.append(
-                f"- {cond.get('temp_c')}°C (voelt als {cond.get('feels_like_c')}°C), "
-                f"luchtvochtigheid {cond.get('humidity_pct')}%, wind {cond.get('wind_kmh')} km/h — "
+                f"- {cond.get('temp_c')}°C (feels like {cond.get('feels_like_c')}°C), "
+                f"humidity {cond.get('humidity_pct')}%, wind {cond.get('wind_kmh')} km/h — "
                 f"{cond.get('weather_desc', '')}"
             )
         if aqi.get("value") is not None:
-            env_lines.append(f"- Luchtkwaliteit: AQI {aqi['value']} ({aqi.get('category', '')})")
+            env_lines.append(f"- Air quality: AQI {aqi['value']} ({aqi.get('category', '')})")
         if env_lines:
             env_block = (
-                f"\nOmstandigheden volgende training ({upcoming_date} {(cond or {}).get('training_time', '')}):\n"
+                f"\nConditions next training ({upcoming_date} {(cond or {}).get('training_time', '')}):\n"
                 + "\n".join(env_lines) + "\n"
             )
 
     hr_zones_raw = (strava_data or {}).get("hr_zones", [])
-    _zone_names = ["Z1 Herstel", "Z2 Duurzaam", "Z3 Tempo", "Z4 Drempel", "Z5 Anaeroob"]
+    _zone_names = ["Z1 Recovery", "Z2 Aerobic", "Z3 Tempo", "Z4 Threshold", "Z5 Anaerobic"]
     if hr_zones_raw:
         _zone_lines = []
         for _i, _z in enumerate(hr_zones_raw[:5]):
             _label = _zone_names[_i] if _i < len(_zone_names) else f"Z{_i + 1}"
             _max = _z.get("max", -1)
             _zone_lines.append(f"  {_label}: {_z['min']}–{'∞' if _max == -1 else _max} bpm")
-        hr_zones_text = "\nHartslagzones atleet:\n" + "\n".join(_zone_lines) + "\n"
+        hr_zones_text = "\nAthlete heart rate zones:\n" + "\n".join(_zone_lines) + "\n"
     else:
         hr_zones_text = ""
 
@@ -2348,8 +2348,8 @@ def generate_recovery_advice(
     acwr = _compute_acwr(strava_data)
     if acwr:
         acwr_text = (
-            f"\nTrainingsbelasting (ACWR 7:14 dagen): ratio={acwr['ratio']} — {acwr['status']}"
-            f" (acuut gem. RE/dag: {acwr['acute_7d']}, chronisch: {acwr['chronic_14d']})\n"
+            f"\nTraining load (ACWR 7:14 days): ratio={acwr['ratio']} — {acwr['status']}"
+            f" (acute avg RE/day: {acwr['acute_7d']}, chronic: {acwr['chronic_14d']})\n"
         )
     else:
         acwr_text = ""
@@ -2363,17 +2363,17 @@ def generate_recovery_advice(
             neg = {l: d for l, d in trends.items() if d < 0}
             parts = []
             if pos:
-                parts.append("Gestegen: " + ", ".join(f"{l} +{d}kg" for l, d in sorted(pos.items())))
+                parts.append("Increased: " + ", ".join(f"{l} +{d}kg" for l, d in sorted(pos.items())))
             if neg:
-                parts.append("Gedaald: " + ", ".join(f"{l} {d}kg" for l, d in sorted(neg.items())))
-            barbell_trend_text = "\nKrachtontwikkeling t.o.v. ~4 weken geleden:\n" + "\n".join(f"  {p}" for p in parts) + "\n"
+                parts.append("Decreased: " + ", ".join(f"{l} {d}kg" for l, d in sorted(neg.items())))
+            barbell_trend_text = "\nStrength development vs. ~4 weeks ago:\n" + "\n".join(f"  {p}" for p in parts) + "\n"
 
     # Vorig advies (continuïteit)
     prev_advice_text = ""
     if previous_advice:
         recent_advice = sorted(previous_advice, key=lambda h: h.get("date", ""), reverse=True)[:2]
         if recent_advice:
-            prev_advice_text = "\nVorig coach-advies (ter referentie — check of patronen herhalen):\n"
+            prev_advice_text = "\nPrevious coach advice (for reference — check if patterns repeat):\n"
             for entry in reversed(recent_advice):
                 prev_advice_text += f"[{entry['date']}] {entry['advice']}\n"
             prev_advice_text += "\n"
@@ -2398,7 +2398,7 @@ def generate_recovery_advice(
                 if wod and result:
                     pr_lines.append(f"  {wod}: {result}" + (f" — {pdate}" if pdate else ""))
         if pr_lines:
-            pr_text = "\nPersoonlijke records & benchmarks (context voor intensiteitsadvies):\n" + "\n".join(pr_lines) + "\n"
+            pr_text = "\nPersonal records & benchmarks (context for intensity advice):\n" + "\n".join(pr_lines) + "\n"
 
     # Persoonlijke geplande activiteiten (handmatig toegevoegd via dashboard)
     # Split into past (for the past-workouts context) and upcoming (for the next-workout context)
@@ -2416,11 +2416,11 @@ def generate_recovery_advice(
             reverse=True,
         )[:5]
         if recent_pe:
-            lines = ["Recente persoonlijke activiteiten (extra trainingsbelasting buiten de box):"]
+            lines = ["Recent personal activities (extra training load outside the box):"]
             for e in reversed(recent_pe):
                 line = f"  {_nl_date(e['date'])}: {e['title']}"
                 if e.get("time"):
-                    line += f" om {e['time']}"
+                    line += f" at {e['time']}"
                 if e.get("location"):
                     line += f" ({e['location']})"
                 if e.get("notes"):
@@ -2428,11 +2428,11 @@ def generate_recovery_advice(
                 lines.append(line)
             past_personal_text = "\n" + "\n".join(lines) + "\n"
         if upcoming_pe:
-            lines = [f"Aankomende persoonlijke activiteiten (gepland, datum NA vandaag {today_iso}):"]
+            lines = [f"Upcoming personal activities (planned, date AFTER today {today_iso}):"]
             for e in upcoming_pe:
                 line = f"  {_nl_date(e['date'])}: {e['title']}"
                 if e.get("time"):
-                    line += f" om {e['time']}"
+                    line += f" at {e['time']}"
                 if e.get("location"):
                     line += f" ({e['location']})"
                 if e.get("notes"):
@@ -2454,57 +2454,57 @@ def generate_recovery_advice(
             key=lambda w: w.get("date", ""),
             reverse=True,
         )[:2]
-        lines = [f"Hardloopplan (5K-programma week {week_nr}):"]
+        lines = [f"Running plan (5K program week {week_nr}):"]
         if recent_runs:
-            lines.append("  Afgelopen geplande hardloopsessies:")
+            lines.append("  Past planned running sessions:")
             for w in reversed(recent_runs):
                 lines.append(f"    {_nl_date(w['date'])}: {w.get('name', w.get('type', 'Run'))} "
                              f"({w.get('total_distance_km', '?')}km, {w.get('session', '')})")
         if upcoming_runs:
-            lines.append("  Aankomende geplande hardloopsessies:")
+            lines.append("  Upcoming planned running sessions:")
             for w in upcoming_runs:
                 t = w.get("time", "")
-                lines.append(f"    {_nl_date(w['date'])}{' om ' + t if t else ''}: "
+                lines.append(f"    {_nl_date(w['date'])}{' at ' + t if t else ''}: "
                              f"{w.get('name', w.get('type', 'Run'))} "
                              f"({w.get('total_distance_km', '?')}km, {w.get('session', '')})")
         running_plan_text = "\n" + "\n".join(lines) + "\n"
 
     deload_block = ""
     if deload_detected:
-        deload_block = "\n⚠️ OVERTRAINING RISICO GEDETECTEERD: De atleet vertoont signalen van overbelasting (aanhoudend negatieve TSB en/of langdurige spierpijn). Adviseer NADRUKKELIJK een herstelweek: schaal alle WODs naar 60-70% intensiteit, prioriteer slaap en voeding, beperk extra activiteiten.\n"
+        deload_block = "\n⚠️ OVERTRAINING RISK DETECTED: The athlete is showing signs of overload (persistent negative TSB and/or prolonged muscle soreness). STRONGLY advise a recovery week: scale all WODs to 60-70% intensity, prioritize sleep and nutrition, limit extra activities.\n"
 
-    prompt = f"""Je bent een ervaren CrossFit coach. Geef een kort, persoonlijk hersteladvies voor vandaag.
+    prompt = f"""You are an experienced CrossFit coach. Give short, personal recovery advice for today.
 
-Vandaag is: {today_str}
+Today is: {today_str}
 
-Atleet: {athlete_profile['name']}, {athlete_profile['weight_kg']} kg, leeftijd 47
-Ervaring: {athlete_profile['experience']}
-Focusgebieden:
+Athlete: {athlete_profile['name']}, {athlete_profile['weight_kg']} kg, age 47
+Experience: {athlete_profile['experience']}
+Focus areas:
 {skill_focus_text}
 {health_block}{garmin_block}{withings_block}{acwr_text}
 Barbell maxima (kg):
 {barbell_text}{barbell_trend_text}
 
-Gewichtnotatie: Als gewichten genoteerd zijn als "X/Y lbs" of "X/Y kg", gebruik dan altijd het eerste getal (X) — dat is het gewicht voor mannen.
+Weight notation: If weights are noted as "X/Y lbs" or "X/Y kg", always use the first number (X) — that is the men's weight.
 
-Afgelopen CrossFit-boxsessies die de atleet DAADWERKELIJK heeft gevolgd (meest recent eerst).
-Dit zijn allemaal echte CrossFit WODs — ook als de WOD-beschrijving ontbreekt of leeg is.
-Waar beschikbaar is Strava-data (↳) toegevoegd: hartslag, duur, calorieën, Relative Effort (RE) en RPE.
-Gebruik dit om de werkelijke intensiteit te beoordelen, NIET alleen de WOD-beschrijving:
+Past CrossFit box sessions the athlete ACTUALLY attended (most recent first).
+These are all real CrossFit WODs — even if the WOD description is missing or empty.
+Where available, Strava data (↳) has been added: heart rate, duration, calories, Relative Effort (RE) and RPE.
+Use this to assess the actual intensity, NOT just the WOD description:
 {hr_zones_text}
-{past_text if past_text.strip() else "Geen recente trainingen bekend."}
+{past_text if past_text.strip() else "No recent workouts known."}
 {past_personal_text}
-Volgende workout:
+Next workout:
 {upcoming_text}{upcoming_timing_context}{upcoming_personal_text}{running_plan_text}{meals_text}{env_block}
 {pr_text}{prev_advice_text}{deload_block}
-Geef advies over:
-1. **Herstelniveau** — zijn er spiergroepen die extra rust nodig hebben op basis van de recente workouts?{"  Gebruik de subjectieve hersteldata (slaap, energie, spierpijn) als primaire fysiologische herstelIndicator. Gebruik de Strava workout-data (hartslag, duur) om de werkelijke trainingsbelasting per sessie te beoordelen." if health_input else ""}{"  De ACWR-ratio geeft de trainingsbelasting aan: check of er een patroon is met het vorige advies." if acwr else ""}
-2. **Intensiteitsadvies** — volledig gas geven, gecontroleerd trainen of bewust schalen vandaag?
-3. **Één concrete tip** voor de volgende workout rekening houdend met herstel (bijv. pacing, scaling keuze, specifieke beweging)
-4. **Voeding** — geef alleen dit onderdeel als maaltijdinformatie beschikbaar is: houd rekening met het trainingstijdstip (zie hierboven) — is de maaltijd een goede herstelmaaltijd (avondtraining) of pre-workout voorbereiding (ochtendtraining)? Één zin, alleen als relevant.
+Provide advice on:
+1. **Recovery level** — are there muscle groups that need extra rest based on recent workouts?{"  Use the subjective recovery data (sleep, energy, muscle soreness) as the primary physiological recovery indicator. Use the Strava workout data (heart rate, duration) to assess the actual training load per session." if health_input else ""}{"  The ACWR ratio indicates training load: check if there is a pattern with the previous advice." if acwr else ""}
+2. **Intensity advice** — go full throttle, train controlled, or deliberately scale today?
+3. **One concrete tip** for the next workout taking recovery into account (e.g. pacing, scaling choice, specific movement)
+4. **Nutrition** — include this section only if meal information is available: consider the training time (see above) — is the meal a good recovery meal (evening training) or pre-workout preparation (morning training)? One sentence, only if relevant.
 
-Gebruik bij datumverwijzingen altijd de exacte datum (bijv. "donderdag 19 maart"), NOOIT vage termen als "gisteren" of "eergisteren".
-Wees direct, praktisch en bondig. Maximaal 200 woorden. Schrijf in het Nederlands. Geen inleiding."""
+When referring to dates, always use the exact date (e.g. "Thursday 19 March"), NEVER vague terms like "yesterday" or "the day before yesterday".
+Be direct, practical and concise. Maximum 200 words. Write in English. No introduction."""
 
     try:
         log.info("Generating recovery advice")
@@ -2573,10 +2573,10 @@ def generate_workout_plans(
             neg = {l: d for l, d in trends.items() if d < 0}
             parts = []
             if pos:
-                parts.append("Gestegen: " + ", ".join(f"{l} +{d}kg" for l, d in sorted(pos.items())))
+                parts.append("Increased: " + ", ".join(f"{l} +{d}kg" for l, d in sorted(pos.items())))
             if neg:
-                parts.append("Gedaald: " + ", ".join(f"{l} {d}kg" for l, d in sorted(neg.items())))
-            barbell_trend_text = "\nKrachtontwikkeling t.o.v. ~4 weken geleden:\n" + "\n".join(f"  {p}" for p in parts) + "\n"
+                parts.append("Decreased: " + ", ".join(f"{l} {d}kg" for l, d in sorted(neg.items())))
+            barbell_trend_text = "\nStrength development vs. ~4 weeks ago:\n" + "\n".join(f"  {p}" for p in parts) + "\n"
 
     # Herstelstatus van de atleet (health scores + ACWR + Oura)
     recovery_status_text = ""
@@ -2587,15 +2587,15 @@ def generate_workout_plans(
         stress = health_input.get("stress")
         parts = []
         if slaap is not None:
-            parts.append(f"slaap {slaap}/5")
+            parts.append(f"sleep {slaap}/5")
         if energie is not None:
-            parts.append(f"energie {energie}/5")
+            parts.append(f"energy {energie}/5")
         if spierpijn is not None:
-            parts.append(f"spierpijn {spierpijn}/5")
+            parts.append(f"soreness {spierpijn}/5")
         if stress is not None:
             parts.append(f"stress {stress}/5")
         if parts:
-            recovery_status_text = "\nHuidige herstelstatus atleet: " + ", ".join(parts) + "\n"
+            recovery_status_text = "\nCurrent athlete recovery status: " + ", ".join(parts) + "\n"
     if intervals_data and intervals_data.get("wellness", {}).get("by_date"):
         from datetime import date as _date_cls_wod  # noqa: PLC0415
         _today_iso = _date_cls_wod.today().isoformat()
@@ -2605,27 +2605,27 @@ def generate_workout_plans(
         if _ge:
             _gp = []
             if _ge.get("resting_hr") is not None:
-                _gp.append(f"rustpols {_ge['resting_hr']}bpm")
+                _gp.append(f"resting_hr {_ge['resting_hr']}bpm")
             if _ge.get("hrv") is not None:
                 _gp.append(f"HRV {_ge['hrv']:.0f}ms")
             if _ge.get("tsb") is not None:
                 _gp.append(f"TSB {_ge['tsb']:+.0f}")
             if _ge.get("sleep_hrs") is not None:
-                _gp.append(f"slaap {_ge['sleep_hrs']:.1f}u")
+                _gp.append(f"sleep {_ge['sleep_hrs']:.1f}h")
             if _ge.get("sleep_score") is not None:
-                _gp.append(f"slaapscore {_ge['sleep_score']}/100")
+                _gp.append(f"sleep_score {_ge['sleep_score']}/100")
             if _ge.get("steps") is not None:
-                _gp.append(f"stappen {_ge['steps']:,}")
+                _gp.append(f"steps {_ge['steps']:,}")
             if _ge.get("vo2max") is not None:
                 _gp.append(f"VO2max {_ge['vo2max']:.1f}")
             if _ge.get("spo2") is not None:
                 _gp.append(f"SpO₂ {_ge['spo2']:.1f}%")
             for _field, _label, _scale in [
-                ("soreness", "spierpijn", "/4(1=geen,4=extreem)"),
-                ("fatigue", "vermoeidheid", "/4(1=geen,4=extreem)"),
-                ("stress", "stress", "/4(1=laag,4=extreem)"),
-                ("mood", "stemming", "/4(1=super=best,4=nors=slechtst)"),
-                ("motivation", "motivatie", "/4(1=hoog=best,4=laag=slechtst)"),
+                ("soreness", "soreness", "/4(1=none,4=extreme)"),
+                ("fatigue", "fatigue", "/4(1=none,4=extreme)"),
+                ("stress", "stress", "/4(1=low,4=extreme)"),
+                ("mood", "mood", "/4(1=great=best,4=grumpy=worst)"),
+                ("motivation", "motivation", "/4(1=high=best,4=low=worst)"),
             ]:
                 if _ge.get(_field) is not None:
                     _gp.append(f"{_label} {_ge[_field]}{_scale}")
@@ -2634,8 +2634,8 @@ def generate_workout_plans(
     acwr = _compute_acwr(strava_data)
     if acwr:
         recovery_status_text += (
-            f"Trainingsbelasting (ACWR 7:14d): ratio={acwr['ratio']} — {acwr['status']}"
-            f" (acuut: {acwr['acute_7d']} RE/dag, chronisch: {acwr['chronic_14d']} RE/dag)\n"
+            f"Training load (ACWR 7:14d): ratio={acwr['ratio']} — {acwr['status']}"
+            f" (acute: {acwr['acute_7d']} RE/day, chronic: {acwr['chronic_14d']} RE/day)\n"
         )
 
     # Recente workout-lognotities (wat de atleet daadwerkelijk deed + gewichten)
@@ -2655,7 +2655,7 @@ def generate_workout_plans(
                     wod_str = ", ".join(wods_done) if wods_done else ""
                     log_lines.append(f"  {d}: {wod_str}" + (f" — {notes}" if notes else ""))
             if log_lines:
-                recent_log_text = "\nRecente workout-log (daadwerkelijk gedaan + gewichten/notities):\n" + "\n".join(log_lines) + "\n"
+                recent_log_text = "\nRecent workout log (actually done + weights/notes):\n" + "\n".join(log_lines) + "\n"
 
     # Relevante PRs
     pr_text = ""
@@ -2666,7 +2666,7 @@ def generate_workout_plans(
             if pr.get("workout") and pr.get("result")
         ]
         if pr_lines:
-            pr_text = "\nPersoonlijke records (context voor gewichten/pacing):\n" + "\n".join(pr_lines) + "\n"
+            pr_text = "\nPersonal records (context for weights/pacing):\n" + "\n".join(pr_lines) + "\n"
 
     # Group workouts by date so we can pick the main one per date
     by_date: dict[str, list[dict]] = {}
@@ -2694,7 +2694,7 @@ def generate_workout_plans(
 
         # Athlete/coach notes: timecap, RX weights in kg, scaling options
         notes_raw = main.get("athlete_notes", "").strip()
-        notes_context = f"\nCoach-/athlete notes (officiële gewichten in kg, timecap, scaling):\n{notes_raw}\n" if notes_raw else ""
+        notes_context = f"\nCoach-/athlete notes (official weights in kg, timecap, scaling):\n{notes_raw}\n" if notes_raw else ""
 
         # Detect team/partner format from description or title
         team_size = _detect_team_size(description + " " + title)
@@ -2705,7 +2705,7 @@ def generate_workout_plans(
             if w is not main and w.get("title")
         ]
         accessory_context = (
-            f"\nAccessory work op deze dag (ter info, niet het primaire focuspunt): {', '.join(accessory_titles)}"
+            f"\nAccessory work on this day (for context, not the primary focus): {', '.join(accessory_titles)}"
             if accessory_titles else ""
         )
 
@@ -2715,7 +2715,7 @@ def generate_workout_plans(
             day_meal = next((m for m in meals if m["date"] == date), None)
             if day_meal:
                 meal_context = (
-                    f"\nAvondmaaltijd op deze dag (Keukenbaas): {day_meal['meal_name']}"
+                    f"\nEvening meal on this day (Keukenbaas): {day_meal['meal_name']}"
                     + (f" ({day_meal['category']})" if day_meal.get("category") else "")
                 )
 
@@ -2724,9 +2724,9 @@ def generate_workout_plans(
         )
         if team_size:
             team_context = (
-                f"\nLET OP: Dit is een teamworkout met {team_size} personen. "
-                f"De atleet doet dus slechts 1/{team_size} van het totale volume (reps/rondes worden gedeeld door {team_size}). "
-                f"Baseer pacing en gewichtsadvies op dit individuele aandeel."
+                f"\nNOTE: This is a team workout with {team_size} people. "
+                f"The athlete therefore does only 1/{team_size} of the total volume (reps/rounds divided by {team_size}). "
+                f"Base pacing and weight advice on this individual share."
             )
         else:
             team_context = ""
@@ -2741,14 +2741,14 @@ def generate_workout_plans(
             env_parts = []
             if cond:
                 env_parts.append(
-                    f"{cond.get('temp_c')}°C (voelt als {cond.get('feels_like_c')}°C), "
-                    f"luchtvochtigheid {cond.get('humidity_pct')}%, wind {cond.get('wind_kmh')} km/h — "
+                    f"{cond.get('temp_c')}°C (feels like {cond.get('feels_like_c')}°C), "
+                    f"humidity {cond.get('humidity_pct')}%, wind {cond.get('wind_kmh')} km/h — "
                     f"{cond.get('weather_desc', '')}"
                 )
             if aqi.get("value") is not None:
                 env_parts.append(f"AQI {aqi['value']} ({aqi.get('category', '')})")
             if env_parts:
-                env_context = "\nOmstandigheden op trainingsdag: " + " | ".join(env_parts) + "\n"
+                env_context = "\nConditions on training day: " + " | ".join(env_parts) + "\n"
 
         # Persoonlijke geplande activiteiten rondom deze trainingsdatum
         personal_event_context = ""
@@ -2760,48 +2760,48 @@ def generate_workout_plans(
             ]
             if nearby:
                 nearby.sort(key=lambda e: e["date"])
-                lines = ["Andere geplande activiteiten nabij deze training (±3 dagen, houd rekening met herstel):"]
+                lines = ["Other planned activities near this training (±3 days, consider recovery):"]
                 for e in nearby:
                     diff = (date_cls.fromisoformat(e["date"]) - date_cls.fromisoformat(date)).days
-                    when = f"{abs(diff)} dag{'en' if abs(diff) != 1 else ''} {'na' if diff > 0 else 'voor'} deze training"
+                    when = f"{abs(diff)} day{'s' if abs(diff) != 1 else ''} {'after' if diff > 0 else 'before'} this training"
                     line = f"  {e['date']} ({when}): {e['title']}"
                     if e.get("time"):
-                        line += f" om {e['time']}"
+                        line += f" at {e['time']}"
                     if e.get("notes"):
                         line += f" — {e['notes'][:60]}"
                     lines.append(line)
                 personal_event_context = "\n" + "\n".join(lines) + "\n"
 
-        prompt = f"""Je bent een ervaren CrossFit coach. Genereer een beknopt, praktisch uitvoeringsplan.
+        prompt = f"""You are an experienced CrossFit coach. Generate a concise, practical execution plan.
 
-Atleet: {athlete_profile['name']}
-Lichaamsgewicht: {athlete_profile['weight_kg']} kg
-Ervaring: {athlete_profile['experience']}
-Doel: {athlete_profile.get('doel', '')}
-RX/Scaled voorkeur: {athlete_profile['rx_preference']}
-Blessures: {athlete_profile['injuries']}
+Athlete: {athlete_profile['name']}
+Body weight: {athlete_profile['weight_kg']} kg
+Experience: {athlete_profile['experience']}
+Goal: {athlete_profile.get('doel', '')}
+RX/Scaled preference: {athlete_profile['rx_preference']}
+Injuries: {athlete_profile['injuries']}
 {recovery_status_text}
-Persoonlijke focusgebieden (bewegen waarbij groei gewenst is):
+Personal focus areas (movements where improvement is desired):
 {skill_focus_text}
 
 Barbell maxima (kg):
 {barbell_text}{barbell_trend_text}
 {pr_text}{recent_log_text}{personal_event_context}
-Gewichtnotatie: Als gewichten genoteerd zijn als "X/Y lbs" of "X/Y kg", gebruik dan altijd het eerste getal (X) — dat is het gewicht voor mannen.
+Weight notation: If weights are noted as "X/Y lbs" or "X/Y kg", always use the first number (X) — that is the men's weight.
 
-Hoofdworkout ({date} — {title}):
+Main workout ({date} — {title}):
 {description}{notes_context}{accessory_context}{meal_context}
 {team_context}{timing_context}{env_context}
-Het uitvoeringsplan moet UITSLUITEND gaan over de hoofdworkout hierboven. Ga niet in op de accessory work.
+The execution plan must ONLY cover the main workout above. Do not address accessory work.
 
-Geef een plan met:
-1. Aanbevolen gewichten voor barbell movements (met % van 1RM als referentie)
-2. Pacing strategie en sets/reps verdeling — pas aan op herstelstatus indien relevant
-3. 1–2 concrete tips voor deze specifieke workout
-4. **Skill-tip**: Als een of meer van de focusgebieden in deze workout voorkomen, geef dan één gerichte verbeteringstip specifiek gericht op het sneller bereiken van RX-niveau voor die beweging (techniek, drills, mindset). Sla deze sectie over als geen van de focusgebieden aanwezig is.
-5. **Voeding**: geef alleen dit onderdeel als er een avondmaaltijd bekend is — houd rekening met het trainingstijdstip: is de maaltijd een goede herstelmaaltijd (avondtraining) of juiste voorbereiding (ochtendtraining)? Één zin.
+Provide a plan with:
+1. Recommended weights for barbell movements (with % of 1RM as reference)
+2. Pacing strategy and sets/reps breakdown — adjust for recovery status if relevant
+3. 1–2 concrete tips for this specific workout
+4. **Skill tip**: If one or more focus areas appear in this workout, give one targeted improvement tip specifically aimed at reaching RX level for that movement faster (technique, drills, mindset). Skip this section if none of the focus areas are present.
+5. **Nutrition**: include this section only if a dinner meal is known — consider the training time: is the meal a good recovery meal (evening training) or proper preparation (morning training)? One sentence.
 
-Wees direct en bondig. Maximaal 260 woorden. Geen inleiding."""
+Be direct and concise. Maximum 260 words. No introduction."""
 
         try:
             log.info("Generating AI plan for %s (%s)", date, title)

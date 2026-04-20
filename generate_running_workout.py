@@ -156,8 +156,8 @@ def _build_claude_context(ctx: dict) -> str:
         w = wellness_by_date[d]
         parts = [f"  {d}:"]
         if w.get("hrv"):       parts.append(f"HRV={w['hrv']}ms")
-        if w.get("resting_hr"):parts.append(f"rustpols={w['resting_hr']}bpm")
-        if w.get("sleep_hrs"): parts.append(f"slaap={w['sleep_hrs']}u")
+        if w.get("resting_hr"):parts.append(f"resting_hr={w['resting_hr']}bpm")
+        if w.get("sleep_hrs"): parts.append(f"sleep={w['sleep_hrs']}h")
         if w.get("ctl") is not None: parts.append(f"CTL={w['ctl']}")
         if w.get("atl") is not None: parts.append(f"ATL={w['atl']}")
         if w.get("tsb") is not None: parts.append(f"TSB={w['tsb']}")
@@ -179,7 +179,7 @@ def _build_claude_context(ctx: dict) -> str:
                 spm = 1000 / act["avg_speed_ms"] / 60
                 parts.append(f"pace {int(spm)}:{int((spm % 1) * 60):02d}/km")
             if act.get("avg_hr"):
-                parts.append(f"gem.HR {act['avg_hr']}bpm")
+                parts.append(f"avg.HR {act['avg_hr']}bpm")
             if act.get("rpe"):
                 parts.append(f"RPE {act['rpe']}")
             run_lines.append(" ".join(parts))
@@ -233,80 +233,80 @@ def _build_claude_context(ctx: dict) -> str:
     ]
 
     sections = [
-        f"Datum vandaag: {today.isoformat()}",
-        f"Weeknummer in continu 5K-programma: week {week_number}",
-        f"Sessie 1 — snelheidswerk: {run1_date.isoformat()} om {run1_time} (gebruik deze datum en tijd exact)",
-        f"Sessie 2 — lange duurloop: {run2_date.isoformat()} om {run2_time} (gebruik deze datum en tijd exact)",
-        f"Huidig 5K-tempo: {ATHLETE_PROFILE['current_5k_pace']}/km ({ATHLETE_PROFILE['current_5k_min']} min)",
-        f"Doel 5K-tempo: {ATHLETE_PROFILE['target_5k_pace']}/km ({ATHLETE_PROFILE['target_5k_min']} min)",
+        f"Today's date: {today.isoformat()}",
+        f"Week number in continuous 5K program: week {week_number}",
+        f"Session 1 — speed work: {run1_date.isoformat()} at {run1_time} (use this date and time exactly)",
+        f"Session 2 — long run: {run2_date.isoformat()} at {run2_time} (use this date and time exactly)",
+        f"Current 5K pace: {ATHLETE_PROFILE['current_5k_pace']}/km ({ATHLETE_PROFILE['current_5k_min']} min)",
+        f"Target 5K pace: {ATHLETE_PROFILE['target_5k_pace']}/km ({ATHLETE_PROFILE['target_5k_min']} min)",
     ]
 
     if wellness_lines:
-        sections.append("Hersteldata (laatste 7 dagen):\n" + "\n".join(wellness_lines))
+        sections.append("Recovery data (last 7 days):\n" + "\n".join(wellness_lines))
     else:
-        sections.append("Hersteldata: niet beschikbaar")
+        sections.append("Recovery data: not available")
 
     if run_lines:
-        sections.append("Recente hardloopactiviteiten:\n" + "\n".join(run_lines[:8]))
+        sections.append("Recent running activities:\n" + "\n".join(run_lines[:8]))
     else:
-        sections.append("Recente hardloopactiviteiten: geen — dit is de start van het programma")
+        sections.append("Recent running activities: none — this is the start of the program")
 
     if health_lines:
-        sections.append("Subjectieve gezondheidsscores:\n" + "\n".join(health_lines))
+        sections.append("Subjective health scores:\n" + "\n".join(health_lines))
 
     return "\n\n".join(sections)
 
 
 # ── Claude prompt ──────────────────────────────────────────────────────────────
 
-_SYSTEM_PROMPT = """Je bent een professionele hardloopcoach. Je maakt werkschema's voor Ralph de Leeuw:
-- 47 jaar, 77kg, CrossFit 5x/week, hardloopt 2x/week
-- Huidig 5K: ~28 min (5:36/km) | Doel: 26 min (5:12/min)
-- Standaard: dinsdag 20:00 = snelheidswerk | zaterdag 09:00 = lange duurloop
-- De exacte data en tijden worden in de context meegegeven — gebruik die altijd exact
+_SYSTEM_PROMPT = """You are a professional running coach. You create training schedules for Ralph de Leeuw:
+- 47 years old, 77kg, CrossFit 5x/week, runs 2x/week
+- Current 5K: ~28 min (5:36/km) | Goal: 26 min (5:12/km)
+- Default: Tuesday 20:00 = speed work | Saturday 09:00 = long run
+- The exact dates and times are provided in the context — always use them exactly
 
-Pacezones (stem altijd af op herstelstatus via HRV/TSB):
-- Conversational (max):  6:40/km — "geen sneller dan 6:40/km"
-- Aeroob:                6:00-6:20/km
-- Drempel:               5:45-5:55/km
-- 5K race tempo (nu):    5:30-5:42/km
-- Intervaltempo 800m:    5:20-5:30/km
-- Intervaltempo 400m:    5:10-5:25/km
-- Intervaltempo 300m:    5:20-5:35/km
-- Intervaltempo 200m:    5:00-5:15/km
+Pace zones (always calibrate to recovery status via HRV/TSB):
+- Conversational (max):  6:40/km — "no faster than 6:40/km"
+- Aerobic:               6:00-6:20/km
+- Threshold:             5:45-5:55/km
+- 5K race pace (now):    5:30-5:42/km
+- Interval pace 800m:    5:20-5:30/km
+- Interval pace 400m:    5:10-5:25/km
+- Interval pace 300m:    5:20-5:35/km
+- Interval pace 200m:    5:00-5:15/km
 
-Periodi­sering (continu, geen einddatum):
-- Week 1-4:   basis opbouwen — easy duurlopen + lichte fartlek, max 6km zaterdag
-- Week 5-8:   eerste structuurwerk — rolling repeats (300m/400m), progressive long runs
-- Week 9-12:  intensiteit — Fast 8-4-2s stijl, drempelintervallen, langere long runs
-- Week 13+:   consolidatie + race prep — elke 4e week herstelweek (30% minder volume)
-- Lage HRV (<35ms) of negatieve TSB (<-15): kies altijd de lichtere variant
+Periodization (continuous, no end date):
+- Weeks 1-4:   base building — easy long runs + light fartlek, max 6km Saturday
+- Weeks 5-8:   first structured work — rolling repeats (300m/400m), progressive long runs
+- Weeks 9-12:  intensity — Fast 8-4-2s style, threshold intervals, longer long runs
+- Week 13+:    consolidation + race prep — every 4th week recovery week (30% less volume)
+- Low HRV (<35ms) or negative TSB (<-15): always choose the lighter variant
 
-Werkwoord: geef ALLEEN geldige JSON terug (geen markdown, geen uitleg):
+Output: return ONLY valid JSON (no markdown, no explanation):
 [
   {
     "date": "YYYY-MM-DD",
     "session": "speed|long_run",
     "type": "easy_run|fartlek|interval_run|progressive_run|tempo_run",
-    "name": "Korte Nederlandse sessienaam (zoals Runna: 'Rolling 300s', 'Progressive duurloop')",
-    "description": "1-2 zinnen over het doel van deze sessie",
+    "name": "Short English session name (like Runna: 'Rolling 300s', 'Progressive long run')",
+    "description": "1-2 sentences about the goal of this session",
     "total_distance_km": <float>,
     "steps": [
-      <stappen — zie formaat hieronder>
+      <steps — see format below>
     ]
   }
 ]
 
-Stap­formaten:
-  Warming-up:   {"type":"warmup",   "distance_m":<int>, "pace_max":"M:SS"}
-  Rustige run:  {"type":"run",      "distance_m":<int>, "pace_target":"M:SS"} of {"duration_min":<int>, "pace_max":"M:SS"}
-  Herhaling:    {"type":"repeat",   "count":<int>, "children":[<stappen>]}
+Step formats:
+  Warm-up:      {"type":"warmup",   "distance_m":<int>, "pace_max":"M:SS"}
+  Easy run:     {"type":"run",      "distance_m":<int>, "pace_target":"M:SS"} or {"duration_min":<int>, "pace_max":"M:SS"}
+  Repeat:       {"type":"repeat",   "count":<int>, "children":[<steps>]}
   Walking rest: {"type":"rest",     "duration_s":<int>}
-  Cooling-down: {"type":"cooldown", "distance_m":<int>, "pace_max":"M:SS"}
+  Cool-down:    {"type":"cooldown", "distance_m":<int>, "pace_max":"M:SS"}
 
-Pace: schrijf als "M:SS" (bijv. "6:40", "5:35"). Gebruik altijd distance_m voor intervallen, duration_min voor easy stukken.
-Walking rest na het hele herhaling­blok (niet per herhaling) als het een lange pauze is.
-Zaterdag-sessie: altijd progressive_run of easy_run, 5-9km afhankelijk van weeknummer."""
+Pace: write as "M:SS" (e.g. "6:40", "5:35"). Always use distance_m for intervals, duration_min for easy sections.
+Walking rest after the entire repeat block (not per repeat) if it is a long break.
+Saturday session: always progressive_run or easy_run, 5-9km depending on week number."""
 
 
 def _generate_plan_claude(context_text: str) -> list[dict]:
@@ -318,7 +318,7 @@ def _generate_plan_claude(context_text: str) -> list[dict]:
         system=_SYSTEM_PROMPT,
         messages=[{
             "role": "user",
-            "content": "Genereer het hardloopschema voor aankomende week:\n\n" + context_text,
+            "content": "Generate the running schedule for the upcoming week:\n\n" + context_text,
         }],
     )
 
