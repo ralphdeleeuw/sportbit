@@ -432,20 +432,20 @@ def _build_description(spec: dict) -> str:
             dist = step.get("distance_m", "")
             pace = step.get("pace_max", "")
             dist_str = f"{dist/1000:.1f}km " if dist else ""
-            pace_str = f" (geen sneller dan {pace}/km)" if pace else ""
-            lines.append(f"{dist_str}warming-up in conversational pace{pace_str}")
+            pace_str = f" (no faster than {pace}/km)" if pace else ""
+            lines.append(f"{dist_str}warm-up in conversational pace{pace_str}")
 
         elif stype == "cooldown":
             dist = step.get("distance_m", "")
             dist_str = f"{dist/1000:.1f}km " if dist else ""
-            lines.append(f"\n{dist_str}cooling-down in conversational pace (of langzamer!)")
+            lines.append(f"\n{dist_str}cool-down in conversational pace (or slower!)")
 
         elif stype == "run":
             dist = step.get("distance_m")
             dur = step.get("duration_min")
             pace = step.get("pace_target") or step.get("pace_max")
             if dist:
-                pace_str = f" op {pace}/km" if pace else ""
+                pace_str = f" at {pace}/km" if pace else ""
                 lines.append(f"{dist}m{pace_str}")
             elif dur:
                 pace_str = f" (max {pace}/km)" if pace else ""
@@ -453,27 +453,27 @@ def _build_description(spec: dict) -> str:
 
         elif stype == "repeat":
             count = step.get("count", "?")
-            lines.append(f"\nHerhaal het volgende {count}x:")
+            lines.append(f"\nRepeat the following {count}x:")
             lines.append("----------")
             for child in step.get("children", []):
                 ct = child.get("type")
                 if ct == "run":
                     dist = child.get("distance_m")
                     pace = child.get("pace_target") or child.get("pace_max")
-                    pace_str = f" op {pace}/km" if pace else ""
+                    pace_str = f" at {pace}/km" if pace else ""
                     lines.append(f"{dist}m{pace_str}" if dist else "run")
                 elif ct == "rest":
                     dur_s = child.get("duration_s", 0)
-                    lines.append(f"{dur_s}s wandel-herstel")
+                    lines.append(f"{dur_s}s walking recovery")
             lines.append("----------")
 
         elif stype == "rest":
             dur_s = step.get("duration_s", 0)
-            lines.append(f"\n{dur_s}s wandel-herstel")
+            lines.append(f"\n{dur_s}s walking recovery")
 
     week = spec.get("week_number", "")
     if week:
-        lines.append(f"\n5K Verbeteringsprogramma (Week {week})")
+        lines.append(f"\n5K Improvement Program (Week {week})")
 
     return "\n".join(lines)
 
