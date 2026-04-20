@@ -3437,11 +3437,12 @@
       const metaParts = [distStr, durStr].filter(Boolean).join(' · ');
       const metaHtml = metaParts ? `<div class="card-meta"><span>${metaParts}</span></div>` : '';
 
-      const descHtml = session.description
-        ? `<div class="card-wod" style="display:block"><div style="font-size:0.82rem;color:#a0e8b0;white-space:pre-wrap;line-height:1.6">${escapeHtml(session.description)}</div></div>`
+      const descText = session.full_description || session.description || '';
+      const descHtml = descText
+        ? `<div class="card-wod" style="display:block"><div style="font-size:0.82rem;color:#a0e8b0;white-space:pre-wrap;line-height:1.6">${escapeHtml(descText)}</div></div>`
         : '';
-      const hasWod = session.description ? ' has-wod open' : '';
-      const chevron = session.description ? `<div class="wod-chevron" style="color:#00c853">▾</div>` : '';
+      const hasWod = descText ? ' has-wod open' : '';
+      const chevron = descText ? `<div class="wod-chevron" style="color:#00c853">▾</div>` : '';
 
       const rescheduleBtn = isUpcoming
         ? `<button class="run-reschedule-btn" onclick="event.stopPropagation(); toggleReschedule('${cardId}')">📅 Datum/tijd</button>`
