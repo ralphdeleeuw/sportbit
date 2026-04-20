@@ -168,7 +168,7 @@ def _build_claude_context(ctx: dict) -> str:
     for d in sorted(activities_by_date.keys(), reverse=True)[:21]:
         for act in activities_by_date.get(d, []):
             act_type = (act.get("type") or "").lower()
-            if not any(rt in act_type for rt in ["run", "running", "jog"]):
+            if not any(rt in act_type for rt in ["run", "running", "jog", "trailrun", "treadmill"]):
                 continue
             parts = [f"  {d}: {act.get('name', 'Run')}"]
             if act.get("distance_m"):
@@ -180,7 +180,19 @@ def _build_claude_context(ctx: dict) -> str:
                 parts.append(f"pace {int(spm)}:{int((spm % 1) * 60):02d}/km")
             if act.get("avg_hr"):
                 parts.append(f"gem.HR {act['avg_hr']}bpm")
+            if act.get("rpe"):
+                parts.append(f"RPE {act['rpe']}")
             run_lines.append(" ".join(parts))
+            # Laps (segmenten) tonen als aanwezig
+            for i, lap in enumerate(act.get("laps", []), 1):
+                lap_parts = [f"    lap {i}:"]
+                if lap.get("distance_m"):
+                    lap_parts.append(f"{lap['distance_m']}m")
+                if lap.get("pace_per_km"):
+                    lap_parts.append(f"{lap['pace_per_km']}/km")
+                if lap.get("avg_hr"):
+                    lap_parts.append(f"HR {lap['avg_hr']}bpm")
+                run_lines.append(" ".join(lap_parts))
 
     running_plan = ctx["running_plan"]
     # Weeknummer op basis van startdatum plan; anders ophogen vanuit vorig plan
