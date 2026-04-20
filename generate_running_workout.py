@@ -808,6 +808,10 @@ def main() -> None:
         else:
             s.setdefault("time", _run2_time)
 
+    # Sla de volledige beschrijvingstekst (inclusief stap-voor-stap) op in elk spec
+    for s in specs:
+        s["full_description"] = _build_description(s)
+
     events = [_build_intervals_event(s) for s in specs]
 
     log.info("Oude intervals.icu events opruimen...")
