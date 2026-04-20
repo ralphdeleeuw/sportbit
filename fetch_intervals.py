@@ -254,6 +254,10 @@ def fetch_intervals_data() -> dict | None:
             if rpe is not None:
                 entry["rpe"] = round(float(rpe), 1)
 
+            # Sla intervals.icu activity ID op voor lap-fetch
+            act_id = act.get("id")
+            if act_id:
+                entry["intervals_id"] = act_id
 
             result["activities"]["by_date"].setdefault(day, []).append(entry)
 
@@ -281,6 +285,56 @@ def fetch_intervals_data() -> dict | None:
         }
         log.info("HRV trend: %+.1f ms (%s) — recent avg %.1f ms, prev avg %.1f ms",
                  delta, result["hrv_trend"]["direction"], recent_avg, prev_avg)
+
+    # ── 4. Laps ophalen voor recente hardloopactiviteiten ────────────────
+    try:
+        run_types = {"run", "running", "trailrun", "treadmill"}
+        run_acts = [
+            (day, act)
+            for day, acts in result["activities"]["by_date"].items()
+            for act in acts
+            if any(rt in (act.get("type") or "").lower() for rt in run_types)
+            and act.get("intervals_id")
+        ]
+        # Beperk tot laatste 14 dagen en max 10 runs om API-calls te beperken
+        cutoff = (date.today() - timedelta(days=14)).isoformat()
+        run_acts = [(d, a) for d, a in run_acts if d >= cutoff][:10]
+
+        for day, act in run_acts:
+            act_id = act["intervals_id"]
+            try:
+                resp = session.get(
+                    f"{BASE_URL}/{athlete_id}/activities/{act_id}",
+                    timeout=20,
+                )
+                if not resp.ok:
+                    continue
+                detail = resp.json()
+                laps_raw = detail.get("laps") or []
+                laps = []
+                for lap in laps_raw:
+                    lap_entry: dict = {}
+                    lap_dist = lap.get("distance")
+                    if lap_dist and lap_dist > 0:
+                        lap_entry["distance_m"] = round(float(lap_dist))
+                    lap_time = lap.get("elapsed_time") or lap.get("moving_time")
+                    if lap_time and lap_time > 0:
+                        lap_entry["duration_s"] = int(lap_time)
+                        if lap_dist and lap_dist > 0:
+                            pace_spm = lap_time / (float(lap_dist) / 1000) / 60
+                            lap_entry["pace_per_km"] = f"{int(pace_spm)}:{int((pace_spm % 1) * 60):02d}"
+                    lap_hr = lap.get("average_heartrate")
+                    if lap_hr and lap_hr > 0:
+                        lap_entry["avg_hr"] = int(lap_hr)
+                    if lap_entry:
+                        laps.append(lap_entry)
+                if laps:
+                    act["laps"] = laps
+                    log.info("Laps opgehaald voor activiteit %s (%s): %d laps", act_id, day, len(laps))
+            except Exception as exc:
+                log.warning("Laps fetch mislukt voor activiteit %s: %s", act_id, exc)
+    except Exception as exc:
+        log.warning("Laps fetch loop mislukt: %s", exc)
 
     # Retourneer None als er helemaal niets opgehaald is
     if not result["wellness"]["by_date"] and not result["activities"]["by_date"]:
