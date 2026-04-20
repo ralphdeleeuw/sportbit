@@ -3130,6 +3130,40 @@
 
     // ── Hardlooplan event cards ────────────────────────────────────────────────
 
+    function _findActualRun(date) {
+      const runTypes = ['run', 'running', 'trailrun', 'treadmill', 'jog'];
+      const acts = ((intervalsData?.activities || {}).by_date || {})[date] || [];
+      return acts.find(a => runTypes.some(rt => (a.type || '').toLowerCase().includes(rt))) || null;
+    }
+
+    function _renderActualRunStats(act) {
+      const parts = [];
+      if (act.distance_m) parts.push(`<strong>${(act.distance_m / 1000).toFixed(1)} km</strong>`);
+      if (act.duration_min) parts.push(`<strong>${act.duration_min} min</strong>`);
+      if (act.avg_speed_ms > 0) {
+        const spm = 1000 / act.avg_speed_ms / 60;
+        parts.push(`pace <strong>${Math.floor(spm)}:${String(Math.round((spm % 1) * 60)).padStart(2,'0')}/km</strong>`);
+      }
+      if (act.avg_hr) parts.push(`gem.HR <strong>${act.avg_hr} bpm</strong>`);
+      if (act.rpe) parts.push(`RPE <strong>${act.rpe}</strong>`);
+
+      let lapsHtml = '';
+      if (act.laps && act.laps.length > 1) {
+        const lapRows = act.laps.map((lap, i) => {
+          const d = lap.distance_m ? `${lap.distance_m}m` : '';
+          const p = lap.pace_per_km ? `${lap.pace_per_km}/km` : '';
+          const h = lap.avg_hr ? `${lap.avg_hr}bpm` : '';
+          return `<div style="display:flex;gap:0.6rem;font-size:0.75rem;color:#c0e8d0;padding:0.1rem 0">
+            <span style="color:#6a9a7a;min-width:1.2rem">${i+1}</span>
+            <span>${[d,p,h].filter(Boolean).join(' · ')}</span></div>`;
+        }).join('');
+        lapsHtml = `<div style="margin-top:0.4rem;border-top:1px solid rgba(0,200,83,0.15);padding-top:0.4rem">${lapRows}</div>`;
+      }
+
+      return `<div style="margin-top:0.6rem;padding:0.5rem 0.7rem;background:rgba(0,200,83,0.08);border-radius:6px;font-size:0.8rem;color:#a0e8b0">
+        ✅ Uitgevoerd: ${parts.join(' · ')}${lapsHtml}</div>`;
+    }
+
     function renderRunEventCard(session, delay) {
       const today = new Date().toISOString().slice(0, 10);
       const isUpcoming = session.date >= today;
@@ -3142,12 +3176,17 @@
       const metaParts = [distStr, durStr].filter(Boolean).join(' · ');
       const metaHtml = metaParts ? `<div class="card-meta"><span>${metaParts}</span></div>` : '';
 
+      const actualRun = !isUpcoming ? _findActualRun(session.date) : null;
+      const actualHtml = actualRun ? _renderActualRunStats(actualRun) : '';
+
       const descText = session.full_description || session.description || '';
-      const descHtml = descText
-        ? `<div class="card-wod" style="display:block"><div style="font-size:0.82rem;color:#a0e8b0;white-space:pre-wrap;line-height:1.6">${escapeHtml(descText)}</div></div>`
+      const wodContent = (descText ? `<div style="font-size:0.82rem;color:#a0e8b0;white-space:pre-wrap;line-height:1.6">${escapeHtml(descText)}</div>` : '')
+                       + actualHtml;
+      const descHtml = wodContent
+        ? `<div class="card-wod" style="display:block">${wodContent}</div>`
         : '';
-      const hasWod = descText ? ' has-wod open' : '';
-      const chevron = descText ? `<div class="wod-chevron" style="color:#00c853">▾</div>` : '';
+      const hasWod = wodContent ? ' has-wod open' : '';
+      const chevron = wodContent ? `<div class="wod-chevron" style="color:#00c853">▾</div>` : '';
 
       const rescheduleBtn = isUpcoming
         ? `<button class="run-reschedule-btn" onclick="event.stopPropagation(); toggleReschedule('${cardId}')">📅 Datum/tijd</button>`
