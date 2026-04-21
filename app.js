@@ -881,36 +881,16 @@
 
       if (deloadAlert) h += `<div class="deload-banner">⚠️ Herstelweek aanbevolen — schaal WODs naar 60–70%.</div>`;
 
-      // Next class card
-      const nextCF = allUpcoming.find(e => e._src === 'crossfit');
-      if (nextCF) {
-        const wods = wodByDate[nextCF.date] || [];
-        const cap = classCapacity[`${nextCF.date}_${nextCF.time}`];
-        const capHtml = (cap?.max) ? `<span class="capacity-badge ${cap.current/cap.max>=1?'full':cap.current/cap.max>=0.8?'near-full':'open'}">${cap.current}/${cap.max}</span>` : '';
-        const envBadge = renderEnvBadge(nextCF.date);
-        const sections = wods.length ? renderWodSections(wods, nextCF.date) : '';
-        h += `<div class="next-class-card" id="next-class-${nextCF.date}">
-          <div class="next-class-bar"></div>
-          <div class="next-class-inner">
-            <div class="next-class-top">
-              <div class="next-class-left">
-                <div class="next-class-eyebrow">Volgende les — ${relativeDay(nextCF.date)}</div>
-                <div class="next-class-title">${escapeHtml(nextCF.title || 'CrossFit Hilversum')}</div>
-              </div>
-              <div class="next-class-right">
-                <div class="next-class-time">${nextCF.time}</div>
-                ${capHtml}
-              </div>
-            </div>
-            ${envBadge ? `<div class="next-class-weather">${envBadge}</div>` : ''}
-            ${sections ? `<button class="wod-toggle-btn" onclick="this.closest('.next-class-card').classList.toggle('wod-open')">
-              <span>Bekijk WOD</span><span class="wod-chevron">▾</span>
-            </button>
-            <div class="next-class-wod">${sections}</div>
-            <button class="signup-cta" onclick="triggerSignup()">Inschrijven</button>` : ''}
-          </div>
-        </div>`;
-      }
+      // Next two activities
+      allUpcoming.slice(0, 2).forEach((e, i) => {
+        if (e._src === 'crossfit') {
+          h += renderCard(e, 'active', i * 0.05, wodByDate[e.date] || []);
+        } else if (e._src === 'run') {
+          h += renderRunEventCard(e, i * 0.05);
+        } else {
+          h += renderPersonalEventCard(e, i * 0.05);
+        }
+      });
 
       // Stats row
       const thisM = now.getMonth(), thisY = now.getFullYear();
@@ -2075,8 +2055,7 @@
       const cardId = 'run' + session.date.replace(/-/g, '');
 
       const distStr = session.total_distance_km ? `${session.total_distance_km} km` : '';
-      const distHtml = distStr ? `<div class="card-meta" style="text-align:right">${distStr}</div>` : '';
-      const metaHtml = `<div class="card-meta"><span class="card-time">${sessionTime}</span></div>`;
+      const metaHtml = `<div class="card-meta"><span class="card-time">${sessionTime}${distStr ? ' · ' + distStr : ''}</span></div>`;
 
       const actualRun = !isUpcoming ? _findActualRun(session.date) : null;
       const actualHtml = actualRun ? _renderActualRunStats(actualRun) : '';
@@ -2084,15 +2063,15 @@
       const descText = session.full_description || session.description || '';
       const wodContent = (descText ? `<div style="font-size:0.82rem;color:#a0e8b0;white-space:pre-wrap;line-height:1.6">${escapeHtml(descText)}</div>` : '')
                        + actualHtml;
-      const descHtml = wodContent
-        ? `<div class="card-wod">${wodContent}</div>`
-        : '';
-      const hasWod = wodContent ? ' has-wod' : '';
-      const chevron = wodContent ? `<div class="wod-chevron" style="color:#00c853">▾</div>` : '';
-
-      const rescheduleBtn = isUpcoming
+      const rescheduleInWod = isUpcoming
         ? `<button class="run-reschedule-btn" onclick="event.stopPropagation(); toggleReschedule('${cardId}')">📅 Datum/tijd</button>`
         : '';
+      const descHtml = (wodContent || rescheduleInWod)
+        ? `<div class="card-wod">${rescheduleInWod}${wodContent}</div>`
+        : '';
+      const expandable = !!(wodContent || isUpcoming);
+      const hasWod = expandable ? ' has-wod' : '';
+      const chevron = expandable ? `<div class="wod-chevron" style="color:#00c853">▾</div>` : '';
 
       const scheduledOverride = (healthInput || {})[sessionKey];
       const overrideNote = scheduledOverride
@@ -2123,7 +2102,7 @@
 
       return `
         <div>
-          <div class="card${hasWod}" style="animation-delay:${delay}s;${cardStyle}"${session.description ? ' onclick="toggleWod(this)"' : ''}>
+          <div class="card${hasWod}" style="animation-delay:${delay}s;${cardStyle}"${expandable ? ' onclick="toggleWod(this)"' : ''}>
             <div class="card-dot" style="background:#00c853"></div>
             <div class="card-info">
               <div class="card-header">
@@ -2132,9 +2111,7 @@
                   ${metaHtml}
                 </div>
                 <div class="card-right">
-                  ${rescheduleBtn}
                   <div class="card-date" style="color:#00c853">${formatDate(session.date)}</div>
-                  ${distHtml}
                   <div class="card-relative-day">${relativeDay(session.date)}</div>
                   ${chevron}
                 </div>
