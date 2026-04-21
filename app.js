@@ -688,22 +688,39 @@
         if (acts.some(a => runTypes.some(rt => (a.type || '').toLowerCase().includes(rt)))) pastRunDates.add(date);
       });
 
-      // Merge plan workouts + orphan past runs, sorted by date descending for past, ascending for future
-      const pastSessions = Array.from(pastRunDates).sort().reverse()
+      // Build all sessions split into three buckets
+      const orphanSessions = Array.from(pastRunDates)
         .map(date => ({ date, session: 'long_run', name: null, _orphan: true }));
-      const allSessions = [
-        ...pastSessions,
-        ...workouts.filter(s => s.date < today).reverse(),
-        ...workouts.filter(s => s.date >= today),
+
+      const futureSessions = [
+        ...workouts.filter(s => s.date > today),
+      ].sort((a, b) => a.date.localeCompare(b.date));
+
+      const todaySessions = [
+        ...workouts.filter(s => s.date === today),
+        ...orphanSessions.filter(s => s.date === today),
       ];
 
-      const cards = allSessions.map((s, i) => renderRunEventCard(s, i * 0.05)).join('');
+      const pastAllSessions = [
+        ...workouts.filter(s => s.date < today),
+        ...orphanSessions.filter(s => s.date < today),
+      ].sort((a, b) => b.date.localeCompare(a.date));
+
+      const divider = label => `<div class="run-section-divider"><span>${label}</span></div>`;
+
+      let cardsHtml = '';
+      if (futureSessions.length) cardsHtml += futureSessions.map((s, i) => renderRunEventCard(s, i * 0.05)).join('');
+      if (todaySessions.length) cardsHtml += divider('Vandaag') + todaySessions.map((s, i) => renderRunEventCard(s, i * 0.05)).join('');
+      if (pastAllSessions.length) {
+        const sep = (futureSessions.length || todaySessions.length) ? divider('Eerder') : '';
+        cardsHtml += sep + pastAllSessions.map((s, i) => renderRunEventCard(s, i * 0.05)).join('');
+      }
 
       return `<div class="run-plan-header">
           <span class="run-plan-label">Hardloopplan</span>${weekBadge}
         </div>
         ${progressHtml}
-        <div class="cards">${cards}</div>`;
+        <div class="cards">${cardsHtml}</div>`;
     }
 
     function renderActivityCard(date, delay) {
