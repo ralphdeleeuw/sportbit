@@ -27,6 +27,17 @@
       if (todayEl) todayEl.innerHTML = `<div class="empty-state"><p>Ga naar <strong>Acties</strong> om je Gist ID in te stellen.</p></div>`;
     }
 
+    function relTime(iso) {
+      if (!iso) return '';
+      const mins = Math.round((Date.now() - new Date(iso).getTime()) / 60000);
+      if (mins < 2) return 'zojuist';
+      if (mins < 60) return `${mins} min geleden`;
+      const hrs = Math.round(mins / 60);
+      if (hrs < 24) return `${hrs} uur geleden`;
+      const days = Math.round(hrs / 24);
+      return days === 1 ? 'gisteren' : `${days} dagen geleden`;
+    }
+
     function formatDate(dateStr) {
       const d = new Date(dateStr + 'T00:00:00');
       return `${DAY_NL[d.getDay()]} ${d.getDate()} ${MONTH_NL[d.getMonth()]}`;
@@ -1054,18 +1065,19 @@
       </div>`;
 
       const wfs = [
-        { btnId:'signupBtn', statusId:'signupStatus', icon:'⚡', title:'Inschrijven', desc:'CrossFit auto-inschrijving & Google Calendar sync', fn:'triggerSignup()', cls:'' },
-        { btnId:'syncBtn', statusId:'syncStatus', icon:'↻', title:'SugarWOD Sync', desc:'WOD, kracht, persoonlijke records, AI coaching', fn:'triggerSync()', cls:'info',
+        { btnId:'signupBtn', statusId:'signupStatus', lastRunId:'signupLastRun', workflowFile:'autosignup.yml', icon:'⚡', title:'Inschrijven', desc:'CrossFit auto-inschrijving & Google Calendar sync', fn:'triggerSignup()', cls:'' },
+        { btnId:'syncBtn', statusId:'syncStatus', lastRunId:'syncLastRun', workflowFile:'fetch_sugarwod.yml', icon:'↻', title:'SugarWOD Sync', desc:'WOD, kracht, persoonlijke records, AI coaching', fn:'triggerSync()', cls:'info',
           extras:[{id:'skipAISync',label:'AI coaching overslaan'}] },
-        { btnId:'healthBtn', statusId:'healthStatus', icon:'♥', title:'Health Refresh', desc:'Strava, Intervals.icu, Withings, MyFitnessPal, omgevingsdata', fn:'triggerHealthRefresh()', cls:'purple',
+        { btnId:'healthBtn', statusId:'healthStatus', lastRunId:'healthLastRun', workflowFile:'fetch_health_data.yml', icon:'♥', title:'Health Refresh', desc:'Strava, Intervals.icu, Withings, MyFitnessPal, omgevingsdata', fn:'triggerHealthRefresh()', cls:'purple',
           extras:[{id:'skipStravaHealth',label:'Strava overslaan'},{id:'skipIntervalsHealth',label:'Intervals.icu overslaan'},{id:'skipWithingsHealth',label:'Withings overslaan'},{id:'skipMFPHealth',label:'MyFitnessPal overslaan'}] },
-        { btnId:'runningPlanBtn', statusId:'runningPlanStatus', icon:'🏃', title:'Hardloopplan', desc:'Nieuw hardloopschema genereren via Claude', fn:'triggerRunningPlan()', cls:'success' },
+        { btnId:'runningPlanBtn', statusId:'runningPlanStatus', lastRunId:'runningLastRun', workflowFile:'generate_running_workout.yml', icon:'🏃', title:'Hardloopplan', desc:'Nieuw hardloopschema genereren via Claude', fn:'triggerRunningPlan()', cls:'success' },
       ];
       wfs.forEach(w => {
         const extras = (w.extras||[]).map(ex => `<label class="workflow-check"><input type="checkbox" id="${ex.id}"> ${ex.label}</label>`).join('');
         h += `<div class="workflow-card">
           <div class="workflow-title">${w.icon} ${w.title}</div>
           <div class="workflow-desc">${w.desc}</div>
+          ${w.lastRunId ? `<div class="workflow-last-run" id="${w.lastRunId}"></div>` : ''}
           ${extras ? `<div class="workflow-extras">${extras}</div>` : ''}
           <div class="workflow-footer">
             <button id="${w.btnId}" class="workflow-btn ${w.cls}" onclick="${w.fn}">${w.icon} ${w.title}</button>
@@ -1086,7 +1098,10 @@
         const t = e.target.value.trim();
         document.getElementById('githubToken').value = t;
         if (t) localStorage.setItem('sportbit_github_token', t);
+        loadWorkflowLastRuns(t);
       });
+
+      if (savedTok) loadWorkflowLastRuns(savedTok);
     }
 
     async function triggerSync() {
@@ -1376,6 +1391,36 @@
       statusEl.style.color = 'var(--accent2)';
       btn.disabled = false;
       btn.textContent = btnLabel;
+    }
+
+    async function loadWorkflowLastRuns(token) {
+      if (!token) return;
+      const headers = { Authorization: `token ${token}`, Accept: 'application/vnd.github+json' };
+      const runs = [
+        { id: 'signupLastRun',  file: 'autosignup.yml' },
+        { id: 'syncLastRun',    file: 'fetch_sugarwod.yml' },
+        { id: 'healthLastRun',  file: 'fetch_health_data.yml' },
+        { id: 'runningLastRun', file: 'generate_running_workout.yml' },
+      ];
+      await Promise.all(runs.map(async ({ id, file }) => {
+        const el = document.getElementById(id);
+        if (!el) return;
+        el.textContent = '…';
+        try {
+          const r = await fetch(
+            `https://api.github.com/repos/ralphdeleeuw/sportbit/actions/workflows/${file}/runs?per_page=1`,
+            { headers }
+          );
+          if (!r.ok) { el.textContent = ''; return; }
+          const data = await r.json();
+          const run = data.workflow_runs?.[0];
+          if (!run) { el.textContent = '—'; return; }
+          const icon = run.status !== 'completed' ? '⏳'
+            : run.conclusion === 'success' ? '✅'
+            : run.conclusion === 'failure' ? '❌' : '⚠️';
+          el.textContent = `Laatste run: ${icon} ${relTime(run.updated_at || run.created_at)}`;
+        } catch { el.textContent = ''; }
+      }));
     }
 
     function renderBenchmarks(benchmarks) {
