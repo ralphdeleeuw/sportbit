@@ -669,7 +669,35 @@
         </div>`;
       }
 
-      const cards = workouts.map((s, i) => renderRunEventCard(s, i * 0.05)).join('');
+      // Collect past run dates from Intervals/Strava not already in the plan
+      const today = new Date().toISOString().slice(0, 10);
+      const cutoff = new Date(); cutoff.setDate(cutoff.getDate() - 42);
+      const cutoffStr = cutoff.toISOString().slice(0, 10);
+      const runTypes = ['run', 'running', 'trailrun', 'treadmill', 'jog'];
+      const planDates = new Set(workouts.map(s => s.date));
+
+      const pastRunDates = new Set();
+      Object.keys((intervalsData?.activities || {}).by_date || {}).forEach(date => {
+        if (date < cutoffStr || date >= today || planDates.has(date)) return;
+        const acts = ((intervalsData.activities || {}).by_date || {})[date] || [];
+        if (acts.some(a => runTypes.some(rt => (a.type || '').toLowerCase().includes(rt)))) pastRunDates.add(date);
+      });
+      Object.keys(stravaData?.activities_by_date || {}).forEach(date => {
+        if (date < cutoffStr || date >= today || planDates.has(date) || pastRunDates.has(date)) return;
+        const acts = (stravaData.activities_by_date || {})[date] || [];
+        if (acts.some(a => runTypes.some(rt => (a.type || '').toLowerCase().includes(rt)))) pastRunDates.add(date);
+      });
+
+      // Merge plan workouts + orphan past runs, sorted by date descending for past, ascending for future
+      const pastSessions = Array.from(pastRunDates).sort().reverse()
+        .map(date => ({ date, session: 'long_run', name: null, _orphan: true }));
+      const allSessions = [
+        ...pastSessions,
+        ...workouts.filter(s => s.date < today).reverse(),
+        ...workouts.filter(s => s.date >= today),
+      ];
+
+      const cards = allSessions.map((s, i) => renderRunEventCard(s, i * 0.05)).join('');
 
       return `<div class="run-plan-header">
           <span class="run-plan-label">Hardloopplan</span>${weekBadge}
@@ -2017,6 +2045,7 @@
 
       const actualRun = !isUpcoming ? _findActualRun(session.date) : null;
       const actualHtml = actualRun ? _renderActualRunStats(actualRun) : '';
+      const displayName = session.name || actualRun?.name || session.type || 'Run';
 
       const descText = session.full_description || session.description || '';
       const wodContent = (descText ? `<div style="font-size:0.82rem;color:#a0e8b0;white-space:pre-wrap;line-height:1.6">${escapeHtml(descText)}</div>` : '')
@@ -2063,7 +2092,7 @@
             <div class="card-info">
               <div class="card-header">
                 <div class="card-header-left">
-                  <div class="card-title">🏃 ${escapeHtml(session.name || session.type || 'Run')}</div>
+                  <div class="card-title">🏃 ${escapeHtml(displayName)}</div>
                   ${metaHtml}
                 </div>
                 <div class="card-right">
