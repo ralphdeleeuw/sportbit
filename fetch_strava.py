@@ -140,11 +140,13 @@ def fetch_strava_data(days: int = 14) -> dict | None:
         elapsed_raw = act.get("elapsed_time")
         elapsed_min = round(elapsed_raw / 60) if elapsed_raw else None
         duration_min = round((act.get("moving_time") or 0) / 60)
+        start_time = act.get("start_date_local", "")[11:16] or None
         entry = {
             "date": date_str,
             "activity_id": act.get("id"),
             "name": act.get("name", ""),
             "type": act.get("sport_type") or act.get("type", ""),
+            "start_time": start_time,
             "duration_min": duration_min,
             "elapsed_min": elapsed_min if elapsed_min and elapsed_min != duration_min else None,
             "avg_hr": act.get("average_heartrate"),
