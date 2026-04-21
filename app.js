@@ -2115,7 +2115,7 @@
       const wodContent = (descText ? `<div style="font-size:0.82rem;color:#a0e8b0;white-space:pre-wrap;line-height:1.6">${escapeHtml(descText)}</div>` : '')
                        + actualHtml;
       const rescheduleInWod = isUpcoming
-        ? `<button class="run-reschedule-btn" onclick="event.stopPropagation(); toggleReschedule('${cardId}')">📅 Datum/tijd</button>`
+        ? `<button class="run-reschedule-btn" onclick="clickReschedule(event, '${cardId}')">📅 Datum/tijd</button>`
         : '';
       const descHtml = (wodContent || rescheduleInWod)
         ? `<div class="card-wod">${rescheduleInWod}${wodContent}</div>`
@@ -2176,6 +2176,12 @@
       const el = document.getElementById(cardId);
       if (!el) return;
       el.style.display = el.style.display === 'block' ? 'none' : 'block';
+    }
+
+    function clickReschedule(e, cardId) {
+      e.stopPropagation();
+      e.preventDefault();
+      toggleReschedule(cardId);
     }
 
     async function _patchRescheduleToGist(token, sessionKey, newDatetime) {
