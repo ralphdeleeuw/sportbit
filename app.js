@@ -870,9 +870,8 @@
           const label = recoveryAdviceFromHistory
             ? `Coach Advies (${recoveryAdviceHistory[recoveryAdviceHistory.length-1].date})`
             : 'AI Coach advies';
-          h += `<div class="ai-coach-toggle" onclick="this.classList.toggle('open')">
-            <span class="ai-coach-label">${label}</span>
-            <span class="ai-coach-chevron">▾</span>
+          h += `<div class="ai-coach-block">
+            <div class="ai-coach-label">${label}</div>
             <div class="ai-coach-body">${marked.parse(recoveryAdvice)}</div>
           </div>`;
         }
@@ -882,6 +881,7 @@
       if (deloadAlert) h += `<div class="deload-banner">⚠️ Herstelweek aanbevolen — schaal WODs naar 60–70%.</div>`;
 
       // Next two activities
+      h += `<div class="cards">`;
       allUpcoming.slice(0, 2).forEach((e, i) => {
         if (e._src === 'crossfit') {
           h += renderCard(e, 'active', i * 0.05, wodByDate[e.date] || []);
@@ -891,6 +891,7 @@
           h += renderPersonalEventCard(e, i * 0.05);
         }
       });
+      h += `</div>`;
 
       // Stats row
       const thisM = now.getMonth(), thisY = now.getFullYear();

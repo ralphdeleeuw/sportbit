@@ -566,20 +566,15 @@
       background: radial-gradient(circle, rgba(232,255,60,0.04) 0%, transparent 70%);
       pointer-events: none;
     }
-    .ai-coach-toggle {
-      margin-top: 14px; width: 100%; background: #0d0d0d;
-      border: 1px solid #2a2a2a; border-radius: var(--radius-sm);
-      padding: 10px 14px; display: flex; justify-content: space-between;
-      align-items: center; cursor: pointer; text-align: left;
+    .ai-coach-block {
+      margin-top: 14px; padding-top: 14px;
+      border-top: 1px solid var(--border-subtle);
     }
-    .ai-coach-label { font-size: 12px; font-weight: 500; color: var(--accent); }
-    .ai-coach-chevron {
-      font-size: 14px; color: #444;
-      transition: transform 0.25s; flex-shrink: 0;
+    .ai-coach-label {
+      font-size: 11px; font-weight: 600; letter-spacing: 0.08em;
+      text-transform: uppercase; color: var(--accent); margin-bottom: 8px;
     }
-    .ai-coach-toggle.open .ai-coach-chevron { transform: rotate(180deg); }
-    .ai-coach-body { display: none; margin-top: 10px; font-size: 13px; color: #aaa; line-height: 1.7; }
-    .ai-coach-toggle.open .ai-coach-body { display: block; }
+    .ai-coach-body { font-size: 13px; color: #aaa; line-height: 1.75; }
 
     /* ── Next class card ───────────────────────────────────── */
     .next-class-card {
