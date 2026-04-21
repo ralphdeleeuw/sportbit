@@ -17,11 +17,11 @@
       const today = new Date(); today.setHours(0,0,0,0);
       const d = new Date(dateStr + 'T00:00:00');
       const diff = Math.round((d - today) / 86400000);
-      if (diff === 0) return 'vandaag';
-      if (diff === 1) return 'morgen';
-      if (diff === -1) return 'gisteren';
-      if (diff > 1) return `over ${diff} dagen`;
-      return `${Math.abs(diff)} dagen geleden`;
+      if (diff === 0) return 'today';
+      if (diff === 1) return 'tomorrow';
+      if (diff === -1) return 'yesterday';
+      if (diff > 1) return `in ${diff} days`;
+      return `${Math.abs(diff)} days ago`;
     }
 
     function isUpcoming(dateStr, timeStr) {
@@ -682,6 +682,16 @@
       const first = acts[0] || {};
       const title = first.name || first.type || (stravaActs[0]?.name) || 'Activiteit';
 
+      const actualStartTime = (acts[0] || stravaActs[0])?.start_time;
+      const plannedRun = runningPlanData
+        ? (runningPlanData.workouts || []).find(s => s.date === date)
+        : null;
+      const plannedTime = plannedRun
+        ? (plannedRun.time || (plannedRun.session === 'speed' ? '20:00' : '09:00'))
+        : null;
+      const timeToShow = actualStartTime || plannedTime;
+      const metaHtml = timeToShow ? `<div class="card-meta"><span class="card-time">${timeToShow}</span></div>` : '';
+
       return `
         <div class="card has-wod" style="animation-delay:${delay}s">
           <div class="card-dot dot-active" style="opacity:0.4"></div>
@@ -689,6 +699,7 @@
             <div class="card-header" onclick="toggleWod(this.closest('.card'))" style="cursor:pointer">
               <div class="card-header-left">
                 <div class="card-title">${title}</div>
+                ${metaHtml}
               </div>
               <div class="card-right">
                 <div class="card-date">${formatDate(date)}</div>
@@ -1651,8 +1662,23 @@
         </div>
       </div>`;
 
+      const fetchedAt = mfpData?.fetched_at
+        ? (() => {
+            const d = new Date(mfpData.fetched_at);
+            const now = new Date();
+            const diffMin = Math.round((now - d) / 60000);
+            const timeStr = d.toLocaleTimeString('nl-NL', { hour: '2-digit', minute: '2-digit' });
+            const age = diffMin < 60
+              ? `${diffMin}m geleden`
+              : diffMin < 1440
+                ? `${Math.round(diffMin / 60)}u geleden`
+                : `${Math.round(diffMin / 1440)}d geleden`;
+            return `<span style="color:#666;font-size:0.75em;float:right">${timeStr} (${age})</span>`;
+          })()
+        : '';
+
       return `<div class="meals-block">
-        <div class="meals-block-label">MyFitnessPal — gegeten (laatste dagen)</div>
+        <div class="meals-block-label">MyFitnessPal — gegeten (laatste dagen)${fetchedAt}</div>
         ${rows}
         ${avgRow}
       </div>`;
@@ -1916,9 +1942,8 @@
       const cardId = 'run' + session.date.replace(/-/g, '');
 
       const distStr = session.total_distance_km ? `${session.total_distance_km} km` : '';
-      const durStr = session.total_duration_min ? `${session.total_duration_min} min` : '';
-      const metaParts = [distStr, durStr].filter(Boolean).join(' · ');
-      const metaHtml = metaParts ? `<div class="card-meta"><span>${metaParts}</span></div>` : '';
+      const distHtml = distStr ? `<div class="card-meta" style="text-align:right">${distStr}</div>` : '';
+      const metaHtml = `<div class="card-meta"><span class="card-time">${sessionTime}</span></div>`;
 
       const actualRun = !isUpcoming ? _findActualRun(session.date) : null;
       const actualHtml = actualRun ? _renderActualRunStats(actualRun) : '';
@@ -1975,7 +2000,8 @@
                 </div>
                 <div class="card-right">
                   ${rescheduleBtn}
-                  <div class="card-date" style="color:#00c853">${formatDate(session.date)} ${sessionTime}</div>
+                  <div class="card-date" style="color:#00c853">${formatDate(session.date)}</div>
+                  ${distHtml}
                   <div class="card-relative-day">${relativeDay(session.date)}</div>
                   ${chevron}
                 </div>
