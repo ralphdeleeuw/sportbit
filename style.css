@@ -1334,6 +1334,12 @@
       color: var(--muted);
     }
 
+    .workflow-last-run {
+      font-size: 0.68rem;
+      color: var(--faint);
+      min-height: 1em;
+    }
+
     .workflow-card-options {
       display: flex;
       flex-wrap: wrap;
