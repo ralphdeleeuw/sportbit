@@ -1,7 +1,9 @@
-const CACHE = 'sportbit-v2';
+const CACHE = 'sportbit-v3';
 const ASSETS = [
   '/sportbit/',
   '/sportbit/index.html',
+  '/sportbit/style.css',
+  '/sportbit/app.js',
   '/sportbit/manifest.json',
   '/sportbit/icon.svg',
   '/sportbit/icon-maskable.svg',
