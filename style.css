@@ -470,7 +470,7 @@
     .card-right { text-align: right; flex-shrink: 0; padding-left: 8px; }
 
     .card-date {
-      font-size: 12px; color: var(--faint);
+      font-size: 12px; color: var(--accent);
     }
     .card-date.cancelled-date { color: var(--accent2); }
 
