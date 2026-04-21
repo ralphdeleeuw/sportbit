@@ -199,6 +199,10 @@ def fetch_intervals_data() -> dict | None:
 
             entry: dict = {}
 
+            start_time = start[11:16] if len(start) > 10 else ""
+            if start_time:
+                entry["start_time"] = start_time
+
             name = act.get("name", "")
             if name:
                 entry["name"] = name
