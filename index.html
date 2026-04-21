@@ -3202,8 +3202,23 @@
         </div>
       </div>`;
 
+      const fetchedAt = mfpData?.fetched_at
+        ? (() => {
+            const d = new Date(mfpData.fetched_at);
+            const now = new Date();
+            const diffMin = Math.round((now - d) / 60000);
+            const timeStr = d.toLocaleTimeString('nl-NL', { hour: '2-digit', minute: '2-digit' });
+            const age = diffMin < 60
+              ? `${diffMin}m geleden`
+              : diffMin < 1440
+                ? `${Math.round(diffMin / 60)}u geleden`
+                : `${Math.round(diffMin / 1440)}d geleden`;
+            return `<span style="color:#666;font-size:0.75em;float:right">${timeStr} (${age})</span>`;
+          })()
+        : '';
+
       return `<div class="meals-block">
-        <div class="meals-block-label">MyFitnessPal — gegeten (laatste dagen)</div>
+        <div class="meals-block-label">MyFitnessPal — gegeten (laatste dagen)${fetchedAt}</div>
         ${rows}
         ${avgRow}
       </div>`;
