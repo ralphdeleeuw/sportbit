@@ -750,6 +750,14 @@
       font-weight: 600;
       margin-bottom: 0.35rem;
     }
+    .run-plan-header {
+      display: flex; align-items: center; gap: 8px;
+      margin-bottom: 12px;
+    }
+    .run-plan-label {
+      font-family: 'Bebas Neue', sans-serif;
+      font-size: 20px; color: var(--text); letter-spacing: 0.04em;
+    }
 
     .run-badge {
       display: inline-block;

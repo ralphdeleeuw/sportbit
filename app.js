@@ -642,25 +642,12 @@
       const workouts = runningPlanData.workouts || [];
       if (workouts.length === 0) return '';
 
-      const today = new Date().toISOString().slice(0, 10);
       const weekBadge = runningPlanData.week_number
         ? `<span class="run-badge">Week ${runningPlanData.week_number}</span>` : '';
 
-      const rows = workouts.map(s => {
-        const dur = s.total_duration_min ? `${s.total_duration_min}min` : '';
-        const meta = [formatDate(s.date), dur].filter(Boolean).join(' · ');
-        const past = s.date < today ? ' style="opacity:0.55"' : '';
-        return `<div class="run-item"${past}>
-          <span class="run-title">🏃 ${escapeHtml(s.name || s.type || 'Run')}</span>
-          <span class="run-meta">${escapeHtml(meta)}</span>
-        </div>`;
-      }).join('');
-
-      // 5K voortgangsmeter
-      const goal5kSec  = 26 * 60;  // 26:00
-      const start5kSec = 28 * 60;  // 28:00 (startpunt)
-      // Sanity check: schatting op basis van intervaldata kan onbetrouwbaar zijn.
-      // Als de waarde > 32 min is, is de berekening fout (bijv. duurlooptempo meegenomen).
+      // 5K progress bar
+      const goal5kSec  = 26 * 60;
+      const start5kSec = 28 * 60;
       const rawEst = runningPlanData.estimated_5k_seconds;
       const est5kSec = (rawEst && rawEst <= 32 * 60) ? rawEst : null;
       let progressHtml = '';
@@ -682,11 +669,13 @@
         </div>`;
       }
 
-      return `<div class="run-block">
-        <div class="run-block-label">Hardloopplan${weekBadge}</div>
+      const cards = workouts.map((s, i) => renderRunEventCard(s, i * 0.05)).join('');
+
+      return `<div class="run-plan-header">
+          <span class="run-plan-label">Hardloopplan</span>${weekBadge}
+        </div>
         ${progressHtml}
-        ${rows}
-      </div>`;
+        <div class="cards">${cards}</div>`;
     }
 
     function renderActivityCard(date, delay) {
