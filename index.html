@@ -2,93 +2,89 @@
 <html lang="nl">
 <head>
   <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>CrossFit Hilversum — Mijn Inschrijvingen</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0" />
+  <title>SportBit</title>
   <link rel="manifest" href="manifest.json" />
   <meta name="theme-color" content="#0d0d0d" />
   <meta name="apple-mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-status-bar-style" content="black" />
-  <meta name="apple-mobile-web-app-title" content="CrossFit" />
+  <meta name="apple-mobile-web-app-title" content="SportBit" />
   <link rel="apple-touch-icon" href="icon.svg" />
-  <link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=DM+Sans:wght@300;400;500&display=swap" rel="stylesheet" />
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=DM+Sans:wght@300;400;500;600&display=swap" rel="stylesheet" />
   <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4/dist/chart.umd.min.js"></script>
   <link rel="stylesheet" href="style.css" />
 </head>
 <body>
-  <div class="container">
-    <header>
-      <div class="label">CrossFit Hilversum</div>
-      <h1>Mijn<br/><span>Lessen</span></h1>
-      <p class="subtitle">Automatisch bijgehouden via CrossFit Hilversum</p>
-    </header>
+<div id="app">
 
-
-    <div id="content"></div>
-
-    <div class="config">
-      <div class="config-row">
-        <input type="text" id="gistId" placeholder="Jouw Gist ID" />
-        <button onclick="loadData()">Laden</button>
-      </div>
-      <div class="config-row">
-        <input type="password" id="githubToken" placeholder="GitHub Token (voor workout loggen)" />
-      </div>
-    </div>
-
-    <footer>
-      <div class="footer-updated">Bijgewerkt · <span id="lastUpdated">—</span></div>
-      <div class="workflow-cards">
-
-        <div class="workflow-card">
-          <div class="workflow-card-header">⚡ Inschrijven</div>
-          <div class="workflow-card-desc">CrossFit auto-inschrijving &amp; Google Calendar sync</div>
-          <div class="workflow-card-footer">
-            <button id="signupBtn" class="sync-btn" onclick="triggerSignup()">⚡ Inschrijven</button>
-            <span id="signupStatus" class="sync-status"></span>
-          </div>
-        </div>
-
-        <div class="workflow-card">
-          <div class="workflow-card-header">↻ SugarWOD Sync</div>
-          <div class="workflow-card-desc">WOD, kracht, persoonlijke records, AI coaching</div>
-          <div class="workflow-card-options">
-            <label><input type="checkbox" id="skipAISync"> AI coaching overslaan</label>
-          </div>
-          <div class="workflow-card-footer">
-            <button id="syncBtn" class="sync-btn" onclick="triggerSync()">↻ Sync</button>
-            <span id="syncStatus" class="sync-status"></span>
-          </div>
-        </div>
-
-        <div class="workflow-card">
-          <div class="workflow-card-header">♥ Health Refresh</div>
-          <div class="workflow-card-desc">Strava, Intervals.icu, Withings, omgevingsdata</div>
-          <div class="workflow-card-options">
-            <label><input type="checkbox" id="skipStravaHealth"> Strava overslaan</label>
-            <label><input type="checkbox" id="skipIntervalsHealth"> Intervals.icu overslaan</label>
-            <label><input type="checkbox" id="skipWithingsHealth"> Withings overslaan</label>
-          </div>
-          <div class="workflow-card-footer">
-            <button id="healthBtn" class="sync-btn" onclick="triggerHealthRefresh()">♥ Health</button>
-            <span id="healthStatus" class="sync-status"></span>
-          </div>
-        </div>
-
-        <div class="workflow-card">
-          <div class="workflow-card-header">🏃 Hardloopplan</div>
-          <div class="workflow-card-desc">Nieuw hardloopschema genereren via Claude</div>
-          <div class="workflow-card-footer">
-            <button id="runningPlanBtn" class="sync-btn" onclick="triggerRunningPlan()">🏃 Genereer</button>
-            <span id="runningPlanStatus" class="sync-status"></span>
-          </div>
-        </div>
-
-      </div>
-      <div id="barbellStatus" class="barbell-status"></div>
-    </footer>
+  <div id="tab-today" class="tab-screen active">
+    <div id="today-content"></div>
   </div>
 
-  <script src="app.js"></script>
+  <div id="tab-schema" class="tab-screen">
+    <div id="schema-content"></div>
+  </div>
+
+  <div id="tab-stats" class="tab-screen">
+    <div id="stats-content"></div>
+  </div>
+
+  <div id="tab-plan" class="tab-screen">
+    <div id="plan-content"></div>
+  </div>
+
+  <div id="tab-acties" class="tab-screen">
+    <input type="text"     id="gistId"      class="hidden-input" autocomplete="off" />
+    <input type="password" id="githubToken" class="hidden-input" />
+    <div id="acties-content"></div>
+  </div>
+
+  <nav class="bottom-nav" id="bottom-nav">
+    <button class="nav-btn active" data-tab="today" onclick="switchTab('today')">
+      <svg width="22" height="22" viewBox="0 0 24 24" fill="none">
+        <circle cx="12" cy="12" r="4" class="nav-icon-fill"/>
+        <path d="M12 2v2M12 20v2M2 12h2M20 12h2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4" class="nav-icon-stroke" stroke-width="2" stroke-linecap="round"/>
+      </svg>
+      <span>Vandaag</span>
+      <div class="nav-dot"></div>
+    </button>
+    <button class="nav-btn" data-tab="schema" onclick="switchTab('schema')">
+      <svg width="22" height="22" viewBox="0 0 24 24" fill="none">
+        <rect x="3" y="4" width="18" height="17" rx="2" class="nav-icon-stroke" stroke-width="2"/>
+        <path d="M3 9h18M8 2v4M16 2v4" class="nav-icon-stroke" stroke-width="2" stroke-linecap="round"/>
+        <path d="M7 13h2v2H7zM11 13h2v2h-2zM15 13h2v2h-2z" class="nav-icon-fill"/>
+      </svg>
+      <span>Schema</span>
+      <div class="nav-dot"></div>
+    </button>
+    <button class="nav-btn" data-tab="stats" onclick="switchTab('stats')">
+      <svg width="22" height="22" viewBox="0 0 24 24" fill="none">
+        <path d="M6 12H3M21 12h-3M6 12a1 1 0 100-2 1 1 0 000 2zM18 12a1 1 0 100-2 1 1 0 000 2zM6 12h12M9 8v8M15 8v8" class="nav-icon-stroke" stroke-width="2" stroke-linecap="round"/>
+      </svg>
+      <span>Kracht</span>
+      <div class="nav-dot"></div>
+    </button>
+    <button class="nav-btn" data-tab="plan" onclick="switchTab('plan')">
+      <svg width="22" height="22" viewBox="0 0 24 24" fill="none">
+        <circle cx="14" cy="4" r="1.5" class="nav-icon-fill"/>
+        <path d="M9 9l2-3 3 1 2 3h3" class="nav-icon-stroke" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+        <path d="M7 21l3-5 2 1 2-4" class="nav-icon-stroke" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+      </svg>
+      <span>Hardlopen</span>
+      <div class="nav-dot"></div>
+    </button>
+    <button class="nav-btn" data-tab="acties" onclick="switchTab('acties')">
+      <svg width="22" height="22" viewBox="0 0 24 24" fill="none">
+        <path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z" class="nav-icon-stroke" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+      </svg>
+      <span>Acties</span>
+      <div class="nav-dot"></div>
+    </button>
+  </nav>
+
+</div>
+<script src="app.js"></script>
 </body>
 </html>

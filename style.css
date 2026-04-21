@@ -1,23 +1,100 @@
     :root {
       --bg: #0d0d0d;
-      --surface: #161616;
-      --surface2: #1e1e1e;
+      --surface: #1e1a24;
+      --surface-deep: #141414;
+      --surface2: #222;
       --accent: #e8ff3c;
       --accent2: #ff4c2b;
+      --success: #00c853;
+      --info: #4db8ff;
+      --purple: #9a70ff;
+      --neutral: #f0b429;
       --text: #f0f0f0;
-      --muted: #666;
-      --border: #2a2a2a;
+      --muted: #888;
+      --faint: #555;
+      --border: #252525;
+      --border-subtle: #1e1e1e;
+      --radius: 20px;
+      --radius-sm: 8px;
+      --nav-h: 64px;
     }
 
-    * { box-sizing: border-box; margin: 0; padding: 0; }
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    html { background: var(--bg); }
 
     body {
       background: var(--bg);
       color: var(--text);
       font-family: 'DM Sans', sans-serif;
       min-height: 100vh;
-      padding: 2rem 1rem;
+      display: flex;
+      justify-content: center;
     }
+
+    #app {
+      width: 100%;
+      max-width: 430px;
+      position: relative;
+    }
+
+    /* ── Tab system ────────────────────────────────────────── */
+    .tab-screen {
+      display: none;
+      min-height: 100vh;
+      overflow-y: auto;
+      padding: 0 16px calc(var(--nav-h) + 20px);
+      animation: fadeUp 0.35s ease;
+    }
+    .tab-screen.active { display: block; }
+
+    .hidden-input { display: none !important; }
+
+    /* ── Bottom navigation ─────────────────────────────────── */
+    .bottom-nav {
+      position: fixed;
+      bottom: 0;
+      left: 50%;
+      transform: translateX(-50%);
+      width: 100%;
+      max-width: 430px;
+      height: var(--nav-h);
+      background: #111;
+      border-top: 1px solid var(--border-subtle);
+      display: flex;
+      z-index: 100;
+      padding-bottom: env(safe-area-inset-bottom, 0px);
+    }
+    .nav-btn {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      padding: 8px 4px 6px;
+      background: none;
+      border: none;
+      cursor: pointer;
+      gap: 3px;
+    }
+    .nav-btn span {
+      font-size: 10px;
+      color: var(--faint);
+      font-weight: 400;
+      letter-spacing: 0.03em;
+      transition: color 0.2s;
+    }
+    .nav-btn.active span { color: var(--accent); font-weight: 600; }
+    .nav-icon-fill { fill: var(--faint); transition: fill 0.2s; }
+    .nav-icon-stroke { stroke: var(--faint); transition: stroke 0.2s; }
+    .nav-btn.active .nav-icon-fill { fill: var(--accent); }
+    .nav-btn.active .nav-icon-stroke { stroke: var(--accent); }
+    .nav-dot {
+      width: 4px; height: 4px; border-radius: 50%;
+      background: var(--accent); margin-top: 1px;
+      display: none;
+    }
+    .nav-btn.active .nav-dot { display: block; }
 
     /* Grain overlay */
     body::before {
@@ -30,12 +107,50 @@
       opacity: 0.4;
     }
 
-    .container {
-      max-width: 640px;
-      margin: 0 auto;
-      position: relative;
-      z-index: 1;
+    /* ── Tab page headers ──────────────────────────────────── */
+    .tab-page-header {
+      padding: 20px 0 16px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
     }
+    .tab-page-title {
+      font-family: 'Bebas Neue', sans-serif;
+      font-size: 28px;
+      color: var(--text);
+      letter-spacing: 0.04em;
+    }
+
+    /* ── Today tab header ──────────────────────────────────── */
+    .today-header { padding: 20px 0 8px; }
+    .today-date {
+      font-size: 11px; color: #666; font-weight: 500;
+      letter-spacing: 0.1em; text-transform: uppercase; margin-bottom: 2px;
+    }
+    .today-greeting {
+      font-family: 'Bebas Neue', sans-serif;
+      font-size: 28px; color: var(--text); letter-spacing: 0.04em; margin-bottom: 16px;
+    }
+
+    /* ── Stats row ─────────────────────────────────────────── */
+    .stats-row {
+      display: grid; grid-template-columns: repeat(3,1fr);
+      gap: 8px; margin-bottom: 12px;
+    }
+    .stat-card {
+      background: var(--surface); border-radius: var(--radius);
+      padding: 14px 12px; border: 1px solid var(--border); text-align: center;
+    }
+    .stat-value {
+      font-family: 'Bebas Neue', sans-serif;
+      font-size: 26px; color: var(--text); letter-spacing: 0.04em;
+    }
+    .stat-value.accent { color: var(--accent); }
+    .stat-label {
+      font-size: 10px; color: var(--faint); font-weight: 500;
+      text-transform: uppercase; letter-spacing: 0.06em; margin-top: 2px;
+    }
+    .stat-sub { font-size: 10px; color: #444; margin-top: 1px; }
 
     header {
       margin-bottom: 3rem;
@@ -301,83 +416,76 @@
     .collapsible-body { display: none; }
     .collapsible-body.open { display: block; }
 
-    /* Cards */
+    /* ── Cards ─────────────────────────────────────────────── */
     .cards {
       display: flex;
       flex-direction: column;
-      gap: 0.6rem;
-      margin-bottom: 2rem;
+      gap: 8px;
+      margin-bottom: 12px;
     }
 
     .card {
       background: var(--surface);
       border: 1px solid var(--border);
-      border-radius: 12px;
-      padding: 1rem 1.2rem;
+      border-radius: var(--radius);
+      padding: 14px 16px;
       display: flex;
-      align-items: center;
-      gap: 1rem;
+      align-items: flex-start;
+      gap: 12px;
       animation: fadeUp 0.4s ease both;
       transition: border-color 0.2s;
+      cursor: default;
     }
 
-    .card:hover { border-color: #3a3a3a; }
-
-    .card.cancelled {
-      opacity: 0.5;
-      border-color: var(--border);
-    }
+    .card.has-wod { cursor: pointer; }
+    .card.cancelled { opacity: 0.5; }
 
     .card-dot {
-      width: 10px;
-      height: 10px;
-      border-radius: 50%;
-      flex-shrink: 0;
+      width: 8px; height: 8px;
+      border-radius: 50%; flex-shrink: 0; margin-top: 5px;
     }
 
-    .dot-active { background: var(--accent); box-shadow: 0 0 8px var(--accent); }
+    .dot-active { background: var(--accent); }
     .dot-cancelled { background: var(--accent2); }
 
-    .card-info { flex: 1; }
+    .card-info { flex: 1; min-width: 0; }
+
+    .card-header {
+      display: flex; justify-content: space-between; align-items: flex-start;
+    }
+    .card-header-left { flex: 1; min-width: 0; }
 
     .card-title {
-      font-weight: 500;
-      font-size: 0.95rem;
-      margin-bottom: 0.2rem;
+      font-family: 'Bebas Neue', sans-serif;
+      font-size: 17px; color: var(--text); letter-spacing: 0.04em;
     }
 
-    .card-meta {
-      font-size: 0.75rem;
-      color: var(--muted);
-      display: flex;
-      gap: 1rem;
-    }
+    .card-meta { margin-top: 3px; }
 
     .card-time {
       font-family: 'Bebas Neue', sans-serif;
-      font-size: 1.1rem;
-      color: var(--accent);
-      letter-spacing: 0.05em;
+      font-size: 17px; color: var(--accent); letter-spacing: 0.04em;
     }
+
+    .card-right { text-align: right; flex-shrink: 0; padding-left: 8px; }
 
     .card-date {
-      font-family: 'Bebas Neue', sans-serif;
-      font-size: 1.1rem;
-      color: var(--accent);
-      letter-spacing: 0.05em;
-      text-align: right;
-      flex-shrink: 0;
+      font-size: 12px; color: var(--faint);
     }
-
     .card-date.cancelled-date { color: var(--accent2); }
 
     .card-relative-day {
-      font-size: 0.65rem;
-      color: var(--muted);
-      text-align: right;
-      letter-spacing: 0.03em;
-      margin-top: 2px;
+      font-size: 11px; color: var(--muted); margin-top: 2px;
     }
+
+    /* WOD expand */
+    .card-wod { display: none; margin-top: 12px; }
+    .has-wod.open .card-wod { display: block; }
+    .wod-chevron {
+      font-size: 14px; color: var(--accent);
+      display: inline-block; transition: transform 0.25s; margin-top: 4px;
+    }
+    .has-wod.open .wod-chevron { transform: rotate(180deg); }
 
     /* Empty / loading states */
     .empty {
@@ -435,24 +543,100 @@
 
     .card-header-left { flex: 1; }
 
-    .card-right {
-      display: flex;
-      flex-direction: column;
-      align-items: flex-end;
-      gap: 0.25rem;
-      flex-shrink: 0;
+    /* ── Recovery card wrapper ─────────────────────────────── */
+    .recovery-card-wrapper {
+      background: var(--surface); border-radius: var(--radius);
+      border: 1px solid var(--border); padding: 20px; margin-bottom: 12px;
+      position: relative; overflow: hidden;
     }
-
-    .wod-chevron {
-      font-size: 0.8rem;
-      color: var(--accent);
-      opacity: 0.45;
-      transition: transform 0.2s, opacity 0.2s;
-      line-height: 1;
+    .recovery-card-wrapper::before {
+      content: ''; position: absolute; top: 0; right: 0;
+      width: 140px; height: 140px;
+      background: radial-gradient(circle, rgba(232,255,60,0.04) 0%, transparent 70%);
+      pointer-events: none;
     }
+    .ai-coach-toggle {
+      margin-top: 14px; width: 100%; background: #0d0d0d;
+      border: 1px solid #2a2a2a; border-radius: var(--radius-sm);
+      padding: 10px 14px; display: flex; justify-content: space-between;
+      align-items: center; cursor: pointer; text-align: left;
+    }
+    .ai-coach-label { font-size: 12px; font-weight: 500; color: var(--accent); }
+    .ai-coach-chevron {
+      font-size: 14px; color: #444;
+      transition: transform 0.25s; flex-shrink: 0;
+    }
+    .ai-coach-toggle.open .ai-coach-chevron { transform: rotate(180deg); }
+    .ai-coach-body { display: none; margin-top: 10px; font-size: 13px; color: #aaa; line-height: 1.7; }
+    .ai-coach-toggle.open .ai-coach-body { display: block; }
 
-    .card.has-wod:hover .wod-chevron { opacity: 0.9; }
-    .card.has-wod.open .wod-chevron  { transform: rotate(180deg); opacity: 1; }
+    /* ── Next class card ───────────────────────────────────── */
+    .next-class-card {
+      background: var(--surface); border-radius: var(--radius);
+      border: 1px solid rgba(232,255,60,0.25); margin-bottom: 12px; overflow: hidden;
+    }
+    .next-class-bar { height: 3px; background: linear-gradient(90deg, var(--accent), rgba(232,255,60,0.3)); }
+    .next-class-inner { padding: 16px; }
+    .next-class-top { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 12px; }
+    .next-class-eyebrow {
+      font-size: 10px; color: var(--faint); font-weight: 600;
+      letter-spacing: 0.12em; text-transform: uppercase; margin-bottom: 4px;
+    }
+    .next-class-title {
+      font-family: 'Bebas Neue', sans-serif;
+      font-size: 22px; color: var(--text); letter-spacing: 0.04em;
+    }
+    .next-class-time {
+      font-family: 'Bebas Neue', sans-serif;
+      font-size: 30px; color: var(--accent); letter-spacing: 0.02em; text-align: right;
+    }
+    .next-class-weather { display: flex; gap: 8px; margin-bottom: 12px; }
+    .wod-toggle-btn {
+      width: 100%; background: rgba(232,255,60,0.07);
+      border: 1px solid rgba(232,255,60,0.15); border-radius: var(--radius-sm);
+      padding: 10px 14px; display: flex; justify-content: space-between;
+      align-items: center; cursor: pointer; color: var(--accent);
+      font-size: 12px; font-weight: 600;
+    }
+    .wod-toggle-btn .wod-chevron { margin-top: 0; }
+    .next-class-card.wod-open .next-class-wod { display: block; }
+    .next-class-wod { display: none; margin-top: 12px; }
+    .signup-cta {
+      width: 100%; background: var(--accent); color: #0d0d0d;
+      font-family: 'Bebas Neue', sans-serif; font-size: 18px;
+      letter-spacing: 0.08em; padding: 12px; border-radius: 10px;
+      border: none; cursor: pointer; margin-top: 12px;
+      transition: opacity 0.2s;
+    }
+    .signup-cta:hover { opacity: 0.9; }
+
+    /* ── Running progress (Today tab) ──────────────────────── */
+    .today-run-progress {
+      background: var(--surface); border-radius: var(--radius);
+      border: 1px solid var(--border); padding: 16px; margin-bottom: 12px;
+    }
+    .run-progress-header {
+      display: flex; justify-content: space-between; align-items: center; margin-bottom: 28px;
+    }
+    .run-progress-title {
+      font-size: 10px; color: var(--faint); font-weight: 600;
+      letter-spacing: 0.12em; text-transform: uppercase;
+    }
+    .run-progress-badge { font-size: 11px; color: var(--info); font-weight: 600; }
+    .run-progress-bar-wrapper { position: relative; }
+    .run-progress-markers { position: relative; height: 24px; }
+    .run-marker {
+      position: absolute; transform: translateX(-50%);
+      font-size: 10px; color: var(--faint); white-space: nowrap;
+    }
+    .run-marker.accent { color: var(--accent); font-weight: 600; }
+    .run-progress-track { height: 6px; background: #222; border-radius: 3px; }
+    .run-progress-fill {
+      height: 100%; background: linear-gradient(90deg, var(--info), var(--accent));
+      border-radius: 3px; transition: width 1s ease;
+    }
+    .run-next { margin-top: 16px; font-size: 12px; color: #666; }
+    .run-next-label { color: var(--info); font-weight: 600; }
 
     .card-wod {
       display: none;
@@ -1456,3 +1640,78 @@
     .add-event-status { font-size: 0.75rem; color: var(--muted); margin-right: auto; }
     .add-event-status.ok  { color: #4caf50; }
     .add-event-status.err { color: var(--accent2); }
+
+    /* ── Acties tab — workflow cards ───────────────────────── */
+    .acties-updated { font-size: 11px; color: #444; }
+    .acties-config { display: flex; flex-direction: column; gap: 8px; margin-bottom: 16px; }
+    .config-input {
+      background: #111; border: 1px solid #2a2a2a; border-radius: var(--radius-sm);
+      padding: 10px 14px; color: var(--text); font-family: 'DM Sans', sans-serif;
+      font-size: 13px; width: 100%; outline: none;
+    }
+    .config-input:focus { border-color: var(--accent); }
+    .config-input::placeholder { color: var(--faint); }
+    .workflow-card {
+      background: var(--surface); border-radius: var(--radius);
+      border: 1px solid var(--border); padding: 16px; margin-bottom: 10px;
+    }
+    .workflow-title {
+      font-family: 'Bebas Neue', sans-serif;
+      font-size: 19px; color: var(--text); letter-spacing: 0.04em; margin-bottom: 4px;
+    }
+    .workflow-desc { font-size: 12px; color: var(--muted); margin-bottom: 12px; }
+    .workflow-extras { display: flex; flex-wrap: wrap; gap: 12px; margin-bottom: 12px; }
+    .workflow-check {
+      display: flex; align-items: center; gap: 6px;
+      font-size: 12px; color: #777; cursor: pointer;
+    }
+    .workflow-check input { accent-color: var(--accent); width: 14px; height: 14px; }
+    .workflow-footer { display: flex; align-items: center; gap: 12px; }
+    .workflow-btn {
+      display: inline-flex; align-items: center; gap: 8px;
+      font-family: 'Bebas Neue', sans-serif; font-size: 16px;
+      letter-spacing: 0.06em; padding: 9px 18px; border-radius: var(--radius-sm);
+      cursor: pointer; transition: all 0.25s;
+      background: rgba(232,255,60,0.1); border: 1px solid rgba(232,255,60,0.4); color: var(--accent);
+    }
+    .workflow-btn.info { background: rgba(77,184,255,0.1); border-color: rgba(77,184,255,0.4); color: var(--info); }
+    .workflow-btn.purple { background: rgba(154,112,255,0.1); border-color: rgba(154,112,255,0.4); color: var(--purple); }
+    .workflow-btn.success { background: rgba(0,200,83,0.1); border-color: rgba(0,200,83,0.4); color: var(--success); }
+    .workflow-btn:disabled { opacity: 0.5; cursor: default; }
+    .workflow-status { font-size: 12px; color: var(--muted); }
+    .barbell-status { font-size: 11px; color: var(--faint); margin-top: 4px; padding: 8px 12px; background: var(--surface-deep); border-radius: 6px; }
+    .barbell-status.ok { color: var(--success); }
+    .barbell-status.fallback { color: var(--neutral); }
+
+    /* ── PR grid (Kracht tab) ──────────────────────────────── */
+    .pr-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 16px; }
+    .pr-card {
+      background: var(--surface); border-radius: var(--radius);
+      border: 1px solid var(--border); padding: 14px; cursor: pointer; transition: all 0.2s;
+    }
+    .pr-card.selected { background: rgba(232,255,60,0.07); border-color: rgba(232,255,60,0.3); }
+    .pr-card-name {
+      font-size: 10px; color: var(--faint); font-weight: 600;
+      letter-spacing: 0.1em; text-transform: uppercase; margin-bottom: 6px;
+    }
+    .pr-card.selected .pr-card-name { color: var(--accent); }
+    .pr-card-value {
+      font-family: 'Bebas Neue', sans-serif;
+      font-size: 30px; color: var(--text); letter-spacing: 0.04em;
+    }
+    .pr-card-unit { font-size: 14px; color: var(--faint); }
+    .pr-card-sub { font-size: 11px; color: var(--faint); margin-top: 2px; }
+
+    /* ── Animations ─────────────────────────────────────────── */
+    @keyframes fadeUp {
+      from { opacity: 0; transform: translateY(16px); }
+      to   { opacity: 1; transform: translateY(0); }
+    }
+    @keyframes fadeDown {
+      from { opacity: 0; transform: translateY(-12px); }
+      to   { opacity: 1; transform: translateY(0); }
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    @keyframes skeleton-pulse {
+      0%, 100% { opacity: 1; } 50% { opacity: 0.4; }
+    }

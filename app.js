@@ -1,7 +1,22 @@
     const DAY_NL = ['Zo', 'Ma', 'Di', 'Wo', 'Do', 'Vr', 'Za'];
     const MONTH_NL = ['jan', 'feb', 'mrt', 'apr', 'mei', 'jun', 'jul', 'aug', 'sep', 'okt', 'nov', 'dec'];
 
-    // Load saved Gist ID
+    // ── Tab system ────────────────────────────────────────────
+    let _activeTab = localStorage.getItem('sb_tab') || 'today';
+
+    function switchTab(tabId) {
+      _activeTab = tabId;
+      localStorage.setItem('sb_tab', tabId);
+      document.querySelectorAll('.tab-screen').forEach(s => s.classList.remove('active'));
+      document.querySelectorAll('.nav-btn').forEach(b => b.classList.toggle('active', b.dataset.tab === tabId));
+      const screen = document.getElementById('tab-' + tabId);
+      if (screen) { screen.classList.add('active'); screen.scrollTop = 0; }
+    }
+
+    // Activate saved tab on load (before data loads)
+    switchTab(_activeTab);
+
+    // ── Load saved Gist ID ────────────────────────────────────
     const savedGistId = localStorage.getItem('sportbit_gist_id');
     if (savedGistId) {
       document.getElementById('gistId').value = savedGistId;
@@ -718,8 +733,6 @@
     }
 
     function toggleWod(card) {
-      const wod = card.querySelector('.card-wod');
-      wod.style.display = wod.style.display === 'block' ? 'none' : 'block';
       card.classList.toggle('open');
     }
 
@@ -745,8 +758,8 @@
       localStorage.setItem('sportbit_gist_id', gistId);
       currentGistId = gistId;
 
-      const content = document.getElementById('content');
-      content.innerHTML = buildSkeleton();
+      const todayEl = document.getElementById('today-content');
+      if (todayEl) todayEl.innerHTML = buildSkeleton();
 
 
       const token = document.getElementById('githubToken').value.trim();
@@ -779,33 +792,13 @@
         document.getElementById('lastUpdated').textContent =
           new Date(gist.updated_at).toLocaleString('nl-NL');
 
-        let html = '';
-
-        // Unified recovery block (Garmin/Intervals.icu + Withings + subjectief gevoel)
-        html += `<div id="recoveryTodayWrapper">${renderRecoveryTodayBlock()}</div>`;
-        if (recoveryAdvice) {
-          const adviceLabel = recoveryAdviceFromHistory
-            ? `Coach Advies (${recoveryAdviceHistory[recoveryAdviceHistory.length - 1].date})`
-            : 'Coach Advies Vandaag';
-          html += `<div class="recovery-block">
-            <div class="recovery-block-label">${adviceLabel}</div>
-            <div class="recovery-block-body">${marked.parse(recoveryAdvice)}</div>
-          </div>`;
-        }
-
-        // Meals block (Keukenbaas) en MFP worden na de Eerder-sectie getoond
-
-        // Upcoming: CrossFit classes + personal events + running plan combined
+        // Build shared data structures
         _upcomingCrossfit = upcoming;
-        const todayForRun = new Date().toISOString().slice(0, 10);
         const cutoffRun = (() => { const d = new Date(); d.setDate(d.getDate() + 14); return d.toISOString().slice(0, 10); })();
         const upcomingPersonal = personalEvents.filter(e => isUpcoming(e.date, e.time || null));
         const upcomingRuns = runningPlanData
           ? (runningPlanData.workouts || [])
-              .filter(s => {
-                const t = s.time || (s.session === 'speed' ? '20:00' : '09:00');
-                return isUpcoming(s.date, t) && s.date <= cutoffRun;
-              })
+              .filter(s => { const t = s.time || (s.session === 'speed' ? '20:00' : '09:00'); return isUpcoming(s.date, t) && s.date <= cutoffRun; })
               .map(s => ({ ...s, _src: 'run' }))
           : [];
         const allUpcoming = [
@@ -814,132 +807,266 @@
           ...upcomingRuns,
         ].sort((a, b) => a.date.localeCompare(b.date) || (a.time || '').localeCompare(b.time || ''));
 
-        if (deloadAlert) {
-          html += `<div class="deload-banner">⚠️ Herstelweek aanbevolen — je lichaam geeft overbelastingssignalen. Schaal WODs naar 60–70% en prioriteer slaap.</div>`;
-        }
-        html += `<div class="section-title">Aankomend <button class="add-event-btn" onclick="showAddEventForm()">+ Toevoegen</button></div>`;
-        html += `<div id="addEventFormWrapper"></div>`;
-        html += `<div class="cards" id="upcomingCards">`;
-        if (allUpcoming.length === 0) {
-          html += `<div class="empty"><span class="empty-icon">📅</span>Geen aankomende events</div>`;
-        } else {
-          allUpcoming.forEach((e, i) => {
-            if (e._src === 'crossfit') html += renderCard(e, 'active', i * 0.05, wodByDate[e.date]);
-            else if (e._src === 'run') html += renderRunEventCard(e, i * 0.05);
-            else html += renderPersonalEventCard(e, i * 0.05);
-          });
-        }
-        html += `</div>`;
-
-        // Cancelled — only today + next 8 days
         const todayStr = new Date().toISOString().slice(0, 10);
         const maxDateStr = (() => { const d = new Date(); d.setDate(d.getDate() + 8); return d.toISOString().slice(0, 10); })();
         const recentCancelled = cancelled.filter(e => e.date >= todayStr && e.date <= maxDateStr);
-        if (recentCancelled.length > 0) {
-          html += `<div class="section-title">Uitgeschreven</div><div class="cards">`;
-          recentCancelled.forEach((e, i) => html += renderCard(e, 'cancelled', i * 0.05));
-          html += `</div>`;
-        }
 
-        // Past: CrossFit lessen + standalone activiteiten (intervals/Strava zonder les)
-        {
-          const classDates = new Set(signedUp.map(e => e.date));
+        const classDates = new Set(signedUp.map(e => e.date));
+        const cutoff21 = new Date(); cutoff21.setDate(cutoff21.getDate() - 21);
+        const cutoffStr = cutoff21.toISOString().slice(0, 10);
+        const activityDates = new Set([
+          ...Object.keys((intervalsData?.activities || {}).by_date || {}),
+          ...Object.keys((stravaData?.activities_by_date) || {}),
+        ]);
+        const orphanDates = Array.from(activityDates).filter(d => !classDates.has(d) && d >= cutoffStr && d <= todayStr);
+        const pastRuns = runningPlanData
+          ? (runningPlanData.workouts || []).filter(s => { const t = s.time || (s.session === 'speed' ? '20:00' : '09:00'); return s.date >= cutoffStr && !isUpcoming(s.date, t) && !activityDates.has(s.date); })
+          : [];
+        const pastItems = [
+          ...past.slice(-5).map(e => ({ type: 'class', date: e.date, item: e })),
+          ...orphanDates.map(d => ({ type: 'activity', date: d })),
+          ...pastRuns.map(s => ({ type: 'run', date: s.date, item: s })),
+        ].sort((a, b) => b.date.localeCompare(a.date)).slice(0, 8);
 
-          // Activiteitsdatums zonder bijbehorende les (laatste 21 dagen)
-          const cutoff = new Date(); cutoff.setDate(cutoff.getDate() - 21);
-          const cutoffStr = cutoff.toISOString().slice(0, 10);
-          const activityDates = new Set([
-            ...Object.keys((intervalsData?.activities || {}).by_date || {}),
-            ...Object.keys((stravaData?.activities_by_date) || {}),
-          ]);
-          const orphanDates = Array.from(activityDates)
-            .filter(d => !classDates.has(d) && d >= cutoffStr && d <= new Date().toISOString().slice(0, 10));
-
-          // Bouw gecombineerde lijst: {type, date, item?}
-          const pastRuns = runningPlanData
-            ? (runningPlanData.workouts || []).filter(s => {
-                const t = s.time || (s.session === 'speed' ? '20:00' : '09:00');
-                // Skip if already shown as a recorded activity card
-                return s.date >= cutoffStr && !isUpcoming(s.date, t) && !activityDates.has(s.date);
-              })
-            : [];
-          const pastItems = [
-            ...past.slice(-5).map(e => ({ type: 'class', date: e.date, item: e })),
-            ...orphanDates.map(d => ({ type: 'activity', date: d })),
-            ...pastRuns.map(s => ({ type: 'run', date: s.date, item: s })),
-          ];
-          pastItems.sort((a, b) => b.date.localeCompare(a.date));
-          const pastSlice = pastItems.slice(0, 8); // max 8 kaarten
-
-          if (pastSlice.length > 0) {
-            html += `<div class="section-title">Eerder</div><div class="cards">`;
-            pastSlice.forEach((entry, i) => {
-              if (entry.type === 'class') {
-                html += renderPastCard(entry.item, i * 0.05);
-              } else if (entry.type === 'run') {
-                html += renderRunEventCard(entry.item, i * 0.05);
-              } else {
-                html += renderActivityCard(entry.date, i * 0.05);
-              }
-            });
-            html += `</div>`;
-          }
-        }
-
-        // Voeding (Keukenbaas + MyFitnessPal) na Eerder-sectie
-        const mealsHtml = renderMealsBlock();
-        if (mealsHtml) html += mealsHtml;
-        const mfpHtml = renderMfpBlock();
-        if (mfpHtml) html += mfpHtml;
-
-        // Barbell progressie (table + chart)
-        if (Object.keys(barbellLifts).length > 0) {
-          html += `<div class="section-title collapsible" onclick="toggleSection(this)">Kracht</div><div class="collapsible-body">${renderBarbellSection()}</div>`;
-        }
-
-        // Personal Records
-        if (personalRecords.length > 0) {
-          const sorted = [...personalRecords].sort((a, b) =>
-            (b.date || '').localeCompare(a.date || '')
-          );
-          html += `<div class="section-title collapsible" onclick="toggleSection(this)">Persoonlijke Records</div><div class="collapsible-body"><div class="pr-list">`;
-          sorted.forEach((pr, i) => {
-            const dateLabel = pr.date ? formatPrDate(pr.date) : '—';
-            html += `<div class="pr-item" style="animation-delay:${i * 0.03}s">
-              <div class="pr-workout">${escapeHtml(pr.workout)}</div>
-              ${pr.result ? `<div class="pr-result">${escapeHtml(pr.result)}</div>` : ''}
-              ${pr.notes ? `<div class="pr-notes">${escapeHtml(pr.notes)}</div>` : ''}
-              <div class="pr-date">${dateLabel}</div>
-            </div>`;
-          });
-          html += `</div></div>`;
-        }
-
-        // Benchmark Workouts
-        if (benchmarkWorkouts.length > 0) {
-          html += `<div class="section-title collapsible" onclick="toggleSection(this)">Benchmark Workouts</div><div class="collapsible-body">` + renderBenchmarks(benchmarkWorkouts) + `</div>`;
-        }
-
-        // Hardloopplan
-        const runningPlanHtml = renderRunningPlanSection();
-        if (runningPlanHtml) {
-          html += `<div class="section-title collapsible" onclick="toggleSection(this)">Hardloopplan</div>
-                   <div class="collapsible-body">${runningPlanHtml}</div>`;
-        }
-
-        // Data bronnen inspector
-        html += renderDataSourcesBlock();
-
-        content.innerHTML = html;
-
-        // Initialize chart after DOM is ready
-        if (Object.keys(barbellLifts).length > 0) {
-          initBarbellChart();
-        }
+        // Render each tab
+        renderTodayTab(upcoming, past, allUpcoming);
+        renderSchemaTab(allUpcoming, recentCancelled, pastItems);
+        renderStatsTab();
+        renderPlanTab();
+        renderActiesTab(gist.updated_at);
 
       } catch (e) {
-        content.innerHTML = `<div class="error-msg">❌ ${e.message}</div>`;
+        const el = document.getElementById('today-content');
+        if (el) el.innerHTML = `<div class="error-msg">❌ ${e.message}</div>`;
       }
+    }
+
+    // ── Tab render functions ──────────────────────────────────
+
+    function renderTodayTab(upcoming, past, allUpcoming) {
+      const el = document.getElementById('today-content');
+      if (!el) return;
+      const now = new Date();
+      const dayNames = ['zondag','maandag','dinsdag','woensdag','donderdag','vrijdag','zaterdag'];
+      const monthNames = ['januari','februari','maart','april','mei','juni','juli','augustus','september','oktober','november','december'];
+      const dateLabel = `${dayNames[now.getDay()]} ${now.getDate()} ${monthNames[now.getMonth()]}`;
+
+      let h = `<div class="today-header">
+        <div class="today-date">${dateLabel}</div>
+        <div class="today-greeting">Goedemorgen, Ralph</div>
+      </div>`;
+
+      // Recovery + AI coach
+      const recoveryBlock = renderRecoveryTodayBlock();
+      if (recoveryBlock || recoveryAdvice) {
+        h += `<div class="recovery-card-wrapper">${recoveryBlock || ''}`;
+        if (recoveryAdvice) {
+          const label = recoveryAdviceFromHistory
+            ? `Coach Advies (${recoveryAdviceHistory[recoveryAdviceHistory.length-1].date})`
+            : 'AI Coach advies';
+          h += `<div class="ai-coach-toggle" onclick="this.classList.toggle('open')">
+            <span class="ai-coach-label">${label}</span>
+            <span class="ai-coach-chevron">▾</span>
+            <div class="ai-coach-body">${marked.parse(recoveryAdvice)}</div>
+          </div>`;
+        }
+        h += `</div>`;
+      }
+
+      if (deloadAlert) h += `<div class="deload-banner">⚠️ Herstelweek aanbevolen — schaal WODs naar 60–70%.</div>`;
+
+      // Next class card
+      const nextCF = allUpcoming.find(e => e._src === 'crossfit');
+      if (nextCF) {
+        const wods = wodByDate[nextCF.date] || [];
+        const cap = classCapacity[`${nextCF.date}_${nextCF.time}`];
+        const capHtml = (cap?.max) ? `<span class="capacity-badge ${cap.current/cap.max>=1?'full':cap.current/cap.max>=0.8?'near-full':'open'}">${cap.current}/${cap.max}</span>` : '';
+        const envBadge = renderEnvBadge(nextCF.date);
+        const sections = wods.length ? renderWodSections(wods, nextCF.date) : '';
+        h += `<div class="next-class-card" id="next-class-${nextCF.date}">
+          <div class="next-class-bar"></div>
+          <div class="next-class-inner">
+            <div class="next-class-top">
+              <div class="next-class-left">
+                <div class="next-class-eyebrow">Volgende les — ${relativeDay(nextCF.date)}</div>
+                <div class="next-class-title">${escapeHtml(nextCF.title || 'CrossFit Hilversum')}</div>
+              </div>
+              <div class="next-class-right">
+                <div class="next-class-time">${nextCF.time}</div>
+                ${capHtml}
+              </div>
+            </div>
+            ${envBadge ? `<div class="next-class-weather">${envBadge}</div>` : ''}
+            ${sections ? `<button class="wod-toggle-btn" onclick="this.closest('.next-class-card').classList.toggle('wod-open')">
+              <span>Bekijk WOD</span><span class="wod-chevron">▾</span>
+            </button>
+            <div class="next-class-wod">${sections}</div>
+            <button class="signup-cta" onclick="triggerSignup()">Inschrijven</button>` : ''}
+          </div>
+        </div>`;
+      }
+
+      // Stats row
+      const thisM = now.getMonth(), thisY = now.getFullYear();
+      const monthCount = past.filter(e => { const d = new Date(e.date+'T00:00:00'); return d.getMonth()===thisM && d.getFullYear()===thisY; }).length;
+      const rawEst = runningPlanData?.estimated_5k_seconds;
+      const est5k = (rawEst && rawEst <= 32*60) ? rawEst : null;
+      const fiveK = est5k ? `${Math.floor(est5k/60)}:${String(est5k%60).padStart(2,'0')}` : '—';
+      h += `<div class="stats-row">
+        <div class="stat-card"><div class="stat-value accent">${upcoming.length}</div><div class="stat-label">Aankomend</div><div class="stat-sub">lessen</div></div>
+        <div class="stat-card"><div class="stat-value">${monthCount}</div><div class="stat-label">Deze maand</div><div class="stat-sub">trainingen</div></div>
+        <div class="stat-card"><div class="stat-value">${fiveK}</div><div class="stat-label">5K PR</div><div class="stat-sub">→ 26:00</div></div>
+      </div>`;
+
+      // Nutrition
+      const mealsHtml = renderMealsBlock(); if (mealsHtml) h += mealsHtml;
+      const mfpHtml = renderMfpBlock(); if (mfpHtml) h += mfpHtml;
+
+      // Running progress
+      if (est5k) {
+        const goal=26*60, start=28*60;
+        const pct = Math.round((start - Math.min(Math.max(est5k,goal),start)) / (start-goal) * 100);
+        const nextRun = (runningPlanData?.workouts||[]).find(s => isUpcoming(s.date, s.time||(s.session==='speed'?'20:00':'09:00')));
+        h += `<div class="today-run-progress">
+          <div class="run-progress-header">
+            <span class="run-progress-title">5K Progressie</span>
+            <span class="run-progress-badge">Hardlopen</span>
+          </div>
+          <div class="run-progress-bar-wrapper">
+            <div class="run-progress-markers">
+              <span class="run-marker" style="left:0%">28:00</span>
+              <span class="run-marker accent" style="left:${pct}%">${fiveK}</span>
+              <span class="run-marker" style="left:100%">26:00</span>
+            </div>
+            <div class="run-progress-track"><div class="run-progress-fill" style="width:${pct}%"></div></div>
+          </div>
+          ${nextRun ? `<div class="run-next">Volgende run: <span class="run-next-label">${formatDate(nextRun.date)} — ${escapeHtml(nextRun.name||nextRun.type||'Run')}</span></div>` : ''}
+        </div>`;
+      }
+
+      el.innerHTML = h;
+    }
+
+    function renderSchemaTab(allUpcoming, recentCancelled, pastItems) {
+      const el = document.getElementById('schema-content');
+      if (!el) return;
+      let h = `<div class="tab-page-header">
+        <div class="tab-page-title">Aankomend</div>
+        <button class="add-event-btn" onclick="showAddEventForm()">+ Toevoegen</button>
+      </div>
+      <div id="addEventFormWrapper"></div>
+      <div class="cards" id="upcomingCards">`;
+      if (allUpcoming.length === 0) {
+        h += `<div class="empty"><span class="empty-icon">📅</span>Geen aankomende events</div>`;
+      } else {
+        allUpcoming.forEach((e,i) => {
+          if (e._src==='crossfit') h += renderCard(e,'active',i*0.05,wodByDate[e.date]);
+          else if (e._src==='run') h += renderRunEventCard(e,i*0.05);
+          else h += renderPersonalEventCard(e,i*0.05);
+        });
+      }
+      h += `</div>`;
+      if (recentCancelled.length > 0) {
+        h += `<div class="section-title">Uitgeschreven</div><div class="cards">`;
+        recentCancelled.forEach((e,i) => h += renderCard(e,'cancelled',i*0.05));
+        h += `</div>`;
+      }
+      if (pastItems.length > 0) {
+        h += `<div class="section-title">Eerder</div><div class="cards">`;
+        pastItems.forEach((entry,i) => {
+          if (entry.type==='class') h += renderPastCard(entry.item,i*0.05);
+          else if (entry.type==='run') h += renderRunEventCard(entry.item,i*0.05);
+          else h += renderActivityCard(entry.date,i*0.05);
+        });
+        h += `</div>`;
+      }
+      el.innerHTML = h;
+    }
+
+    function renderStatsTab() {
+      const el = document.getElementById('stats-content');
+      if (!el) return;
+      let h = `<div class="tab-page-header"><div class="tab-page-title">Kracht & PR's</div></div>`;
+      if (Object.keys(barbellLifts).length > 0) {
+        h += `<div class="section-title collapsible" onclick="toggleSection(this)">Barbell</div><div class="collapsible-body">${renderBarbellSection()}</div>`;
+      }
+      if (personalRecords.length > 0) {
+        const sorted = [...personalRecords].sort((a,b) => (b.date||'').localeCompare(a.date||''));
+        h += `<div class="section-title collapsible" onclick="toggleSection(this)">Persoonlijke Records</div><div class="collapsible-body"><div class="pr-list">`;
+        sorted.forEach((pr,i) => {
+          h += `<div class="pr-item" style="animation-delay:${i*0.03}s">
+            <div class="pr-workout">${escapeHtml(pr.workout)}</div>
+            ${pr.result?`<div class="pr-result">${escapeHtml(pr.result)}</div>`:''}
+            ${pr.notes?`<div class="pr-notes">${escapeHtml(pr.notes)}</div>`:''}
+            <div class="pr-date">${pr.date?formatPrDate(pr.date):'—'}</div>
+          </div>`;
+        });
+        h += `</div></div>`;
+      }
+      if (benchmarkWorkouts.length > 0) {
+        h += `<div class="section-title collapsible" onclick="toggleSection(this)">Benchmark Workouts</div><div class="collapsible-body">${renderBenchmarks(benchmarkWorkouts)}</div>`;
+      }
+      el.innerHTML = h;
+      if (Object.keys(barbellLifts).length > 0) initBarbellChart();
+    }
+
+    function renderPlanTab() {
+      const el = document.getElementById('plan-content');
+      if (!el) return;
+      let h = `<div class="tab-page-header"><div class="tab-page-title">Hardloopplan</div></div>`;
+      const planHtml = renderRunningPlanSection();
+      h += planHtml || `<div class="empty">📋 Geen hardloopplan beschikbaar</div>`;
+      el.innerHTML = h;
+    }
+
+    function renderActiesTab(updatedAt) {
+      const el = document.getElementById('acties-content');
+      if (!el) return;
+      const updLabel = updatedAt ? new Date(updatedAt).toLocaleString('nl-NL') : '—';
+      let h = `<div class="tab-page-header">
+        <div class="tab-page-title">Acties & Sync</div>
+        <div class="acties-updated">Bijgewerkt · <span id="lastUpdated">${updLabel}</span></div>
+      </div>
+      <div class="acties-config">
+        <input type="text" id="gistId-vis" class="config-input" placeholder="Gist ID" value="${escapeHtml(currentGistId)}"
+          onchange="document.getElementById('gistId').value=this.value;localStorage.setItem('sportbit_gist_id',this.value);loadData()">
+        <input type="password" id="githubToken-vis" class="config-input" placeholder="GitHub Token">
+      </div>`;
+
+      const wfs = [
+        { btnId:'signupBtn', statusId:'signupStatus', icon:'⚡', title:'Inschrijven', desc:'CrossFit auto-inschrijving & Google Calendar sync', fn:'triggerSignup()', cls:'' },
+        { btnId:'syncBtn', statusId:'syncStatus', icon:'↻', title:'SugarWOD Sync', desc:'WOD, kracht, persoonlijke records, AI coaching', fn:'triggerSync()', cls:'info',
+          extras:[{id:'skipAISync',label:'AI coaching overslaan'}] },
+        { btnId:'healthBtn', statusId:'healthStatus', icon:'♥', title:'Health Refresh', desc:'Strava, Intervals.icu, Withings, omgevingsdata', fn:'triggerHealthRefresh()', cls:'purple',
+          extras:[{id:'skipStravaHealth',label:'Strava overslaan'},{id:'skipIntervalsHealth',label:'Intervals.icu overslaan'},{id:'skipWithingsHealth',label:'Withings overslaan'}] },
+        { btnId:'runningPlanBtn', statusId:'runningPlanStatus', icon:'🏃', title:'Hardloopplan', desc:'Nieuw hardloopschema genereren via Claude', fn:'triggerRunningPlan()', cls:'success' },
+      ];
+      wfs.forEach(w => {
+        const extras = (w.extras||[]).map(ex => `<label class="workflow-check"><input type="checkbox" id="${ex.id}"> ${ex.label}</label>`).join('');
+        h += `<div class="workflow-card">
+          <div class="workflow-title">${w.icon} ${w.title}</div>
+          <div class="workflow-desc">${w.desc}</div>
+          ${extras ? `<div class="workflow-extras">${extras}</div>` : ''}
+          <div class="workflow-footer">
+            <button id="${w.btnId}" class="workflow-btn ${w.cls}" onclick="${w.fn}">${w.icon} ${w.title}</button>
+            <span id="${w.statusId}" class="workflow-status"></span>
+          </div>
+        </div>`;
+      });
+
+      h += `<div id="barbellStatus" class="barbell-status"></div>`;
+      h += renderDataSourcesBlock();
+      el.innerHTML = h;
+
+      // Sync visible token input with hidden input
+      const savedTok = localStorage.getItem('sportbit_github_token');
+      const tokVis = document.getElementById('githubToken-vis');
+      if (savedTok && tokVis) tokVis.value = savedTok;
+      if (tokVis) tokVis.addEventListener('change', e => {
+        const t = e.target.value.trim();
+        document.getElementById('githubToken').value = t;
+        if (t) localStorage.setItem('sportbit_github_token', t);
+      });
     }
 
     async function triggerSync() {
