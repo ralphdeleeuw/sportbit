@@ -2097,9 +2097,7 @@
           <div id="rsstatus-${cardId}" style="font-size:0.72rem;color:var(--muted);margin-top:0.4rem"></div>
         </div>` : '';
 
-      const cardStyle = isUpcoming && session.description
-        ? 'border-radius:8px 8px 0 0;border-bottom-color:transparent;'
-        : '';
+      const cardStyle = '';
 
       return `
         <div>
