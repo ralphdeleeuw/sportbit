@@ -3493,9 +3493,8 @@
       const cardId = 'run' + session.date.replace(/-/g, '');
 
       const distStr = session.total_distance_km ? `${session.total_distance_km} km` : '';
-      const durStr = session.total_duration_min ? `${session.total_duration_min} min` : '';
-      const metaParts = [distStr, durStr].filter(Boolean).join(' · ');
-      const metaHtml = metaParts ? `<div class="card-meta"><span>${metaParts}</span></div>` : '';
+      const distHtml = distStr ? `<div class="card-meta" style="text-align:right">${distStr}</div>` : '';
+      const metaHtml = `<div class="card-meta"><span class="card-time">${sessionTime}</span></div>`;
 
       const actualRun = !isUpcoming ? _findActualRun(session.date) : null;
       const actualHtml = actualRun ? _renderActualRunStats(actualRun) : '';
@@ -3552,7 +3551,8 @@
                 </div>
                 <div class="card-right">
                   ${rescheduleBtn}
-                  <div class="card-date" style="color:#00c853">${formatDate(session.date)} ${sessionTime}</div>
+                  <div class="card-date" style="color:#00c853">${formatDate(session.date)}</div>
+                  ${distHtml}
                   <div class="card-relative-day">${relativeDay(session.date)}</div>
                   ${chevron}
                 </div>
