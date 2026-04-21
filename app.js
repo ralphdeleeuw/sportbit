@@ -1057,8 +1057,8 @@
         { btnId:'signupBtn', statusId:'signupStatus', icon:'⚡', title:'Inschrijven', desc:'CrossFit auto-inschrijving & Google Calendar sync', fn:'triggerSignup()', cls:'' },
         { btnId:'syncBtn', statusId:'syncStatus', icon:'↻', title:'SugarWOD Sync', desc:'WOD, kracht, persoonlijke records, AI coaching', fn:'triggerSync()', cls:'info',
           extras:[{id:'skipAISync',label:'AI coaching overslaan'}] },
-        { btnId:'healthBtn', statusId:'healthStatus', icon:'♥', title:'Health Refresh', desc:'Strava, Intervals.icu, Withings, omgevingsdata', fn:'triggerHealthRefresh()', cls:'purple',
-          extras:[{id:'skipStravaHealth',label:'Strava overslaan'},{id:'skipIntervalsHealth',label:'Intervals.icu overslaan'},{id:'skipWithingsHealth',label:'Withings overslaan'}] },
+        { btnId:'healthBtn', statusId:'healthStatus', icon:'♥', title:'Health Refresh', desc:'Strava, Intervals.icu, Withings, MyFitnessPal, omgevingsdata', fn:'triggerHealthRefresh()', cls:'purple',
+          extras:[{id:'skipStravaHealth',label:'Strava overslaan'},{id:'skipIntervalsHealth',label:'Intervals.icu overslaan'},{id:'skipWithingsHealth',label:'Withings overslaan'},{id:'skipMFPHealth',label:'MyFitnessPal overslaan'}] },
         { btnId:'runningPlanBtn', statusId:'runningPlanStatus', icon:'🏃', title:'Hardloopplan', desc:'Nieuw hardloopschema genereren via Claude', fn:'triggerRunningPlan()', cls:'success' },
       ];
       wfs.forEach(w => {
@@ -1153,6 +1153,7 @@
       const skipStrava = document.getElementById('skipStravaHealth').checked;
       const skipIntervals = document.getElementById('skipIntervalsHealth').checked;
       const skipWithings = document.getElementById('skipWithingsHealth').checked;
+      const skipMFP = document.getElementById('skipMFPHealth').checked;
 
       if (!token) {
         statusEl.textContent = 'Vul eerst je GitHub Token in (nodig om workflow te starten)';
@@ -1172,6 +1173,7 @@
         if (skipStrava) inputs.skip_strava = true;
         if (skipIntervals) inputs.skip_intervals = true;
         if (skipWithings) inputs.skip_withings = true;
+        if (skipMFP) inputs.skip_myfitnesspal = true;
 
         const resp = await fetch(
           'https://api.github.com/repos/ralphdeleeuw/sportbit/actions/workflows/fetch_health_data.yml/dispatches',
