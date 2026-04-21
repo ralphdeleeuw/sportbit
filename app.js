@@ -975,7 +975,7 @@
       if (!el) return;
       let h = `<div class="tab-page-header"><div class="tab-page-title">Kracht & PR's</div></div>`;
       if (Object.keys(barbellLifts).length > 0) {
-        h += `<div class="section-title collapsible" onclick="toggleSection(this)">Barbell</div><div class="collapsible-body">${renderBarbellSection()}</div>`;
+        h += `<div class="section-title">Barbell Maxima</div>${renderBarbellSection()}`;
       }
       if (personalRecords.length > 0) {
         const sorted = [...personalRecords].sort((a,b) => (b.date||'').localeCompare(a.date||''));
@@ -994,7 +994,6 @@
         h += `<div class="section-title collapsible" onclick="toggleSection(this)">Benchmark Workouts</div><div class="collapsible-body">${renderBenchmarks(benchmarkWorkouts)}</div>`;
       }
       el.innerHTML = h;
-      if (Object.keys(barbellLifts).length > 0) initBarbellChart();
     }
 
     function renderPlanTab() {
@@ -1807,38 +1806,7 @@
     ];
 
     function renderBarbellSection() {
-      // Build buttons only for lifts we have history OR current data for
-      const availableLifts = TOP_LIFTS.filter(l => barbellLifts[l] || barbellLiftsHistory.some(h => h.lifts && h.lifts[l]));
-      if (availableLifts.length === 0) {
-        // Fallback: just show table
-        return `<div class="section-title">Kracht Maxima</div>` + renderBarbellTable();
-      }
-
-      activeChartLift = activeChartLift && availableLifts.includes(activeChartLift)
-        ? activeChartLift
-        : availableLifts[0];
-
-      const buttons = availableLifts.map(l =>
-        `<button class="chart-lift-btn${l === activeChartLift ? ' active' : ''}" onclick="selectLift('${escapeHtml(l)}')">${escapeHtml(l)}</button>`
-      ).join('');
-
-      const historyCount = barbellLiftsHistory.length;
-      const historyNote = historyCount > 1
-        ? `<span style="font-size:0.68rem;color:var(--muted);margin-left:auto">${historyCount} meetpunten</span>`
-        : `<span style="font-size:0.68rem;color:var(--muted);margin-left:auto">Nog geen history — groeit elke dag</span>`;
-
-      return `<div class="section-title">Kracht Progressie</div>
-        <div class="chart-section">
-          <div class="chart-controls">
-            ${buttons}
-            ${historyNote}
-          </div>
-          <div class="chart-container">
-            <canvas id="liftChartCanvas"></canvas>
-          </div>
-        </div>
-        <div class="section-title">Barbell Maxima</div>
-        ${renderBarbellTable()}`;
+      return renderBarbellTable();
     }
 
     function renderBarbellTable() {
