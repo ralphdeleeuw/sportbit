@@ -1,5 +1,6 @@
     const DAY_NL = ['Zo', 'Ma', 'Di', 'Wo', 'Do', 'Vr', 'Za'];
     const MONTH_NL = ['jan', 'feb', 'mrt', 'apr', 'mei', 'jun', 'jul', 'aug', 'sep', 'okt', 'nov', 'dec'];
+    let currentGistId = '';
 
     // ── Tab system ────────────────────────────────────────────
     let _activeTab = localStorage.getItem('sb_tab') || 'today';
@@ -21,6 +22,9 @@
     if (savedGistId) {
       document.getElementById('gistId').value = savedGistId;
       loadData();
+    } else {
+      const todayEl = document.getElementById('today-content');
+      if (todayEl) todayEl.innerHTML = `<div class="empty-state"><p>Ga naar <strong>Acties</strong> om je Gist ID in te stellen.</p></div>`;
     }
 
     function formatDate(dateStr) {
@@ -136,7 +140,6 @@
     let runningPlanData = null; // {generated_at, week_number, workouts: [{date, type, name, description, total_duration_min}]}
     let activeChartLift = null;
     let liftChart = null;
-    let currentGistId = '';
 
     const MAIN_KEYWORDS = ['metcon', 'weightlifting', 'team metcon', 'strength', 'conditioning'];
 
@@ -148,6 +151,9 @@
       const t = document.getElementById('githubToken').value.trim();
       if (t) localStorage.setItem('sportbit_github_token', t);
     });
+
+    // Render Acties tab so config inputs are always accessible regardless of data state
+    renderActiesTab(null);
 
     function stripHtml(html) {
       const div = document.createElement('div');
@@ -789,8 +795,8 @@
         const past = signedUp.filter(e => !isUpcoming(e.date, e.time));
 
 
-        document.getElementById('lastUpdated').textContent =
-          new Date(gist.updated_at).toLocaleString('nl-NL');
+        const lastUpdatedEl = document.getElementById('lastUpdated');
+        if (lastUpdatedEl) lastUpdatedEl.textContent = new Date(gist.updated_at).toLocaleString('nl-NL');
 
         // Build shared data structures
         _upcomingCrossfit = upcoming;

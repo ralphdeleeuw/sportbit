@@ -527,6 +527,17 @@
       font-size: 0.85rem;
       animation: fadeUp 0.4s ease both;
     }
+    .empty-state {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      padding: 4rem 2rem;
+      color: var(--muted);
+      text-align: center;
+      font-size: 0.9rem;
+    }
+    .empty-state strong { color: var(--accent); }
 
     /* Card with inline WOD */
     .card.has-wod {
