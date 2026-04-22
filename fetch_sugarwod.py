@@ -2259,7 +2259,16 @@ def generate_recovery_advice(
             tsb = garmin_entry.get("tsb")
             if ctl is not None and atl is not None:
                 if tsb is not None:
-                    tsb_label = "fresh" if tsb > 5 else "fatigued" if tsb < -10 else "neutral"
+                    if tsb > 5:
+                        tsb_label = "fresh / race-ready"
+                    elif tsb > 0:
+                        tsb_label = "transitioning (slightly fresh)"
+                    elif tsb > -10:
+                        tsb_label = "neutral (gray zone)"
+                    elif tsb > -30:
+                        tsb_label = "optimal training load"
+                    else:
+                        tsb_label = "high risk / overloaded"
                     g_lines.append(f"- Training Form (TSB): {tsb:+.0f} ({tsb_label}) — fitness {ctl:.0f}, fatigue {atl:.0f}")
                 else:
                     g_lines.append(f"- Fitness (CTL): {ctl:.0f}, fatigue (ATL): {atl:.0f}")
@@ -2471,9 +2480,19 @@ def generate_recovery_advice(
 
     deload_block = ""
     if deload_detected:
-        deload_block = "\n⚠️ OVERTRAINING RISK DETECTED: The athlete is showing signs of overload (persistent negative TSB and/or prolonged muscle soreness). STRONGLY advise a recovery week: scale all WODs to 60-70% intensity, prioritize sleep and nutrition, limit extra activities.\n"
+        deload_block = "\n⚠️ OVERTRAINING RISK DETECTED: The athlete is showing signs of overload (TSB below -30 and/or prolonged muscle soreness). STRONGLY advise a recovery week: scale all WODs to 60-70% intensity, prioritize sleep and nutrition, limit extra activities.\n"
+
+    tsb_zone_note = """TSB zone reference (Training Stress Balance = fitness − fatigue):
+- TSB > +5: Fresh / race-ready — body is recovered, great for competition or testing
+- TSB 0 to +5: Transition — slightly fresh, good for intensity
+- TSB -10 to 0: Neutral / gray zone — normal training state
+- TSB -30 to -10: OPTIMAL training load — productive adaptation zone; negative TSB here is normal and desired, NOT a sign of overtraining
+- TSB < -30: High risk — genuine overload, real fatigue requiring recovery
+A negative TSB within the optimal range (-10 to -30) means the athlete is accumulating productive training stress. Do NOT treat this as a reason to hold back unless combined with HRV suppression, sleep disruption, or subjective fatigue markers."""
 
     prompt = f"""You are an experienced CrossFit coach. Give short, personal recovery advice for today.
+
+{tsb_zone_note}
 
 Today is: {today_str}
 
