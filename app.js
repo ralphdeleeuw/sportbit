@@ -55,6 +55,8 @@
     }
 
     function isUpcoming(dateStr, timeStr) {
+      const todayStr = new Date().toISOString().slice(0, 10);
+      if (dateStr === todayStr) return true;
       const classStart = new Date(dateStr + 'T' + (timeStr || '00:00') + ':00');
       return classStart > new Date();
     }
