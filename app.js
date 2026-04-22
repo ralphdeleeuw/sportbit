@@ -1663,8 +1663,18 @@
 
       // TSB badge
       const tsb = w?.tsb;
-      const tsbColor = tsb == null ? '#888' : tsb > 5 ? '#2ecc71' : tsb < -10 ? '#e74c3c' : '#f39c12';
-      const tsbLabel = tsb == null ? '' : tsb > 5 ? 'Fris' : tsb < -10 ? 'Vermoeid' : 'Neutraal';
+      const tsbColor = tsb == null ? '#888'
+        : tsb > 5 ? '#2ecc71'
+        : tsb > 0 ? '#27ae60'
+        : tsb > -10 ? '#f39c12'
+        : tsb > -30 ? '#3498db'
+        : '#e74c3c';
+      const tsbLabel = tsb == null ? ''
+        : tsb > 5 ? 'Fris'
+        : tsb > 0 ? 'Overgang'
+        : tsb > -10 ? 'Grijze zone'
+        : tsb > -30 ? 'Optimaal'
+        : 'Hoog risico';
       const tsbBadge = tsb != null
         ? `<span class="recovery-tsb-badge" style="background:${tsbColor}">${tsbLabel} ${tsb > 0 ? '+' : ''}${Math.round(tsb)}</span>`
         : '';
