@@ -722,11 +722,11 @@
       const divider = label => `<div class="run-section-divider"><span>${label}</span></div>`;
 
       let cardsHtml = '';
-      if (futureSessions.length) cardsHtml += futureSessions.map((s, i) => renderRunEventCard(s, i * 0.05)).join('');
-      if (todaySessions.length) cardsHtml += divider('Vandaag') + todaySessions.map((s, i) => renderRunEventCard(s, i * 0.05)).join('');
+      if (futureSessions.length) cardsHtml += futureSessions.map((s, i) => renderRunEventCard(s, i * 0.05, 'plan')).join('');
+      if (todaySessions.length) cardsHtml += divider('Vandaag') + todaySessions.map((s, i) => renderRunEventCard(s, i * 0.05, 'plan')).join('');
       if (pastAllSessions.length) {
         const sep = (futureSessions.length || todaySessions.length) ? divider('Eerder') : '';
-        cardsHtml += sep + pastAllSessions.map((s, i) => renderRunEventCard(s, i * 0.05)).join('');
+        cardsHtml += sep + pastAllSessions.map((s, i) => renderRunEventCard(s, i * 0.05, 'plan')).join('');
       }
 
       return `<div class="run-plan-header">
@@ -936,7 +936,7 @@
         if (e._src === 'crossfit') {
           h += renderCard(e, 'active', i * 0.05, wodByDate[e.date] || []);
         } else if (e._src === 'run') {
-          h += renderRunEventCard(e, i * 0.05);
+          h += renderRunEventCard(e, i * 0.05, 'today');
         } else {
           h += renderPersonalEventCard(e, i * 0.05);
         }
@@ -998,7 +998,7 @@
       } else {
         allUpcoming.forEach((e,i) => {
           if (e._src==='crossfit') h += renderCard(e,'active',i*0.05,wodByDate[e.date]);
-          else if (e._src==='run') h += renderRunEventCard(e,i*0.05);
+          else if (e._src==='run') h += renderRunEventCard(e,i*0.05,'schema');
           else h += renderPersonalEventCard(e,i*0.05);
         });
       }
@@ -1012,7 +1012,7 @@
         h += `<div class="section-title">Eerder</div><div class="cards">`;
         pastItems.forEach((entry,i) => {
           if (entry.type==='class') h += renderPastCard(entry.item,i*0.05);
-          else if (entry.type==='run') h += renderRunEventCard(entry.item,i*0.05);
+          else if (entry.type==='run') h += renderRunEventCard(entry.item,i*0.05,'schema');
           else h += renderActivityCard(entry.date,i*0.05);
         });
         h += `</div>`;
@@ -2112,12 +2112,12 @@
         ✅ Uitgevoerd: ${parts.join(' · ')}${lapsHtml}</div>`;
     }
 
-    function renderRunEventCard(session, delay) {
+    function renderRunEventCard(session, delay, idPrefix) {
       const today = new Date().toISOString().slice(0, 10);
       const isUpcoming = session.date >= today;
       const sessionKey = session.session === 'speed' ? 'run_1' : 'run_2';
       const sessionTime = session.time || (session.session === 'speed' ? '20:00' : '09:00');
-      const cardId = 'run' + session.date.replace(/-/g, '');
+      const cardId = (idPrefix || '') + 'run' + session.date.replace(/-/g, '');
 
       const distStr = session.total_distance_km ? `${session.total_distance_km} km` : '';
       const metaHtml = `<div class="card-meta"><span class="card-time">${sessionTime}${distStr ? ' · ' + distStr : ''}</span></div>`;
