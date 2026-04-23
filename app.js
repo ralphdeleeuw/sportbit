@@ -55,8 +55,6 @@
     }
 
     function isUpcoming(dateStr, timeStr) {
-      const todayStr = new Date().toISOString().slice(0, 10);
-      if (dateStr === todayStr) return true;
       const classStart = new Date(dateStr + 'T' + (timeStr || '00:00') + ':00');
       return classStart > new Date();
     }
@@ -930,9 +928,15 @@
 
       if (deloadAlert) h += `<div class="deload-banner">⚠️ Herstelweek aanbevolen — schaal WODs naar 60–70%.</div>`;
 
-      // Next two activities
+      // Next two activities — include today's already-done crossfit so they stay
+      // visible on the Vandaag tab until midnight (for quick reference after class)
+      const todayStr = now.toISOString().slice(0, 10);
+      const todayDone = past
+        .filter(e => e.date === todayStr)
+        .map(e => ({ ...e, _src: 'crossfit' }));
+      const displayItems = [...todayDone, ...allUpcoming];
       h += `<div class="cards">`;
-      allUpcoming.slice(0, 2).forEach((e, i) => {
+      displayItems.slice(0, 2).forEach((e, i) => {
         if (e._src === 'crossfit') {
           h += renderCard(e, 'active', i * 0.05, wodByDate[e.date] || []);
         } else if (e._src === 'run') {
