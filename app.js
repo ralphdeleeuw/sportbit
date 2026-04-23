@@ -786,6 +786,8 @@
     }
 
     function toggleWod(card) {
+      if (event && event.target && event.target.closest &&
+          event.target.closest('.run-reschedule-btn, .run-reschedule-form')) return;
       card.classList.toggle('open');
     }
 
