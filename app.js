@@ -909,7 +909,7 @@
 
       let h = `<div class="today-header">
         <div class="today-date">${dateLabel}</div>
-        <div class="today-greeting">Goedemorgen, Ralph</div>
+        <div class="today-greeting">${(() => { const h = now.getHours(); return h < 12 ? 'Goedemorgen' : h < 18 ? 'Goedemiddag' : 'Goedenavond'; })()}, Ralph</div>
       </div>`;
 
       // Recovery + AI coach
