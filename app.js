@@ -82,7 +82,7 @@
         const sections = renderWodSections(wods, item.date);
         const envBadge = !cancelled ? renderEnvBadge(item.date) : '';
         return `
-          <div class="card has-wod" style="animation-delay:${delay}s" onclick="toggleWod(this)">
+          <div class="card has-wod" style="animation-delay:${delay}s" onclick="toggleWod(this, event)">
             <div class="card-dot dot-active"></div>
             <div class="card-info">
               <div class="card-header">
@@ -429,7 +429,7 @@
         <div class="card has-wod" style="animation-delay:${delay}s">
           <div class="card-dot dot-active" style="opacity:0.4"></div>
           <div class="card-info">
-            <div class="card-header" onclick="toggleWod(this.closest('.card'))" style="cursor:pointer">
+            <div class="card-header" onclick="toggleWod(this.closest('.card'), event)" style="cursor:pointer">
               <div class="card-header-left">
                 <div class="card-title">${item.title}</div>
                 ${metaHtml}
@@ -764,7 +764,7 @@
         <div class="card has-wod" style="animation-delay:${delay}s">
           <div class="card-dot dot-active" style="opacity:0.4"></div>
           <div class="card-info">
-            <div class="card-header" onclick="toggleWod(this.closest('.card'))" style="cursor:pointer">
+            <div class="card-header" onclick="toggleWod(this.closest('.card'), event)" style="cursor:pointer">
               <div class="card-header-left">
                 <div class="card-title">${title}</div>
                 ${metaHtml}
@@ -785,9 +785,10 @@
       titleEl.nextElementSibling.classList.toggle('open');
     }
 
-    function toggleWod(card) {
-      if (event && event.target && event.target.closest &&
-          event.target.closest('.run-reschedule-btn, .run-reschedule-form')) return;
+    function toggleWod(card, e) {
+      const evt = e || event;
+      if (evt && evt.target && evt.target.closest &&
+          evt.target.closest('.run-reschedule-btn, .run-reschedule-form')) return;
       card.classList.toggle('open');
     }
 
@@ -2039,7 +2040,7 @@
 
       if (event.notes) {
         return `
-          <div class="card has-wod" style="animation-delay:${delay}s" onclick="toggleWod(this)">
+          <div class="card has-wod" style="animation-delay:${delay}s" onclick="toggleWod(this, event)">
             <div class="card-dot dot-personal"></div>
             <div class="card-info">
               <div class="card-header">
@@ -2163,7 +2164,7 @@
       const chevron = expandable ? `<div class="wod-chevron" style="color:#00c853">▾</div>` : '';
 
       return `
-        <div class="card${hasWod}" style="animation-delay:${delay}s"${expandable ? ' onclick="toggleWod(this)"' : ''}>
+        <div class="card${hasWod}" style="animation-delay:${delay}s"${expandable ? ' onclick="toggleWod(this, event)"' : ''}>
           <div class="card-dot" style="background:#00c853"></div>
           <div class="card-info">
             <div class="card-header">
