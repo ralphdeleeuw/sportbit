@@ -2126,15 +2126,6 @@
       const descText = session.full_description || session.description || '';
       const wodContent = (descText ? `<div style="font-size:0.82rem;color:#a0e8b0;white-space:pre-wrap;line-height:1.6">${escapeHtml(descText)}</div>` : '')
                        + actualHtml;
-      const rescheduleInWod = isUpcoming
-        ? `<button class="run-reschedule-btn" onclick="clickReschedule(event, '${cardId}')">📅 Datum/tijd</button>`
-        : '';
-      const descHtml = (wodContent || rescheduleInWod)
-        ? `<div class="card-wod">${rescheduleInWod}${wodContent}</div>`
-        : '';
-      const expandable = !!(wodContent || isUpcoming);
-      const hasWod = expandable ? ' has-wod' : '';
-      const chevron = expandable ? `<div class="wod-chevron" style="color:#00c853">▾</div>` : '';
 
       const scheduledOverride = (healthInput || {})[sessionKey];
       const overrideNote = scheduledOverride
@@ -2145,7 +2136,7 @@
         : '';
 
       const rescheduleForm = isUpcoming ? `
-        <div id="${cardId}" class="run-reschedule-form">
+        <div id="${cardId}" class="run-reschedule-form" onclick="event.stopPropagation()">
           ${overrideNote}
           <div style="font-size:0.75rem;color:#a0a0a0;margin-bottom:0.5rem">Nieuwe datum en tijd:</div>
           <div style="display:flex;gap:0.5rem;align-items:center;flex-wrap:wrap">
@@ -2159,35 +2150,44 @@
           <div id="rsstatus-${cardId}" style="font-size:0.72rem;color:var(--muted);margin-top:0.4rem"></div>
         </div>` : '';
 
-      const cardStyle = '';
+      const rescheduleInWod = isUpcoming
+        ? `<button class="run-reschedule-btn" onclick="clickReschedule(event, '${cardId}')">📅 Datum/tijd</button>`
+        : '';
+      const descHtml = (wodContent || rescheduleInWod)
+        ? `<div class="card-wod">${rescheduleInWod}${rescheduleForm}${wodContent}</div>`
+        : '';
+      const expandable = !!(wodContent || isUpcoming);
+      const hasWod = expandable ? ' has-wod' : '';
+      const chevron = expandable ? `<div class="wod-chevron" style="color:#00c853">▾</div>` : '';
 
       return `
-        <div>
-          <div class="card${hasWod}" style="animation-delay:${delay}s;${cardStyle}"${expandable ? ' onclick="toggleWod(this)"' : ''}>
-            <div class="card-dot" style="background:#00c853"></div>
-            <div class="card-info">
-              <div class="card-header">
-                <div class="card-header-left">
-                  <div class="card-title">🏃 ${escapeHtml(displayName)}</div>
-                  ${metaHtml}
-                </div>
-                <div class="card-right">
-                  <div class="card-date" style="color:#00c853">${formatDate(session.date)}</div>
-                  <div class="card-relative-day">${relativeDay(session.date)}</div>
-                  ${chevron}
-                </div>
+        <div class="card${hasWod}" style="animation-delay:${delay}s"${expandable ? ' onclick="toggleWod(this)"' : ''}>
+          <div class="card-dot" style="background:#00c853"></div>
+          <div class="card-info">
+            <div class="card-header">
+              <div class="card-header-left">
+                <div class="card-title">🏃 ${escapeHtml(displayName)}</div>
+                ${metaHtml}
               </div>
-              ${descHtml}
+              <div class="card-right">
+                <div class="card-date" style="color:#00c853">${formatDate(session.date)}</div>
+                <div class="card-relative-day">${relativeDay(session.date)}</div>
+                ${chevron}
+              </div>
             </div>
+            ${descHtml}
           </div>
-          ${rescheduleForm}
         </div>`;
     }
 
     function toggleReschedule(cardId) {
       const el = document.getElementById(cardId);
       if (!el) return;
-      el.style.display = el.style.display === 'block' ? 'none' : 'block';
+      const showing = el.style.display === 'block';
+      el.style.display = showing ? 'none' : 'block';
+      if (!showing) {
+        requestAnimationFrame(() => el.scrollIntoView({ behavior: 'smooth', block: 'nearest' }));
+      }
     }
 
     function clickReschedule(e, cardId) {
