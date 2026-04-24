@@ -123,6 +123,7 @@ def _load_review_context(gist_id: str, token: str) -> dict:
     return {
         "running_plan": plan,
         "wellness": intervals_data.get("wellness", {}).get("by_date", {}),
+        "activities": intervals_data.get("activities", {}).get("by_date", {}),
         "health_input": health_input,
         "all_wods": all_wods,
         "mfp_by_date": (mfp_data.get("diary") or {}).get("by_date") or {},
@@ -210,6 +211,7 @@ def _build_review_context(
     all_wods: list[dict],
     mfp_by_date: dict,
     health_input: dict,
+    activities_by_date: dict | None = None,
 ) -> str:
     now_ams = datetime.now(AMS)
     today_str = date.today().isoformat()
@@ -249,17 +251,67 @@ def _build_review_context(
     for d in sorted(wellness_by_date.keys(), reverse=True)[:5]:
         ww = wellness_by_date[d]
         parts = [f"  {d}:"]
-        if ww.get("hrv"):        parts.append(f"HRV={ww['hrv']}ms")
-        if ww.get("resting_hr"): parts.append(f"resting_hr={ww['resting_hr']}bpm")
-        if ww.get("sleep_hrs"):  parts.append(f"sleep={ww['sleep_hrs']}h")
-        if ww.get("ctl") is not None: parts.append(f"CTL={ww['ctl']:.0f}")
-        if ww.get("atl") is not None: parts.append(f"ATL={ww['atl']:.0f}")
-        if ww.get("tsb") is not None: parts.append(f"TSB={ww['tsb']:+.0f}")
+        if ww.get("hrv"):             parts.append(f"HRV={ww['hrv']}ms")
+        if ww.get("hrv_sdnn"):        parts.append(f"SDNN={ww['hrv_sdnn']}ms")
+        if ww.get("resting_hr"):      parts.append(f"resting_hr={ww['resting_hr']}bpm")
+        if ww.get("avg_sleeping_hr"): parts.append(f"sleep_hr={ww['avg_sleeping_hr']:.0f}bpm")
+        if ww.get("readiness") is not None: parts.append(f"readiness={ww['readiness']}")
+        if ww.get("sleep_hrs"):       parts.append(f"sleep={ww['sleep_hrs']}h")
+        if ww.get("sleep_score") is not None: parts.append(f"sleep_score={ww['sleep_score']}")
+        if ww.get("respiration") is not None: parts.append(f"resp={ww['respiration']:.1f}/min")
+        if ww.get("spo2") is not None:  parts.append(f"SpO2={ww['spo2']}%")
+        if ww.get("ctl") is not None:   parts.append(f"CTL={ww['ctl']:.0f}")
+        if ww.get("atl") is not None:   parts.append(f"ATL={ww['atl']:.0f}")
+        if ww.get("tsb") is not None:   parts.append(f"TSB={ww['tsb']:+.0f}")
         wellness_lines.append(" ".join(parts))
     if wellness_lines:
         sections.append("Recovery data (last 5 days):\n" + "\n".join(wellness_lines))
     else:
         sections.append("Recovery data: not available")
+
+    # Recente hardloopactiviteiten (laatste 14 dagen, via intervals.icu)
+    run_types = {"run", "running", "jog", "trailrun", "treadmill"}
+    acts_by_date = activities_by_date or {}
+    run_lines = []
+    for d in sorted(acts_by_date.keys(), reverse=True)[:14]:
+        for act in acts_by_date.get(d, []):
+            if not any(rt in (act.get("type") or "").lower() for rt in run_types):
+                continue
+            parts = [f"  {d}: {act.get('name', 'Run')}"]
+            if act.get("distance_m"):
+                parts.append(f"{round(act['distance_m'] / 1000, 1)}km")
+            if act.get("duration_min"):
+                parts.append(f"{act['duration_min']}min")
+            if act.get("avg_speed_ms") and act["avg_speed_ms"] > 0:
+                spm = 1000 / act["avg_speed_ms"] / 60
+                parts.append(f"pace {int(spm)}:{int((spm % 1) * 60):02d}/km")
+            if act.get("avg_hr"):
+                parts.append(f"avg.HR {act['avg_hr']}bpm")
+            if act.get("avg_cadence"):
+                parts.append(f"cadence {round(act['avg_cadence'] * 2)}spm")
+            if act.get("rpe"):
+                parts.append(f"RPE {act['rpe']}")
+            tl = act.get("training_load") or act.get("trimp")
+            if tl is not None:
+                parts.append(f"TL {round(tl)}")
+            run_lines.append(" ".join(parts))
+            hz = act.get("hr_zone_times")
+            if hz and isinstance(hz, list) and sum(hz) > 0:
+                total = sum(hz)
+                zone_str = " ".join(
+                    f"Z{i+1}:{round(v/total*100)}%"
+                    for i, v in enumerate(hz[:5]) if v > 0
+                )
+                run_lines.append(f"    HR zones: {zone_str}")
+            for i, lap in enumerate(act.get("laps", []), 1):
+                lp = [f"    lap {i}:"]
+                if lap.get("distance_m"): lp.append(f"{lap['distance_m']}m")
+                if lap.get("pace_per_km"): lp.append(f"{lap['pace_per_km']}/km")
+                if lap.get("avg_hr"):     lp.append(f"HR {lap['avg_hr']}bpm")
+                if lap.get("avg_cadence"): lp.append(f"cadence {round(lap['avg_cadence'] * 2)}spm")
+                run_lines.append(" ".join(lp))
+    if run_lines:
+        sections.append("Recent running activities (last 14 days):\n" + "\n".join(run_lines))
 
     # CrossFit sessions relevant voor de run(s)
     run_dates = {w.get("date", "") for w in target_workouts}
@@ -523,6 +575,7 @@ def main() -> None:
         all_wods=ctx["all_wods"],
         mfp_by_date=ctx["mfp_by_date"],
         health_input=ctx["health_input"],
+        activities_by_date=ctx.get("activities"),
     )
     log.info("Review context:\n%s", context_text)
 

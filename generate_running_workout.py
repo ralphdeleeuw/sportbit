@@ -170,12 +170,18 @@ def _build_claude_context(ctx: dict) -> str:
     for d in recent_dates:
         w = wellness_by_date[d]
         parts = [f"  {d}:"]
-        if w.get("hrv"):       parts.append(f"HRV={w['hrv']}ms")
-        if w.get("resting_hr"):parts.append(f"resting_hr={w['resting_hr']}bpm")
-        if w.get("sleep_hrs"): parts.append(f"sleep={w['sleep_hrs']}h")
-        if w.get("ctl") is not None: parts.append(f"CTL={w['ctl']}")
-        if w.get("atl") is not None: parts.append(f"ATL={w['atl']}")
-        if w.get("tsb") is not None: parts.append(f"TSB={w['tsb']}")
+        if w.get("hrv"):           parts.append(f"HRV={w['hrv']}ms")
+        if w.get("hrv_sdnn"):      parts.append(f"SDNN={w['hrv_sdnn']}ms")
+        if w.get("resting_hr"):    parts.append(f"resting_hr={w['resting_hr']}bpm")
+        if w.get("avg_sleeping_hr"): parts.append(f"sleep_hr={w['avg_sleeping_hr']:.0f}bpm")
+        if w.get("readiness") is not None: parts.append(f"readiness={w['readiness']}")
+        if w.get("sleep_hrs"):     parts.append(f"sleep={w['sleep_hrs']}h")
+        if w.get("sleep_score") is not None: parts.append(f"sleep_score={w['sleep_score']}")
+        if w.get("respiration") is not None: parts.append(f"resp={w['respiration']:.1f}/min")
+        if w.get("spo2") is not None:  parts.append(f"SpO2={w['spo2']}%")
+        if w.get("ctl") is not None:   parts.append(f"CTL={w['ctl']}")
+        if w.get("atl") is not None:   parts.append(f"ATL={w['atl']}")
+        if w.get("tsb") is not None:   parts.append(f"TSB={w['tsb']}")
         wellness_lines.append(" ".join(parts))
 
     activities_by_date: dict = ctx["activities"]
@@ -195,9 +201,28 @@ def _build_claude_context(ctx: dict) -> str:
                 parts.append(f"pace {int(spm)}:{int((spm % 1) * 60):02d}/km")
             if act.get("avg_hr"):
                 parts.append(f"avg.HR {act['avg_hr']}bpm")
+            if act.get("max_hr"):
+                parts.append(f"max.HR {act['max_hr']}bpm")
+            if act.get("avg_cadence"):
+                parts.append(f"cadence {round(act['avg_cadence'] * 2)}spm")
+            if act.get("elevation_m"):
+                parts.append(f"elev +{act['elevation_m']}m")
             if act.get("rpe"):
                 parts.append(f"RPE {act['rpe']}")
+            tl = act.get("training_load") or act.get("trimp")
+            if tl is not None:
+                parts.append(f"TL {round(tl)}")
             run_lines.append(" ".join(parts))
+            # HR-zone verdeling tonen als aanwezig
+            hz = act.get("hr_zone_times")
+            if hz and isinstance(hz, list) and sum(hz) > 0:
+                total = sum(hz)
+                zone_labels = ["Z1", "Z2", "Z3", "Z4", "Z5"]
+                zone_str = " ".join(
+                    f"{zone_labels[i]}:{round(v/total*100)}%"
+                    for i, v in enumerate(hz[:5]) if v > 0
+                )
+                run_lines.append(f"    HR zones: {zone_str}")
             # Laps (segmenten) tonen als aanwezig
             for i, lap in enumerate(act.get("laps", []), 1):
                 lap_parts = [f"    lap {i}:"]
@@ -207,6 +232,8 @@ def _build_claude_context(ctx: dict) -> str:
                     lap_parts.append(f"{lap['pace_per_km']}/km")
                 if lap.get("avg_hr"):
                     lap_parts.append(f"HR {lap['avg_hr']}bpm")
+                if lap.get("avg_cadence"):
+                    lap_parts.append(f"cadence {round(lap['avg_cadence'] * 2)}spm")
                 run_lines.append(" ".join(lap_parts))
 
     running_plan = ctx["running_plan"]
