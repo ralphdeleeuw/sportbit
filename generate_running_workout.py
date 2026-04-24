@@ -525,6 +525,60 @@ def _build_intervals_event(spec: dict) -> dict:
 
 # ── Push naar intervals.icu ────────────────────────────────────────────────────
 
+def cleanup_completed_events(athlete_id: str, api_key: str, gist_id: str, github_token: str) -> None:
+    """Verwijder geplande events waarvan de activiteit al geregistreerd is in intervals.icu.
+
+    Draait dagelijks (via fetch_sugarwod.py). Zodra Garmin een hardloopactiviteit
+    synchroniseert naar intervals.icu op de datum van een gepland event, wordt het
+    geplande event verwijderd zodat er nog maar 1 entry zichtbaar is.
+    """
+    files = _load_gist(gist_id, github_token)
+    plan: dict = _parse_json(files.get("running_plan.json", ""), "running_plan.json") or {}
+    workouts = plan.get("workouts", [])
+
+    today = date.today().isoformat()
+    past = [w for w in workouts if w.get("event_id") and w.get("date", "9999") < today]
+    if not past:
+        return
+
+    session = requests.Session()
+    session.auth = ("API_KEY", api_key)
+    run_types = {"run", "running", "trailrun", "treadmill"}
+    changed = False
+
+    for workout in past:
+        workout_date = workout["date"]
+        event_id = workout["event_id"]
+        try:
+            resp = session.get(
+                f"{INTERVALS_BASE}/{athlete_id}/activities",
+                params={"oldest": workout_date, "newest": workout_date},
+                timeout=20,
+            )
+            if not resp.ok:
+                log.warning("Activiteiten-check mislukt voor %s: %s", workout_date, resp.status_code)
+                continue
+            activities = resp.json() if isinstance(resp.json(), list) else []
+            has_run = any(
+                run_types & {(a.get("type") or "").lower().replace(" ", "")}
+                for a in activities
+            )
+            if has_run:
+                del_resp = session.delete(f"{INTERVALS_BASE}/{athlete_id}/events/{event_id}", timeout=20)
+                if del_resp.ok:
+                    log.info("Event %s verwijderd — activiteit op %s gevonden", event_id, workout_date)
+                    workout["event_id"] = None
+                    changed = True
+                else:
+                    log.warning("Kon event %s niet verwijderen: %s", event_id, del_resp.status_code)
+        except Exception as exc:
+            log.warning("Fout bij cleanup event %s (%s): %s", event_id, workout_date, exc)
+
+    if changed:
+        _save_to_gist(gist_id, github_token, "running_plan.json",
+                      json.dumps(plan, indent=2, ensure_ascii=False))
+
+
 def _delete_old_intervals_events(athlete_id: str, api_key: str, existing_plan: dict) -> None:
     """Verwijder bestaande intervals.icu events zodat er geen duplicaten ontstaan bij herhaalde runs."""
     old_ids = [w["event_id"] for w in existing_plan.get("workouts", []) if w.get("event_id")]

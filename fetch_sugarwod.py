@@ -3274,6 +3274,18 @@ def main() -> int:
             except Exception as exc:
                 log.warning("Intervals.icu fetch mislukt: %s", exc)
 
+        # Verwijder geplande workout-events waarvan de activiteit al geregistreerd is
+        _iv_id    = os.environ.get("INTERVALS_ATHLETE_ID", "").strip()
+        _iv_key   = os.environ.get("INTERVALS_API_KEY", "").strip()
+        _gist_id  = os.environ.get("GIST_ID", "").strip()
+        _gh_token = os.environ.get("GITHUB_TOKEN", "").strip()
+        if _iv_id and _iv_key and _gist_id and _gh_token:
+            try:
+                from generate_running_workout import cleanup_completed_events  # noqa: PLC0415
+                cleanup_completed_events(_iv_id, _iv_key, _gist_id, _gh_token)
+            except Exception as exc:
+                log.warning("Workout event cleanup mislukt: %s", exc)
+
         # Withings
         skip_withings = os.environ.get("SKIP_WITHINGS", "false").lower() in ("true", "1", "yes")
         withings_data = None
