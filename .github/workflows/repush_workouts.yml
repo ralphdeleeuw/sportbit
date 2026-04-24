@@ -1,0 +1,26 @@
+name: Repush Running Workouts
+
+on:
+  workflow_dispatch:
+
+jobs:
+  repush:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install dependencies
+        run: pip install requests anthropic google-auth google-auth-oauthlib google-api-python-client
+
+      - name: Repush workouts naar intervals.icu (zonder Claude)
+        env:
+          INTERVALS_ATHLETE_ID: ${{ secrets.INTERVALS_ATHLETE_ID }}
+          INTERVALS_API_KEY: ${{ secrets.INTERVALS_API_KEY }}
+          GIST_ID: ${{ secrets.GIST_ID }}
+          GITHUB_TOKEN: ${{ secrets.GIST_TOKEN }}
+        run: python3 generate_running_workout.py --repush
