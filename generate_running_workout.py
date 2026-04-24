@@ -799,24 +799,64 @@ def _notify_pushover(specs: list[dict]) -> None:
 
 # ── Main ───────────────────────────────────────────────────────────────────────
 
+def _repush_existing(athlete_id: str, api_key: str, gist_id: str, github_token: str) -> None:
+    """Laad bestaande workouts uit de Gist, herbouw workout_doc en push opnieuw naar intervals.icu."""
+    log.info("Laden bestaand hardloopplan uit Gist...")
+    gist_files = _load_gist(gist_id, github_token)
+    plan_raw = gist_files.get("running_plan.json", "")
+    plan: dict = _parse_json(plan_raw, "running_plan.json") or {}
+    specs: list[dict] = plan.get("workouts", [])
+    if not specs:
+        log.error("Geen workouts gevonden in running_plan.json — niets te doen")
+        sys.exit(1)
+    log.info("%d workout(s) gevonden in plan", len(specs))
+
+    log.info("Oude intervals.icu events verwijderen...")
+    _delete_old_intervals_events(athlete_id, api_key, plan)
+
+    log.info("Workout_docs herbouwen en opnieuw pushen...")
+    events = [_build_intervals_event(s) for s in specs]
+    results = _push_to_intervals(athlete_id, api_key, events)
+
+    for spec, event, result in zip(specs, events, results):
+        if result:
+            spec["event_id"] = result.get("id")
+        if "workout_doc" in event:
+            spec["workout_doc"] = event["workout_doc"]
+
+    _save_to_gist(gist_id, github_token, "running_plan.json",
+                  json.dumps(plan, indent=2, ensure_ascii=False))
+    log.info("running_plan.json bijgewerkt met nieuwe event IDs")
+    log.info("Klaar! %d workout(s) opnieuw gepusht naar intervals.icu.", len(specs))
+
+
 def main() -> None:
     logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
+
+    repush = "--repush" in sys.argv
 
     athlete_id   = os.environ.get("INTERVALS_ATHLETE_ID", "").strip()
     api_key      = os.environ.get("INTERVALS_API_KEY", "").strip()
     gist_id      = os.environ.get("GIST_ID", "").strip()
     github_token = os.environ.get("GITHUB_TOKEN", "").strip()
 
-    missing = [name for name, val in [
+    required = [
         ("INTERVALS_ATHLETE_ID", athlete_id),
         ("INTERVALS_API_KEY", api_key),
-        ("ANTHROPIC_API_KEY", os.environ.get("ANTHROPIC_API_KEY", "")),
         ("GIST_ID", gist_id),
         ("GITHUB_TOKEN", github_token),
-    ] if not val]
+    ]
+    if not repush:
+        required.append(("ANTHROPIC_API_KEY", os.environ.get("ANTHROPIC_API_KEY", "")))
+
+    missing = [name for name, val in required if not val]
     if missing:
         log.error("Vereiste environment variables ontbreken: %s", ", ".join(missing))
         sys.exit(1)
+
+    if repush:
+        _repush_existing(athlete_id, api_key, gist_id, github_token)
+        return
 
     log.info("Laden fitnessdata uit Gist...")
     ctx = _load_fitness_context(gist_id, github_token)
