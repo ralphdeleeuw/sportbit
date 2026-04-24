@@ -655,18 +655,47 @@
       const runTypes = ['run', 'running', 'trailrun', 'treadmill', 'jog'];
       return acts.map(act => {
         const isRun = runTypes.some(rt => (act.type || '').toLowerCase().includes(rt));
-        const dur   = act.duration_min  ? `<span class="strava-stat"><strong>${act.duration_min}</strong> min</span>` : '';
-        const hr    = act.avg_hr        ? `<span class="strava-stat">gem.HR <strong>${act.avg_hr}</strong> bpm</span>` : '';
-        const hrMax = act.max_hr        ? `<span class="strava-stat">max.HR <strong>${act.max_hr}</strong> bpm</span>` : '';
-        const cal   = act.calories      ? `<span class="strava-stat"><strong>${act.calories}</strong> kcal</span>` : '';
-        const tl    = act.training_load != null ? `<span class="strava-stat">TL <strong>${Math.round(act.training_load)}</strong></span>` : '';
-        const dist  = act.distance_m    ? `<span class="strava-stat"><strong>${(act.distance_m / 1000).toFixed(1)}</strong> km</span>` : '';
-        const pace  = (isRun && act.avg_speed_ms > 0)
+        const dur     = act.duration_min  ? `<span class="strava-stat"><strong>${act.duration_min}</strong> min</span>` : '';
+        const hr      = act.avg_hr        ? `<span class="strava-stat">gem.HR <strong>${act.avg_hr}</strong> bpm</span>` : '';
+        const hrMax   = act.max_hr        ? `<span class="strava-stat">max.HR <strong>${act.max_hr}</strong> bpm</span>` : '';
+        const cal     = act.calories      ? `<span class="strava-stat"><strong>${act.calories}</strong> kcal</span>` : '';
+        const tl      = act.training_load != null ? `<span class="strava-stat">TL <strong>${Math.round(act.training_load)}</strong></span>` : '';
+        const trimp   = act.trimp != null ? `<span class="strava-stat">TRIMP <strong>${Math.round(act.trimp)}</strong></span>` : '';
+        const dist    = act.distance_m    ? `<span class="strava-stat"><strong>${(act.distance_m / 1000).toFixed(1)}</strong> km</span>` : '';
+        const pace    = (isRun && act.avg_speed_ms > 0)
           ? (() => { const spm = 1000 / act.avg_speed_ms / 60; return `<span class="strava-stat">tempo <strong>${Math.floor(spm)}:${String(Math.round((spm % 1) * 60)).padStart(2,'0')}/km</strong></span>`; })()
           : '';
-        const elev  = act.elevation_m   ? `<span class="strava-stat">↑ <strong>${act.elevation_m}</strong> m</span>` : '';
-        const rpe   = act.rpe != null   ? `<span class="strava-stat">RPE <strong>${act.rpe}</strong></span>` : '';
-        const name  = act.name || act.type || 'Activiteit';
+        const elev    = act.elevation_m   ? `<span class="strava-stat">↑ <strong>${act.elevation_m}</strong> m</span>` : '';
+        const rpe     = act.rpe != null   ? `<span class="strava-stat">RPE <strong>${act.rpe}</strong></span>` : '';
+        const cadence = act.avg_cadence   ? `<span class="strava-stat">cadans <strong>${isRun ? Math.round(act.avg_cadence * 2) : Math.round(act.avg_cadence)}</strong> ${isRun ? 'spm' : 'rpm'}</span>` : '';
+        const temp    = act.avg_temp_c != null ? `<span class="strava-stat">🌡 <strong>${act.avg_temp_c}°C</strong></span>` : '';
+        const flags   = [act.indoor ? '🏠 Indoor' : '', act.race ? '🏁 Race' : ''].filter(Boolean).map(f => `<span class="strava-stat">${f}</span>`).join('');
+        const name    = act.name || act.type || 'Activiteit';
+
+        // HR-zone balk: [Z1, Z2, Z3, Z4, Z5] in seconden
+        let hrZoneHtml = '';
+        if (act.hr_zone_times && act.hr_zone_times.length >= 2) {
+          const zColors = ['#4db6ac','#66bb6a','#ffa726','#ef5350','#ab47bc'];
+          const zLabels = ['Z1','Z2','Z3','Z4','Z5'];
+          const total = act.hr_zone_times.reduce((s, v) => s + v, 0);
+          if (total > 0) {
+            const bars = act.hr_zone_times.map((s, i) => {
+              const pct = Math.round(s / total * 100);
+              if (pct < 1) return '';
+              const mins = Math.floor(s / 60);
+              return `<div title="${zLabels[i]}: ${mins}min (${pct}%)" style="width:${pct}%;background:${zColors[i] || '#888'};height:100%;display:inline-block;vertical-align:top"></div>`;
+            }).join('');
+            const labels = act.hr_zone_times.map((s, i) => {
+              const pct = Math.round(s / total * 100);
+              if (pct < 5) return '';
+              return `<span style="color:${zColors[i] || '#888'};font-size:0.7rem">${zLabels[i]} ${pct}%</span>`;
+            }).filter(Boolean).join(' ');
+            hrZoneHtml = `<div style="margin-top:0.4rem">
+              <div style="height:6px;border-radius:3px;overflow:hidden;background:rgba(255,255,255,0.1)">${bars}</div>
+              <div style="margin-top:0.2rem;display:flex;gap:0.5rem;flex-wrap:wrap">${labels}</div>
+            </div>`;
+          }
+        }
 
         let lapsHtml = '';
         if (isRun && act.laps && act.laps.length > 1) {
@@ -674,16 +703,17 @@
             const d = lap.distance_m ? `${lap.distance_m}m` : '';
             const p = lap.pace_per_km ? `${lap.pace_per_km}/km` : '';
             const h = lap.avg_hr ? `${lap.avg_hr}bpm` : '';
+            const c = lap.avg_cadence ? `${Math.round(lap.avg_cadence * 2)}spm` : '';
             return `<div style="display:flex;gap:0.6rem;font-size:0.75rem;color:#c0e8d0;padding:0.1rem 0">
               <span style="color:#6a9a7a;min-width:1.2rem">${i+1}</span>
-              <span>${[d,p,h].filter(Boolean).join(' · ')}</span></div>`;
+              <span>${[d,p,h,c].filter(Boolean).join(' · ')}</span></div>`;
           }).join('');
           lapsHtml = `<div style="margin-top:0.4rem;border-top:1px solid rgba(0,200,83,0.15);padding-top:0.4rem">${lapRows}</div>`;
         }
 
         return `<div class="strava-block">
-          <div class="strava-block-label">Intervals — ${name}</div>
-          ${dist}${dur}${pace}${hr}${hrMax}${elev}${cal}${rpe}${tl}${lapsHtml}
+          <div class="strava-block-label">Intervals — ${name}${flags ? ' ' + flags : ''}</div>
+          ${dist}${dur}${pace}${cadence}${hr}${hrMax}${elev}${cal}${rpe}${tl}${trimp}${temp}${hrZoneHtml}${lapsHtml}
         </div>`;
       }).join('');
     }
@@ -1813,20 +1843,32 @@
             const arrow = up ? '↑' : '↓';
             return ` <span style="color:${col2};font-size:0.78em" title="HRV trend (${trendData.days_used} dagen): ${trendData.prev_avg}ms → ${trendData.recent_avg}ms">${arrow}${Math.abs(trendData.delta_ms)}ms</span>`;
           })();
-          p.push(`HRV <strong${col} title="Vandaag${baselineTitle}">${Math.round(w.hrv)}ms</strong>${statusBadge}${trendBadge}`);
+          let hrvStr = `HRV <strong${col} title="Vandaag${baselineTitle}">${Math.round(w.hrv)}ms</strong>${statusBadge}${trendBadge}`;
+          if (w.hrv_sdnn != null) hrvStr += ` <span style="color:#888;font-size:0.8em">SDNN ${Math.round(w.hrv_sdnn)}ms</span>`;
+          p.push(hrvStr);
         }
         if (w.resting_hr != null)  p.push(`RHR <strong>${w.resting_hr}bpm</strong>`);
+        if (w.avg_sleeping_hr != null) p.push(`Slaap-HR <strong>${Math.round(w.avg_sleeping_hr)}bpm</strong>`);
+        if (w.readiness != null) {
+          const rColor = w.readiness >= 70 ? '#2ecc71' : w.readiness >= 40 ? '#f39c12' : '#e74c3c';
+          p.push(`Gereedheid <strong style="color:${rColor}">${w.readiness}</strong>`);
+        }
         if (w.sleep_hrs != null) {
           let s = `Slaap <strong>${w.sleep_hrs.toFixed(1)}u`;
           if (w.sleep_score != null) s += ` (${w.sleep_score})`;
+          if (w.sleep_quality != null) s += ` kw:${w.sleep_quality}`;
           p.push(s + '</strong>');
         }
+        if (w.respiration != null) p.push(`Adem <strong>${w.respiration.toFixed(1)}/min</strong>`);
         if (w.spo2 != null) {
           let spo2Str = `SpO₂ <strong>${w.spo2}%`;
           if (spo2Avg != null && Math.abs(w.spo2 - spo2Avg) >= 0.5)
             spo2Str += ` <span class="rec-avg">gem ${spo2Avg}%</span>`;
           p.push(spo2Str + '</strong>');
         }
+        if (w.bp_systolic != null && w.bp_diastolic != null)
+          p.push(`Bloeddruk <strong>${w.bp_systolic}/${w.bp_diastolic}</strong>`);
+        if (w.body_fat_pct != null) p.push(`Vet <strong>${w.body_fat_pct}%</strong>`);
         if (w.ctl != null && w.atl != null)
           p.push(`Fitness <strong>${Math.round(w.ctl)}</strong> · Moe <strong>${Math.round(w.atl)}</strong>`);
         if (p.length) metricsRow = `<div class="recovery-data-row"><span class="rec-source">Garmin</span>${p.join(' · ')}</div>`;
