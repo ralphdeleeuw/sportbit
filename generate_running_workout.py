@@ -299,14 +299,18 @@ Output: return ONLY valid JSON (no markdown, no explanation):
 
 Step formats:
   Warm-up:      {"type":"warmup",   "distance_m":<int>, "pace_max":"M:SS"}
-  Easy run:     {"type":"run",      "distance_m":<int>, "pace_target":"M:SS"} or {"duration_min":<int>, "pace_max":"M:SS"}
+  Easy/long run:{"type":"run",      "distance_m":<int>, "pace_max":"M:SS"}
+  Interval:     {"type":"run",      "distance_m":<int>, "pace_target":"M:SS"}
   Repeat:       {"type":"repeat",   "count":<int>, "children":[<steps>]}
   Walking rest: {"type":"rest",     "duration_s":<int>}
   Cool-down:    {"type":"cooldown", "distance_m":<int>, "pace_max":"M:SS"}
 
-Pace: write as "M:SS" (e.g. "6:40", "5:35"). Always use distance_m for intervals, duration_min for easy sections.
+IMPORTANT: Always use distance_m for every run step — warmup, cooldown, easy runs, and long runs alike.
+Never use duration_min. The athlete sees distance remaining on their Garmin, not a countdown timer.
+Pace: write as "M:SS" (e.g. "6:40", "5:35").
 Walking rest after the entire repeat block (not per repeat) if it is a long break.
-Saturday session: always progressive_run or easy_run, 5-9km depending on week number."""
+Saturday session: always progressive_run or easy_run. Structure as warmup (1km) + main run + cooldown (1km).
+Total distance 5-9km depending on week number."""
 
 
 def _generate_plan_claude(context_text: str) -> list[dict]:
@@ -345,9 +349,9 @@ def _pace_to_sec_per_km(pace: str) -> int:
 def _step_to_doc(step: dict) -> dict | None:
     """Converteer een Claude-stap naar intervals.icu workout_doc stap.
 
-    Warmup/cooldown: tijd in seconden (afstand → berekend via pace).
-    Run/intervalstap: afstand in meters als distance_m aanwezig is,
-    anders tijd in seconden. Garmin toont dan "Xm remaining" i.p.v. afteltimer.
+    Stappen met distance_m krijgen een "distance" veld (meters) zodat Garmin
+    "Xm remaining" toont i.p.v. een afteltimer. Tijdgebaseerde stappen (rest,
+    en run met duration_min als fallback) krijgen "duration" in seconden.
     """
     stype = step.get("type")
 
@@ -372,21 +376,35 @@ def _step_to_doc(step: dict) -> dict | None:
         return None
 
     if stype in ("warmup", "cooldown"):
-        # Warmup/cooldown: altijd tijd — geen harde afstandsdoelen
-        dur = to_secs(step)
-        if not dur:
-            return None
-        doc: dict = {"type": stype, "duration": dur}
+        label = "Warmup" if stype == "warmup" else "Cooldown"
+        dist_m = step.get("distance_m")
+        if dist_m:
+            doc: dict = {"type": stype, "distance": dist_m, "text": f"{label} {dist_m/1000:.1f}km"}
+        else:
+            dur = to_secs(step)
+            if not dur:
+                return None
+            doc = {"type": stype, "duration": dur, "text": label}
         t = pace_target(step)
         if t:
             doc["target"] = t
         return doc
 
     if stype == "run":
-        dur = to_secs(step)
-        if not dur:
-            return None
-        doc = {"type": "active", "duration": dur}
+        dist_m = step.get("distance_m")
+        pace = step.get("pace_target") or step.get("pace_max")
+        if dist_m:
+            if step.get("pace_target"):
+                text = f"{dist_m}m @ {step['pace_target']}/km"
+            else:
+                text = f"Easy {dist_m/1000:.1f}km" + (f" (max {pace}/km)" if pace else "")
+            doc = {"type": "active", "distance": dist_m, "text": text}
+        else:
+            dur = to_secs(step)
+            if not dur:
+                return None
+            text = f"Easy run" + (f" (max {pace}/km)" if pace else "")
+            doc = {"type": "active", "duration": dur, "text": text}
         t = pace_target(step)
         if t:
             doc["target"] = t
@@ -394,7 +412,7 @@ def _step_to_doc(step: dict) -> dict | None:
 
     if stype == "rest":
         dur = to_secs(step)
-        return {"type": "rest", "duration": dur} if dur else None
+        return {"type": "rest", "duration": dur, "text": "Recovery walk"} if dur else None
 
     if stype == "repeat":
         children = [_step_to_doc(c) for c in step.get("children", [])]
