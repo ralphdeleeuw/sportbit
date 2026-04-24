@@ -32,6 +32,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import re
 import sys
 from datetime import date, datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
@@ -55,7 +56,6 @@ ATHLETE_PROFILE = {
     "target_5k_min": 26,
     "target_5k_pace": "5:12",
     "running_base": "enige basis — kan 5-10km lopen maar niet regelmatig geweest",
-    "crossfit_schedule": "Maandag 20:00, Woensdag 08:00, Donderdag 20:00, Zaterdag 09:00, Zondag 09:00",
     "run_sessions": [
         {"day": "Tuesday",  "time": "20:00", "role": "speed"},
         {"day": "Saturday", "time": "09:00", "role": "long_run"},
@@ -113,6 +113,10 @@ def _parse_json(raw: str, label: str) -> dict | list | None:
 
 # ── Fitness context laden ──────────────────────────────────────────────────────
 
+def _strip_html(text: str) -> str:
+    return re.sub(r"<[^>]+>", " ", text or "").strip()
+
+
 def _load_fitness_context(gist_id: str, token: str) -> dict:
     files = _load_gist(gist_id, token)
 
@@ -125,13 +129,24 @@ def _load_fitness_context(gist_id: str, token: str) -> dict:
     plan_raw = files.get("running_plan.json", "")
     running_plan = _parse_json(plan_raw, "running_plan.json") or {}
 
+    mfp_raw = files.get("myfitnesspal_nutrition.json", "")
+    mfp_data = _parse_json(mfp_raw, "myfitnesspal_nutrition.json") or {}
+
     intervals_data = wod_data.get("intervals_data") or {}
+
+    all_wods: list[dict] = wod_data.get("workouts") or []
+    today_str = date.today().isoformat()
+    cutoff_upcoming = (date.today() + timedelta(days=10)).isoformat()
+    cutoff_recent = (date.today() - timedelta(days=14)).isoformat()
 
     return {
         "wellness": intervals_data.get("wellness", {}).get("by_date", {}),
         "activities": intervals_data.get("activities", {}).get("by_date", {}),
         "health_input": health_input or {},
         "running_plan": running_plan,
+        "upcoming_crossfit": [w for w in all_wods if today_str <= w.get("date", "") <= cutoff_upcoming],
+        "recent_crossfit": [w for w in all_wods if cutoff_recent <= w.get("date", "") < today_str],
+        "mfp_by_date": (mfp_data.get("diary") or {}).get("by_date") or {},
     }
 
 
@@ -251,6 +266,62 @@ def _build_claude_context(ctx: dict) -> str:
     else:
         sections.append("Recent running activities: none — this is the start of the program")
 
+    # Upcoming CrossFit sessions
+    upcoming_cf = ctx.get("upcoming_crossfit") or []
+    if upcoming_cf:
+        cf_lines = []
+        dag_nl = ["ma", "di", "wo", "do", "vr", "za", "zo"]
+        for w in sorted(upcoming_cf, key=lambda x: x.get("date", ""))[:10]:
+            d = w.get("date", "")
+            try:
+                dag = dag_nl[date.fromisoformat(d).weekday()]
+            except ValueError:
+                dag = ""
+            title = w.get("title") or w.get("name") or "WOD"
+            desc = _strip_html(w.get("description") or "")[:120]
+            line = f"  {d} ({dag}) — {title}"
+            if desc:
+                line += f"\n    {desc}"
+            cf_lines.append(line)
+        sections.append("Upcoming CrossFit sessions (actual schedule):\n" + "\n".join(cf_lines))
+    else:
+        sections.append("Upcoming CrossFit sessions: not available")
+
+    # Recent CrossFit sessions (last 7 days for recovery context)
+    recent_cf = ctx.get("recent_crossfit") or []
+    recent_7 = [w for w in recent_cf if w.get("date", "") >= (today - timedelta(days=7)).isoformat()]
+    if recent_7:
+        rcf_lines = []
+        for w in sorted(recent_7, key=lambda x: x.get("date", ""), reverse=True):
+            d = w.get("date", "")
+            title = w.get("title") or w.get("name") or "WOD"
+            desc = _strip_html(w.get("description") or "")[:100]
+            notes = w.get("athlete_notes") or ""
+            line = f"  {d} — {title}"
+            if desc:
+                line += f" | {desc}"
+            if notes:
+                line += f"\n    Your notes: {notes[:100]}"
+            rcf_lines.append(line)
+        sections.append("Recent CrossFit sessions (last 7 days):\n" + "\n".join(rcf_lines))
+
+    # MFP nutrition
+    mfp_by_date = ctx.get("mfp_by_date") or {}
+    mfp_dates = sorted(mfp_by_date.keys(), reverse=True)[:5]
+    if mfp_dates:
+        mfp_lines = []
+        for d in mfp_dates:
+            m = mfp_by_date[d]
+            cal = m.get("calories", 0)
+            if not cal:
+                continue
+            prot = round(m.get("protein_g") or 0)
+            carbs = round(m.get("carbs_g") or 0)
+            fat = round(m.get("fat_g") or 0)
+            mfp_lines.append(f"  {d}: {cal} kcal, {prot}g protein, {carbs}g carbs, {fat}g fat")
+        if mfp_lines:
+            sections.append("Nutrition last 5 days (MyFitnessPal):\n" + "\n".join(mfp_lines))
+
     if health_lines:
         sections.append("Subjective health scores:\n" + "\n".join(health_lines))
 
@@ -260,10 +331,11 @@ def _build_claude_context(ctx: dict) -> str:
 # ── Claude prompt ──────────────────────────────────────────────────────────────
 
 _SYSTEM_PROMPT = """You are a professional running coach. You create training schedules for Ralph de Leeuw:
-- 47 years old, 77kg, CrossFit 5x/week, runs 2x/week
+- 47 years old, 77kg, CrossFit 5x/week (actual schedule provided in context), runs 2x/week
 - Current 5K: ~28 min (5:36/km) | Goal: 26 min (5:12/km)
 - Default: Tuesday 20:00 = speed work | Saturday 09:00 = long run
 - The exact dates and times are provided in the context — always use them exactly
+- Use the upcoming CrossFit schedule in the context to avoid scheduling hard speed sessions on days with heavy CrossFit (same day or day after)
 
 Pace zones (always calibrate to recovery status via HRV/TSB):
 - Conversational (max):  6:40/km — "no faster than 6:40/km"
