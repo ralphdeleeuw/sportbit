@@ -383,14 +383,10 @@ def _step_to_doc(step: dict) -> dict | None:
         return doc
 
     if stype == "run":
-        # Interval/run stap: gebruik afstand als die bekend is (Fenix toont "Xm remaining")
-        if step.get("distance_m"):
-            doc = {"type": "active", "duration": step["distance_m"], "durationType": "Distance"}
-        else:
-            dur = to_secs(step)
-            if not dur:
-                return None
-            doc = {"type": "active", "duration": dur}
+        dur = to_secs(step)
+        if not dur:
+            return None
+        doc = {"type": "active", "duration": dur}
         t = pace_target(step)
         if t:
             doc["target"] = t
