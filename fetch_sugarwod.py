@@ -3063,7 +3063,11 @@ def save_to_gist(gist_id: str, token: str, wod_data: dict, meals: list[dict] | N
     advice_history = wod_data.pop("_recovery_advice_history_prev", [])
     advice_history = [h for h in advice_history if h.get("date") != today_str]
     if recovery_advice:
-        advice_history.append({"date": today_str, "advice": recovery_advice})
+        ts = wod_data.get("recovery_advice_generated_at")
+        entry = {"date": today_str, "advice": recovery_advice}
+        if ts:
+            entry["timestamp"] = ts
+        advice_history.append(entry)
     advice_history = sorted(advice_history, key=lambda h: h.get("date", ""))[-3:]
     wod_data["recovery_advice_history"] = advice_history
     log.info("[gist] Recovery advice history: %d entries", len(advice_history))
@@ -3541,6 +3545,7 @@ def main() -> int:
             deload_detected=deload_detected,
         )
 
+    ai_generated_at = datetime.now(AMS).isoformat() if not skip_ai else None
     wod_data = {
         "workouts": workouts,
         "by_date": by_date,
@@ -3550,7 +3555,9 @@ def main() -> int:
         "personal_records": personal_records,
         "benchmark_workouts": benchmark_workouts,
         "workout_plans": workout_plans,
+        "workout_plans_generated_at": ai_generated_at if workout_plans else None,
         "recovery_advice": recovery_advice,
+        "recovery_advice_generated_at": ai_generated_at if recovery_advice else None,
         "strava_data": strava_data,
         "intervals_data": intervals_data,
         "withings_data": withings_data,

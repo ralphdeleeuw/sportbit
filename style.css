@@ -574,6 +574,7 @@
       font-size: 11px; font-weight: 600; letter-spacing: 0.08em;
       text-transform: uppercase; color: var(--accent); margin-bottom: 8px;
     }
+    .ai-coach-timestamp { font-size: 10px; color: var(--faint); margin-bottom: 8px; }
     .ai-coach-body { font-size: 13px; color: #aaa; line-height: 1.75; }
 
     /* ── Next class card ───────────────────────────────────── */
@@ -906,6 +907,8 @@
       font-weight: 600;
       margin-bottom: 0.4rem;
     }
+
+    .coach-plan .ai-coach-timestamp { font-size: 10px; color: #5a7a3a; margin-bottom: 0.4rem; }
 
     .coach-plan-body {
       font-size: 0.82rem;
