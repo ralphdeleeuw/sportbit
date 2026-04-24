@@ -1087,6 +1087,7 @@
         { btnId:'healthBtn', statusId:'healthStatus', lastRunId:'healthLastRun', workflowFile:'fetch_health_data.yml', icon:'♥', title:'Health Refresh', desc:'Strava, Intervals.icu, Withings, MyFitnessPal, omgevingsdata', fn:'triggerHealthRefresh()', cls:'purple',
           extras:[{id:'skipStravaHealth',label:'Strava overslaan'},{id:'skipIntervalsHealth',label:'Intervals.icu overslaan'},{id:'skipWithingsHealth',label:'Withings overslaan'},{id:'skipMFPHealth',label:'MyFitnessPal overslaan'}] },
         { btnId:'runningPlanBtn', statusId:'runningPlanStatus', lastRunId:'runningLastRun', workflowFile:'generate_running_workout.yml', icon:'🏃', title:'Hardloopplan', desc:'Nieuw hardloopschema genereren via Claude', fn:'triggerRunningPlan()', cls:'success' },
+        { btnId:'repushBtn', statusId:'repushStatus', lastRunId:'repushLastRun', workflowFile:'repush_workouts.yml', icon:'↑', title:'Sync naar Garmin', desc:'Bestaande workouts opnieuw pushen naar intervals.icu / Garmin', fn:'triggerRepush()', cls:'success' },
       ];
       wfs.forEach(w => {
         const extras = (w.extras||[]).map(ex => `<label class="workflow-check"><input type="checkbox" id="${ex.id}"> ${ex.label}</label>`).join('');
@@ -1293,6 +1294,59 @@
       }
     }
 
+    async function triggerRepush() {
+      const token = document.getElementById('githubToken').value.trim();
+      const statusEl = document.getElementById('repushStatus');
+      const btn = document.getElementById('repushBtn');
+
+      if (!token) {
+        statusEl.textContent = 'Vul eerst je GitHub Token in (nodig om workflow te starten)';
+        statusEl.style.color = 'var(--accent2)';
+        return;
+      }
+
+      btn.disabled = true;
+      btn.textContent = '↑ Bezig…';
+      statusEl.textContent = 'Repush workflow starten…';
+      statusEl.style.color = 'var(--muted)';
+
+      const triggerTime = new Date();
+
+      try {
+        const resp = await fetch(
+          'https://api.github.com/repos/ralphdeleeuw/sportbit/actions/workflows/repush_workouts.yml/dispatches',
+          {
+            method: 'POST',
+            headers: {
+              Authorization: `token ${token}`,
+              Accept: 'application/vnd.github+json',
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({ ref: 'main', inputs: {} }),
+          }
+        );
+
+        if (resp.status !== 204) {
+          const body = await resp.json().catch(() => ({}));
+          statusEl.textContent = `Fout ${resp.status}: ${body.message || 'onbekend'}`;
+          statusEl.style.color = 'var(--accent2)';
+          btn.disabled = false;
+          btn.textContent = '↑ Sync naar Garmin';
+          return;
+        }
+
+        statusEl.textContent = '⏳ In wachtrij…';
+        statusEl.style.color = 'var(--muted)';
+        await pollWorkflowRun(token, triggerTime, statusEl, btn, 'repush_workouts.yml', '↑ Sync naar Garmin');
+
+      } catch (e) {
+        statusEl.textContent = `Netwerkfout: ${e.message}`;
+        statusEl.style.color = 'var(--accent2)';
+        btn.disabled = false;
+        btn.textContent = '↑ Sync naar Garmin';
+      }
+    }
+
     async function triggerSignup() {
       const token = document.getElementById('githubToken').value.trim();
       const statusEl = document.getElementById('signupStatus');
@@ -1417,6 +1471,7 @@
         { id: 'syncLastRun',    file: 'fetch_sugarwod.yml' },
         { id: 'healthLastRun',  file: 'fetch_health_data.yml' },
         { id: 'runningLastRun', file: 'generate_running_workout.yml' },
+        { id: 'repushLastRun',  file: 'repush_workouts.yml' },
       ];
       await Promise.all(runs.map(async ({ id, file }) => {
         const el = document.getElementById(id);
