@@ -907,7 +907,7 @@
         const cancelled = Object.entries(state.cancelled || {}).map(([id, info]) => ({...info, event_id: id}));
 
         signedUp.sort((a, b) => a.date.localeCompare(b.date));
-        cancelled.sort((a, b) => b.date.localeCompare(a.date));
+        cancelled.sort((a, b) => a.date.localeCompare(b.date));
 
         const upcoming = signedUp.filter(e => isUpcoming(e.date, e.time));
         const past = signedUp.filter(e => !isUpcoming(e.date, e.time));
@@ -2184,7 +2184,8 @@
 
     function renderPersonalEventCard(event, delay) {
       const timeHtml = event.time ? `<span class="card-time" style="color:#4db8ff">${event.time}</span>` : '';
-      const locHtml  = event.location ? `<span>${escapeHtml(event.location)}</span>` : '';
+      const metaLabel = event.notes ? event.notes.split('\n')[0] : event.location;
+      const locHtml  = metaLabel ? `<span> ${escapeHtml(metaLabel)}</span>` : '';
       const metaHtml = (timeHtml || locHtml) ? `<div class="card-meta">${timeHtml}${locHtml}</div>` : '';
       const deleteBtn = `<button class="personal-delete-btn" title="Verwijderen"
         onclick="event.stopPropagation();deletePersonalEvent('${escapeHtml(event.id)}',this)">✕</button>`;
