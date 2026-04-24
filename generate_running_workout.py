@@ -489,6 +489,9 @@ def _build_description(spec: dict) -> str:
     if week:
         lines.append(f"\n5K Improvement Program (Week {week})")
 
+    sent_at = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
+    lines.append(f"\nSent: {sent_at}")
+
     return "\n".join(lines)
 
 
