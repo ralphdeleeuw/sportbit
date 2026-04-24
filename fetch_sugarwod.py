@@ -2071,23 +2071,24 @@ def generate_recovery_advice(
 
     client = anthropic.Anthropic(api_key=api_key)
 
-    # Build activities-by-date lookup for WOD matching
-    activities_by_date: dict = {}
-    if strava_data:
-        activities_by_date = strava_data.get("activities_by_date") or {}
-        log.info("Strava matching: %d datums beschikbaar: %s", len(activities_by_date), sorted(activities_by_date.keys()))
+    # Build activities-by-date lookup for WOD matching (Strava primary, intervals.icu fallback)
+    strava_by_date: dict = (strava_data or {}).get("activities_by_date") or {}
+    intervals_acts_by_date: dict = (intervals_data or {}).get("activities", {}).get("by_date") or {}
+    log.info("Strava matching: %d datums beschikbaar: %s", len(strava_by_date), sorted(strava_by_date.keys()))
+    log.info("Intervals.icu activiteiten: %d datums beschikbaar", len(intervals_acts_by_date))
 
     past_text = ""
-    matched_strava = 0
+    matched_acts = 0
     for w in past_workouts:
         date = w.get("date", "?")
         title = w.get("title", "WOD")
         desc = _strip_html(w.get("description", ""))[:400]
         past_text += f"\n**{date} — {title}**\n{desc}\n"
-        # Append matched Strava activity data for this WOD date
-        if date in activities_by_date:
-            matched_strava += 1
-            for act in activities_by_date[date]:
+
+        # Strava activiteiten voor deze datum
+        if date in strava_by_date:
+            matched_acts += 1
+            for act in strava_by_date[date]:
                 avg_hr = act.get("avg_hr")
                 max_hr = act.get("max_hr")
                 dur = act.get("duration_min")
@@ -2115,7 +2116,60 @@ def generate_recovery_advice(
                     + pace_str
                 )
                 past_text += strava_line + "\n"
-    log.info("Strava matching: %d van %d WODs gematcht aan Strava-activiteit", matched_strava, len(past_workouts))
+
+        # Intervals.icu activiteiten voor deze datum (altijd tonen — rijker dan Strava voor hardlopen)
+        if date in intervals_acts_by_date:
+            if date not in strava_by_date:
+                matched_acts += 1
+            for act in intervals_acts_by_date[date]:
+                dur = act.get("duration_min")
+                act_name = act.get("name", "") or act.get("type", "")
+                avg_hr = act.get("avg_hr")
+                max_hr = act.get("max_hr")
+                cal = act.get("calories")
+                tl = act.get("training_load") or act.get("trimp")
+                rpe = act.get("rpe")
+                dist_m = act.get("distance_m")
+                cadence = act.get("avg_cadence")
+                elev = act.get("elevation_m")
+                pace_str = ""
+                if dist_m and act.get("avg_speed_ms") and act["avg_speed_ms"] > 0:
+                    spm = 1000 / act["avg_speed_ms"] / 60
+                    pace_str = f", {dist_m / 1000:.1f}km @ {int(spm)}:{int((spm % 1) * 60):02d}/km"
+                elif dist_m and dur and dur > 0:
+                    pace_sec_per_km = (dur * 60) / (dist_m / 1000)
+                    pace_str = f", {dist_m / 1000:.1f}km @ {int(pace_sec_per_km // 60)}:{int(pace_sec_per_km % 60):02d}/km"
+                icu_line = (
+                    f"  ↳ Intervals.icu ({act_name}): {dur}min"
+                    + pace_str
+                    + (f", avg.HR {avg_hr} bpm" if avg_hr else "")
+                    + (f", max.HR {max_hr} bpm" if max_hr else "")
+                    + (f", cadans {round(cadence * 2)}spm" if cadence else "")
+                    + (f", +{elev}m" if elev else "")
+                    + (f", {cal} kcal" if cal else "")
+                    + (f", RPE {rpe}" if rpe else "")
+                    + (f", TL {round(tl)}" if tl is not None else "")
+                )
+                past_text += icu_line + "\n"
+                # HR-zone verdeling
+                hz = act.get("hr_zone_times")
+                if hz and isinstance(hz, list) and sum(hz) > 0:
+                    total = sum(hz)
+                    zone_str = " ".join(
+                        f"Z{i+1}:{round(v/total*100)}%"
+                        for i, v in enumerate(hz[:5]) if v > 0
+                    )
+                    past_text += f"    HR zones: {zone_str}\n"
+                # Laps voor hardlopen
+                for i, lap in enumerate(act.get("laps", []), 1):
+                    lp_parts = [f"    lap {i}:"]
+                    if lap.get("distance_m"): lp_parts.append(f"{lap['distance_m']}m")
+                    if lap.get("pace_per_km"): lp_parts.append(f"{lap['pace_per_km']}/km")
+                    if lap.get("avg_hr"):     lp_parts.append(f"HR {lap['avg_hr']}bpm")
+                    if lap.get("avg_cadence"): lp_parts.append(f"{round(lap['avg_cadence'] * 2)}spm")
+                    past_text += " ".join(lp_parts) + "\n"
+
+    log.info("Activiteiten gematcht aan WODs: %d van %d", matched_acts, len(past_workouts))
 
     upcoming_text = ""
     upcoming_timing_context = ""
@@ -2250,10 +2304,20 @@ def generate_recovery_advice(
                     else:
                         _hrv_line += f" — 28d avg: {_hrv_baseline:.0f} ms, status: {_hrv_status}"
                 g_lines.append(_hrv_line)
+            if garmin_entry.get("hrv_sdnn") is not None:
+                g_lines.append(f"- HRV (SDNN): {garmin_entry['hrv_sdnn']:.0f} ms")
+            if garmin_entry.get("avg_sleeping_hr") is not None:
+                g_lines.append(f"- Avg sleeping HR: {garmin_entry['avg_sleeping_hr']:.0f} bpm")
+            if garmin_entry.get("readiness") is not None:
+                g_lines.append(f"- Readiness: {garmin_entry['readiness']}/100")
             if garmin_entry.get("sleep_hrs") is not None:
                 g_lines.append(f"- Sleep: {garmin_entry['sleep_hrs']:.1f} hours")
             if garmin_entry.get("sleep_score") is not None:
                 g_lines.append(f"- Sleep score: {garmin_entry['sleep_score']}/100")
+            if garmin_entry.get("sleep_quality") is not None:
+                g_lines.append(f"- Sleep quality: {garmin_entry['sleep_quality']}/5")
+            if garmin_entry.get("respiration") is not None:
+                g_lines.append(f"- Respiration rate: {garmin_entry['respiration']:.1f} /min")
             ctl = garmin_entry.get("ctl")
             atl = garmin_entry.get("atl")
             tsb = garmin_entry.get("tsb")
