@@ -132,8 +132,10 @@
     let barbellLifts = {};
     let barbellLiftsHistory = []; // [{date, lifts: {...}}]
     let recoveryAdvice = null;
-    let recoveryAdviceHistory = []; // [{date, advice}] laatste 3 dagen
+    let recoveryAdviceHistory = []; // [{date, advice, timestamp?}] laatste 3 dagen
     let recoveryAdviceFromHistory = false; // true als advies uit history komt i.p.v. vandaag
+    let recoveryAdviceGeneratedAt = null; // ISO timestamp NL tijd
+    let workoutPlansGeneratedAt = null; // ISO timestamp NL tijd
     let personalRecords = [];
     let benchmarkWorkouts = [];
     let workoutLog = {};   // {date: entry} from workout_log.json
@@ -172,6 +174,16 @@
       return div.textContent || div.innerText || '';
     }
 
+    function formatAdviceTimestamp(isoStr) {
+      if (!isoStr) return '';
+      const d = new Date(isoStr);
+      const days = ['zo','ma','di','wo','do','vr','za'];
+      const months = ['jan','feb','mrt','apr','mei','jun','jul','aug','sep','okt','nov','dec'];
+      const hh = String(d.getHours()).padStart(2, '0');
+      const mm = String(d.getMinutes()).padStart(2, '0');
+      return `${days[d.getDay()]} ${d.getDate()} ${months[d.getMonth()]} ${hh}:${mm}`;
+    }
+
     function parseGistFiles(gist) {
       // Parse all relevant files from a gist response (single network call)
       const files = gist.files || {};
@@ -197,11 +209,14 @@
           barbellLiftsHistory = data.barbell_lifts_history || [];
           recoveryAdviceHistory = data.recovery_advice_history || [];
           recoveryAdvice = data.recovery_advice || null;
+          recoveryAdviceGeneratedAt = data.recovery_advice_generated_at || null;
+          workoutPlansGeneratedAt = data.workout_plans_generated_at || null;
           // Val terug op meest recente history-entry als vandaag geen advies beschikbaar is
           if (!recoveryAdvice && recoveryAdviceHistory.length > 0) {
             const latest = recoveryAdviceHistory[recoveryAdviceHistory.length - 1];
             recoveryAdvice = latest.advice || null;
             recoveryAdviceFromHistory = !!recoveryAdvice;
+            if (recoveryAdviceFromHistory) recoveryAdviceGeneratedAt = latest.timestamp || null;
           }
           personalRecords = data.personal_records || [];
           benchmarkWorkouts = data.benchmark_workouts || [];
@@ -601,9 +616,12 @@
       const weightHtml = renderWeightSuggestions(wods);
 
       const plan = date && workoutPlans[date];
+      const planTsStr = plan ? formatAdviceTimestamp(workoutPlansGeneratedAt) : '';
+      const planTsHtml = planTsStr ? `<div class="ai-coach-timestamp">gegenereerd ${planTsStr}</div>` : '';
       const planHtml = plan ? `
         <div class="coach-plan">
           <div class="coach-plan-label">AI Coach Plan</div>
+          ${planTsHtml}
           <div class="coach-plan-body">${marked.parse(plan)}</div>
         </div>` : '';
 
@@ -918,8 +936,11 @@
           const label = recoveryAdviceFromHistory
             ? `Coach Advies (${recoveryAdviceHistory[recoveryAdviceHistory.length-1].date})`
             : 'AI Coach advies';
+          const tsStr = formatAdviceTimestamp(recoveryAdviceGeneratedAt);
+          const tsHtml = tsStr ? `<div class="ai-coach-timestamp">gegenereerd ${tsStr}</div>` : '';
           h += `<div class="ai-coach-block">
             <div class="ai-coach-label">${label}</div>
+            ${tsHtml}
             <div class="ai-coach-body">${marked.parse(recoveryAdvice)}</div>
           </div>`;
         }
