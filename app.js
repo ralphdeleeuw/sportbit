@@ -652,16 +652,38 @@
       if (!intervalsData) return '';
       const acts = ((intervalsData.activities || {}).by_date || {})[date];
       if (!acts || acts.length === 0) return '';
+      const runTypes = ['run', 'running', 'trailrun', 'treadmill', 'jog'];
       return acts.map(act => {
-        const dur  = act.duration_min  ? `<span class="strava-stat"><strong>${act.duration_min}</strong> min</span>` : '';
-        const hr   = act.avg_hr        ? `<span class="strava-stat">gem.HR <strong>${act.avg_hr}</strong> bpm</span>` : '';
-        const hrMax= act.max_hr        ? `<span class="strava-stat">max.HR <strong>${act.max_hr}</strong> bpm</span>` : '';
-        const cal  = act.calories      ? `<span class="strava-stat"><strong>${act.calories}</strong> kcal</span>` : '';
-        const tl   = act.training_load != null ? `<span class="strava-stat">TL <strong>${Math.round(act.training_load)}</strong></span>` : '';
-        const name = act.name || act.type || 'Activiteit';
+        const isRun = runTypes.some(rt => (act.type || '').toLowerCase().includes(rt));
+        const dur   = act.duration_min  ? `<span class="strava-stat"><strong>${act.duration_min}</strong> min</span>` : '';
+        const hr    = act.avg_hr        ? `<span class="strava-stat">gem.HR <strong>${act.avg_hr}</strong> bpm</span>` : '';
+        const hrMax = act.max_hr        ? `<span class="strava-stat">max.HR <strong>${act.max_hr}</strong> bpm</span>` : '';
+        const cal   = act.calories      ? `<span class="strava-stat"><strong>${act.calories}</strong> kcal</span>` : '';
+        const tl    = act.training_load != null ? `<span class="strava-stat">TL <strong>${Math.round(act.training_load)}</strong></span>` : '';
+        const dist  = act.distance_m    ? `<span class="strava-stat"><strong>${(act.distance_m / 1000).toFixed(1)}</strong> km</span>` : '';
+        const pace  = (isRun && act.avg_speed_ms > 0)
+          ? (() => { const spm = 1000 / act.avg_speed_ms / 60; return `<span class="strava-stat">tempo <strong>${Math.floor(spm)}:${String(Math.round((spm % 1) * 60)).padStart(2,'0')}/km</strong></span>`; })()
+          : '';
+        const elev  = act.elevation_m   ? `<span class="strava-stat">↑ <strong>${act.elevation_m}</strong> m</span>` : '';
+        const rpe   = act.rpe != null   ? `<span class="strava-stat">RPE <strong>${act.rpe}</strong></span>` : '';
+        const name  = act.name || act.type || 'Activiteit';
+
+        let lapsHtml = '';
+        if (isRun && act.laps && act.laps.length > 1) {
+          const lapRows = act.laps.map((lap, i) => {
+            const d = lap.distance_m ? `${lap.distance_m}m` : '';
+            const p = lap.pace_per_km ? `${lap.pace_per_km}/km` : '';
+            const h = lap.avg_hr ? `${lap.avg_hr}bpm` : '';
+            return `<div style="display:flex;gap:0.6rem;font-size:0.75rem;color:#c0e8d0;padding:0.1rem 0">
+              <span style="color:#6a9a7a;min-width:1.2rem">${i+1}</span>
+              <span>${[d,p,h].filter(Boolean).join(' · ')}</span></div>`;
+          }).join('');
+          lapsHtml = `<div style="margin-top:0.4rem;border-top:1px solid rgba(0,200,83,0.15);padding-top:0.4rem">${lapRows}</div>`;
+        }
+
         return `<div class="strava-block">
           <div class="strava-block-label">Intervals — ${name}</div>
-          ${dur}${hr}${hrMax}${cal}${tl}
+          ${dist}${dur}${pace}${hr}${hrMax}${elev}${cal}${rpe}${tl}${lapsHtml}
         </div>`;
       }).join('');
     }
