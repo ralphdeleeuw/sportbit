@@ -687,7 +687,7 @@ def _build_icu_workout_text(spec: dict) -> str:
     for step in spec.get("steps", []):
         lines.extend(_step_lines(step))
 
-    return "\n".join(lines)
+    return " ".join(lines)
 
 
 # ── Intervals.icu event bouwen ─────────────────────────────────────────────────
