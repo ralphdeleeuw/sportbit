@@ -642,9 +642,10 @@ def _build_intervals_event(spec: dict) -> dict:
         session_role = spec.get("session", "speed")
         time_str = "20:00:00" if session_role == "speed" else "09:00:00"
 
-    # intervals.icu parseert de description als ICU workout-tekst om workout_doc te bouwen.
-    # De ICU-tekst moet EERSTE staan — alles daarvoor breekt de parser.
-    # workout_doc meesturen via de events API heeft geen effect: wordt genegeerd.
+    # De intervals.icu UI parsed ICU-tekst client-side en stuurt workout_doc + description mee.
+    # De server parseert de description NIET server-side.
+    # Oplossing: stuur workout_doc met correct formaat (parsed door ons) én ICU-tekst als
+    # eerste regel van description (zodat het consistent is met wat de UI verstuurt).
     sent_at = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
     icu_text = _build_icu_workout_text(spec)
     if icu_text:
@@ -652,13 +653,19 @@ def _build_intervals_event(spec: dict) -> dict:
     else:
         description = f"Sent: {sent_at}\n\n{_build_description(spec)}"
 
-    return {
+    event: dict = {
         "start_date_local": f"{spec['date']}T{time_str}",
         "category": "WORKOUT",
         "type": "Run",
         "name": spec["name"],
         "description": description,
     }
+
+    workout_doc = _build_workout_doc(spec)
+    if workout_doc:
+        event["workout_doc"] = workout_doc
+
+    return event
 
 
 # ── Push naar intervals.icu ────────────────────────────────────────────────────
@@ -765,7 +772,20 @@ def _push_to_intervals(athlete_id: str, api_key: str, events: list[dict]) -> lis
             )
             # Debug: log opgeslagen workout_doc terug van de API (toont wat intervals.icu echt opslaat)
             stored_doc = result.get("workout_doc")
-            log.info("Stored workout_doc: %s", json.dumps(stored_doc, ensure_ascii=False) if stored_doc else "None")
+            log.info("Stored workout_doc na POST: %s", json.dumps(stored_doc, ensure_ascii=False) if stored_doc else "None")
+
+            # Probeer ook via PUT te updaten als de POST geen stappen opleverde
+            event_id = result.get("id")
+            if event_id and event.get("workout_doc") and (not stored_doc or not stored_doc.get("steps")):
+                put_url = f"{INTERVALS_BASE}/{athlete_id}/events/{event_id}"
+                put_resp = session.put(put_url, json={"workout_doc": event["workout_doc"]}, timeout=20)
+                if put_resp.ok:
+                    put_result = put_resp.json()
+                    put_doc = put_result.get("workout_doc")
+                    log.info("Stored workout_doc na PUT: %s", json.dumps(put_doc, ensure_ascii=False) if put_doc else "None")
+                else:
+                    log.warning("PUT workout_doc mislukt: %s — %s", put_resp.status_code, put_resp.text[:200])
+
             results.append(result)
         except Exception as exc:
             log.error("Fout bij aanmaken event '%s': %s", event.get("name"), exc)
