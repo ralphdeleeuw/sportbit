@@ -598,6 +598,53 @@ def _build_description(spec: dict) -> str:
     return "\n".join(lines)
 
 
+# ── Intervals.icu tekst-format (parsed door server naar stappen + grafiek) ────
+
+def _build_icu_workout_text(spec: dict) -> str:
+    """Bouw intervals.icu tekst-syntax op basis van Claude-stappen.
+
+    Dit formaat wordt door intervals.icu server-side geparsed naar
+    gestructureerde workout-stappen (grafiek + Garmin-sync).
+    Indeling: "<afstand>mtr <tempo>/km [Warmup|Cooldown]" per stap,
+    herhalingen als "Nx" gevolgd door de deelstappen.
+    """
+    lines = []
+
+    def _step_lines(step: dict) -> list[str]:
+        stype = step.get("type")
+        result = []
+        if stype == "warmup":
+            dist = step.get("distance_m")
+            pace = step.get("pace_max")
+            if dist and pace:
+                result.append(f"{dist}mtr {pace}/km Warmup")
+        elif stype == "cooldown":
+            dist = step.get("distance_m")
+            pace = step.get("pace_max")
+            if dist and pace:
+                result.append(f"{dist}mtr {pace}/km Cooldown")
+        elif stype == "run":
+            dist = step.get("distance_m")
+            pace = step.get("pace_target") or step.get("pace_max")
+            if dist and pace:
+                result.append(f"{dist}mtr {pace}/km")
+        elif stype == "rest":
+            dur = step.get("duration_s")
+            if dur:
+                result.append(f"{dur}s Rest")
+        elif stype == "repeat":
+            count = step.get("count", 1)
+            result.append(f"{count}x")
+            for child in step.get("children", []):
+                result.extend(_step_lines(child))
+        return result
+
+    for step in spec.get("steps", []):
+        lines.extend(_step_lines(step))
+
+    return "\n".join(lines)
+
+
 # ── Intervals.icu event bouwen ─────────────────────────────────────────────────
 
 def _build_intervals_event(spec: dict) -> dict:
@@ -610,8 +657,11 @@ def _build_intervals_event(spec: dict) -> dict:
         session_role = spec.get("session", "speed")
         time_str = "20:00:00" if session_role == "speed" else "09:00:00"
 
-    description = _build_description(spec)
-    workout_doc = _build_workout_doc(spec)
+    # intervals.icu tekst-format bovenaan: server parseert dit naar stappen + grafiek.
+    # workout_doc via JSON wordt genegeerd door de events API (known limitation).
+    icu_text = _build_icu_workout_text(spec)
+    human_desc = _build_description(spec)
+    description = (icu_text + "\n\n" + human_desc) if icu_text else human_desc
 
     event: dict = {
         "start_date_local": f"{spec['date']}T{time_str}",
@@ -620,9 +670,6 @@ def _build_intervals_event(spec: dict) -> dict:
         "name": spec["name"],
         "description": description,
     }
-    if workout_doc:
-        event["workout_doc"] = workout_doc
-
     return event
 
 
