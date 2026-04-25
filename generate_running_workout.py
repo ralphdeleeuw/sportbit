@@ -819,11 +819,15 @@ def _push_to_intervals(athlete_id: str, api_key: str, events: list[dict]) -> lis
             stored_doc = result.get("workout_doc")
             log.info("Stored workout_doc na POST: %s", json.dumps(stored_doc, ensure_ascii=False) if stored_doc else "None")
 
-            # Probeer ook via PUT te updaten als de POST geen stappen opleverde
+            # Probeer ook via PUT te updaten als de POST geen stappen opleverde.
+            # Stuur de volledige description mee zodat de PUT die niet overschrijft.
             event_id = result.get("id")
             if event_id and event.get("workout_doc") and (not stored_doc or not stored_doc.get("steps")):
                 put_url = f"{INTERVALS_BASE}/{athlete_id}/events/{event_id}"
-                put_resp = session.put(put_url, json={"workout_doc": event["workout_doc"]}, timeout=20)
+                put_payload: dict = {"workout_doc": event["workout_doc"]}
+                if event.get("description"):
+                    put_payload["description"] = event["description"]
+                put_resp = session.put(put_url, json=put_payload, timeout=20)
                 if put_resp.ok:
                     put_result = put_resp.json()
                     put_doc = put_result.get("workout_doc")
