@@ -630,6 +630,55 @@ def _build_icu_workout_text(spec: dict) -> str:
     return " ".join(lines)
 
 
+def _build_expanded_description(spec: dict) -> str:
+    """Bouw de volledige description op zoals de intervals.icu UI dat doet.
+
+    Format (exact zoals handmatig aangemaakte workout):
+      {icu_one_liner}
+
+      Warmup
+      - Warmup 1km 6:40/km Pace intensity=warmup
+
+      Main set 6x
+      - 0.2km 5:35/km Pace
+      - 0.2km 6:40/km Pace
+
+      Cooldown
+      - Cooldown 1.4km 6:40/km Pace intensity=cooldown
+    """
+    def dist_str(m: int) -> str:
+        km = m / 1000
+        return f"{km:g}km"
+
+    sections: list[str] = []
+    for step in spec.get("steps", []):
+        stype = step.get("type")
+        dist = step.get("distance_m", 0)
+        pace = step.get("pace_max") or step.get("pace_target") or ""
+
+        if stype == "warmup":
+            sections.append(f"Warmup\n- Warmup {dist_str(dist)} {pace}/km Pace intensity=warmup")
+
+        elif stype == "cooldown":
+            sections.append(f"Cooldown\n- Cooldown {dist_str(dist)} {pace}/km Pace intensity=cooldown")
+
+        elif stype == "run":
+            pace = step.get("pace_target") or step.get("pace_max") or ""
+            sections.append(f"- {dist_str(dist)} {pace}/km Pace")
+
+        elif stype == "repeat":
+            count = step.get("count", 1)
+            lines = [f"Main set {count}x"]
+            for child in step.get("children", []):
+                cdist = child.get("distance_m", 0)
+                cpace = child.get("pace_target") or child.get("pace_max") or ""
+                lines.append(f"- {dist_str(cdist)} {cpace}/km Pace")
+            sections.append("\n".join(lines))
+
+    icu_text = _build_icu_workout_text(spec)
+    return icu_text + "\n\n" + "\n\n".join(sections)
+
+
 # ── Intervals.icu event bouwen ─────────────────────────────────────────────────
 
 def _build_intervals_event(spec: dict) -> dict:
@@ -642,16 +691,12 @@ def _build_intervals_event(spec: dict) -> dict:
         session_role = spec.get("session", "speed")
         time_str = "20:00:00" if session_role == "speed" else "09:00:00"
 
-    # De intervals.icu UI parsed ICU-tekst client-side en stuurt workout_doc + description mee.
-    # De server parseert de description NIET server-side.
-    # Oplossing: stuur workout_doc met correct formaat (parsed door ons) én ICU-tekst als
-    # eerste regel van description (zodat het consistent is met wat de UI verstuurt).
+    # De intervals.icu UI parsed ICU-tekst client-side, genereeert de expanded description
+    # (met Warmup / Main set Nx / Cooldown secties) en stuurt dit als description mee.
+    # De server parseert deze expanded description naar workout_doc.steps.
     sent_at = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
-    icu_text = _build_icu_workout_text(spec)
-    if icu_text:
-        description = f"{icu_text}\n\nSent: {sent_at}"
-    else:
-        description = f"Sent: {sent_at}\n\n{_build_description(spec)}"
+    expanded = _build_expanded_description(spec)
+    description = f"{expanded}\n\nSent: {sent_at}" if expanded else f"Sent: {sent_at}"
 
     event: dict = {
         "start_date_local": f"{spec['date']}T{time_str}",
