@@ -421,44 +421,23 @@ def _pace_to_sec_per_km(pace: str) -> int:
 def _step_to_doc(step: dict) -> dict | None:
     """Converteer een Claude-stap naar intervals.icu workout_doc stap.
 
-    Stappen met distance_m krijgen een "distance" veld (meters) zodat Garmin
-    "Xm remaining" toont i.p.v. een afteltimer. Tijdgebaseerde stappen (rest,
-    en run met duration_min als fallback) krijgen "duration" in seconden.
+    Minimaal formaat: alleen distance (meters) of duration (seconden), nooit beide.
+    Geen text-veld — dat wordt niet herkend door de events API.
     """
     stype = step.get("type")
 
-    def to_secs(s: dict) -> int | None:
-        if s.get("duration_s"):
-            return int(s["duration_s"])
-        if s.get("duration_min"):
-            return int(s["duration_min"] * 60)
-        if s.get("distance_m"):
-            pace_str = s.get("pace_target") or s.get("pace_max")
-            pace_sec = _pace_to_sec_per_km(pace_str) if pace_str else 400
-            return int(s["distance_m"] / 1000 * pace_sec)
-        return None
-
     def pace_target(s: dict) -> dict | None:
-        if s.get("pace_target"):
-            sec = _pace_to_sec_per_km(s["pace_target"])
-            return {"type": "pace", "start": sec, "end": sec}
-        if s.get("pace_max"):
-            sec = _pace_to_sec_per_km(s["pace_max"])
-            return {"type": "pace", "start": sec, "end": sec}
-        return None
+        pace_str = s.get("pace_target") or s.get("pace_max")
+        if not pace_str:
+            return None
+        sec = _pace_to_sec_per_km(pace_str)
+        return {"type": "pace", "start": sec, "end": sec}
 
     if stype in ("warmup", "cooldown"):
-        label = "Warmup" if stype == "warmup" else "Cooldown"
         dist_m = step.get("distance_m")
-        dur = to_secs(step)
-        if dist_m:
-            doc: dict = {"type": stype, "distance": dist_m, "text": f"{label} {dist_m/1000:.1f}km"}
-            if dur:
-                doc["duration"] = dur
-        elif dur:
-            doc = {"type": stype, "duration": dur, "text": label}
-        else:
+        if not dist_m:
             return None
+        doc: dict = {"type": stype, "distance": dist_m}
         t = pace_target(step)
         if t:
             doc["target"] = t
@@ -466,37 +445,22 @@ def _step_to_doc(step: dict) -> dict | None:
 
     if stype == "run":
         dist_m = step.get("distance_m")
-        pace = step.get("pace_target") or step.get("pace_max")
-        dur = to_secs(step)
-        if dist_m:
-            if step.get("pace_target"):
-                text = f"{dist_m}m @ {step['pace_target']}/km"
-            else:
-                text = f"Easy {dist_m/1000:.1f}km" + (f" (max {pace}/km)" if pace else "")
-            doc = {"type": "active", "distance": dist_m, "text": text}
-            if dur:
-                doc["duration"] = dur
-        elif dur:
-            text = "Easy run" + (f" (max {pace}/km)" if pace else "")
-            doc = {"type": "active", "duration": dur, "text": text}
-        else:
+        if not dist_m:
             return None
+        doc = {"type": "active", "distance": dist_m}
         t = pace_target(step)
         if t:
             doc["target"] = t
         return doc
 
     if stype == "rest":
-        dur = to_secs(step)
-        return {"type": "rest", "duration": dur, "text": "Recovery walk"} if dur else None
+        dur = step.get("duration_s") or (int(step["duration_min"] * 60) if step.get("duration_min") else None)
+        return {"type": "rest", "duration": dur} if dur else None
 
     if stype == "repeat":
         children = [_step_to_doc(c) for c in step.get("children", [])]
-        return {
-            "type": "repeat",
-            "reps": step["count"],
-            "steps": [c for c in children if c],
-        }
+        children = [c for c in children if c]
+        return {"type": "repeat", "reps": step["count"], "steps": children} if children else None
 
     return None
 
@@ -736,6 +700,9 @@ def _push_to_intervals(athlete_id: str, api_key: str, events: list[dict]) -> lis
     for event in events:
         url = f"{INTERVALS_BASE}/{athlete_id}/events"
         try:
+            # Debug: log workout_doc zodat we het formaat kunnen vergelijken met handmatige workouts
+            if event.get("workout_doc"):
+                log.info("Sending workout_doc: %s", json.dumps(event["workout_doc"], ensure_ascii=False))
             resp = session.post(url, json=event, timeout=20)
             if not resp.ok:
                 log.error(
@@ -752,6 +719,9 @@ def _push_to_intervals(athlete_id: str, api_key: str, events: list[dict]) -> lis
                 event["start_date_local"][11:16],
                 result.get("id"),
             )
+            # Debug: log opgeslagen workout_doc terug van de API (toont wat intervals.icu echt opslaat)
+            stored_doc = result.get("workout_doc")
+            log.info("Stored workout_doc: %s", json.dumps(stored_doc, ensure_ascii=False) if stored_doc else "None")
             results.append(result)
         except Exception as exc:
             log.error("Fout bij aanmaken event '%s': %s", event.get("name"), exc)
