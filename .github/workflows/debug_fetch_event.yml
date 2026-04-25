@@ -1,0 +1,22 @@
+name: Debug – Fetch intervals.icu event
+
+on:
+  workflow_dispatch:
+    inputs:
+      date:
+        description: 'Datum om events op te halen (YYYY-MM-DD)'
+        required: true
+        default: '2026-04-25'
+
+jobs:
+  fetch:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Fetch events voor datum
+        env:
+          INTERVALS_ATHLETE_ID: ${{ secrets.INTERVALS_ATHLETE_ID }}
+          INTERVALS_API_KEY: ${{ secrets.INTERVALS_API_KEY }}
+        run: |
+          curl -s -u "API_KEY:${INTERVALS_API_KEY}" \
+            "https://intervals.icu/api/v1/athlete/${INTERVALS_ATHLETE_ID}/events?oldest=${{ inputs.date }}&newest=${{ inputs.date }}" \
+            | python3 -m json.tool
