@@ -625,9 +625,6 @@ def _build_description(spec: dict) -> str:
     if week:
         lines.append(f"\n5K Improvement Program (Week {week})")
 
-    sent_at = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
-    lines.append(f"\nSent: {sent_at}")
-
     return "\n".join(lines)
 
 
@@ -638,7 +635,7 @@ def _build_icu_workout_text(spec: dict) -> str:
 
     Dit formaat wordt door intervals.icu server-side geparsed naar
     gestructureerde workout-stappen (grafiek + Garmin-sync).
-    Indeling: "<afstand>mtr <tempo>/km [Warmup|Cooldown]" per stap,
+    Indeling: "<afstand>m <tempo>/km [Warmup|Cooldown]" per stap,
     herhalingen als "Nx" gevolgd door de deelstappen.
     """
     lines = []
@@ -650,17 +647,17 @@ def _build_icu_workout_text(spec: dict) -> str:
             dist = step.get("distance_m")
             pace = step.get("pace_max")
             if dist and pace:
-                result.append(f"{dist}mtr {pace}/km Warmup")
+                result.append(f"{dist}m {pace}/km Warmup")
         elif stype == "cooldown":
             dist = step.get("distance_m")
             pace = step.get("pace_max")
             if dist and pace:
-                result.append(f"{dist}mtr {pace}/km Cooldown")
+                result.append(f"{dist}m {pace}/km Cooldown")
         elif stype == "run":
             dist = step.get("distance_m")
             pace = step.get("pace_target") or step.get("pace_max")
             if dist and pace:
-                result.append(f"{dist}mtr {pace}/km")
+                result.append(f"{dist}m {pace}/km")
         elif stype == "rest":
             dur = step.get("duration_s")
             if dur:
@@ -692,9 +689,15 @@ def _build_intervals_event(spec: dict) -> dict:
 
     # intervals.icu tekst-format bovenaan: server parseert dit naar stappen + grafiek.
     # workout_doc via JSON wordt genegeerd door de events API (known limitation).
+    # Sent-timestamp staat VOOR de ICU-blok zodat intervals.icu het als tekst toont
+    # (niet als workout-stap).
+    sent_at = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
     icu_text = _build_icu_workout_text(spec)
     human_desc = _build_description(spec)
-    description = (icu_text + "\n\n" + human_desc) if icu_text else human_desc
+    if icu_text:
+        description = f"Sent: {sent_at}\n\n{icu_text}"
+    else:
+        description = f"Sent: {sent_at}\n\n{human_desc}"
 
     event: dict = {
         "start_date_local": f"{spec['date']}T{time_str}",
