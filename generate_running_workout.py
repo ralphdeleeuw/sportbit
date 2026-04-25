@@ -117,6 +117,29 @@ def _strip_html(text: str) -> str:
     return re.sub(r"<[^>]+>", " ", text or "").strip()
 
 
+def _cancelled_cf_dates(files: dict[str, str]) -> set[str]:
+    """Return dates where the athlete cancelled CrossFit with no remaining active sign-up."""
+    raw = files.get("sportbit_state.json", "")
+    if not raw:
+        return set()
+    try:
+        state = json.loads(raw)
+    except json.JSONDecodeError:
+        return set()
+    signed_up: dict = state.get("signed_up", {})
+    cancelled: dict = state.get("cancelled", {})
+    active_dates: set[str] = {
+        info.get("date", "")
+        for event_id, info in signed_up.items()
+        if event_id not in cancelled and info.get("date")
+    }
+    return {
+        info.get("date", "")
+        for info in cancelled.values()
+        if info.get("date") and info["date"] not in active_dates
+    }
+
+
 def _load_fitness_context(gist_id: str, token: str) -> dict:
     files = _load_gist(gist_id, token)
 
@@ -139,13 +162,23 @@ def _load_fitness_context(gist_id: str, token: str) -> dict:
     cutoff_upcoming = (date.today() + timedelta(days=10)).isoformat()
     cutoff_recent = (date.today() - timedelta(days=14)).isoformat()
 
+    cancelled = _cancelled_cf_dates(files)
+
     return {
         "wellness": intervals_data.get("wellness", {}).get("by_date", {}),
         "activities": intervals_data.get("activities", {}).get("by_date", {}),
         "health_input": health_input or {},
         "running_plan": running_plan,
-        "upcoming_crossfit": [w for w in all_wods if today_str <= w.get("date", "") <= cutoff_upcoming],
-        "recent_crossfit": [w for w in all_wods if cutoff_recent <= w.get("date", "") < today_str],
+        "upcoming_crossfit": [
+            w for w in all_wods
+            if today_str <= w.get("date", "") <= cutoff_upcoming
+            and w.get("date", "") not in cancelled
+        ],
+        "recent_crossfit": [
+            w for w in all_wods
+            if cutoff_recent <= w.get("date", "") < today_str
+            and w.get("date", "") not in cancelled
+        ],
         "mfp_by_date": (mfp_data.get("diary") or {}).get("by_date") or {},
     }
 

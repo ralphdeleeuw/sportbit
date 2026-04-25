@@ -32,6 +32,7 @@ from generate_running_workout import (
     _build_description,
     _build_intervals_event,
     _build_workout_doc,
+    _cancelled_cf_dates,
     _delete_old_intervals_events,
     _load_gist,
     _parse_json,
@@ -126,6 +127,7 @@ def _load_review_context(gist_id: str, token: str) -> dict:
         "activities": intervals_data.get("activities", {}).get("by_date", {}),
         "health_input": health_input,
         "all_wods": all_wods,
+        "cancelled_cf_dates": _cancelled_cf_dates(files),
         "mfp_by_date": (mfp_data.get("diary") or {}).get("by_date") or {},
         "today_str": today_str,
     }
@@ -212,6 +214,7 @@ def _build_review_context(
     mfp_by_date: dict,
     health_input: dict,
     activities_by_date: dict | None = None,
+    cancelled_cf_dates: set[str] = frozenset(),
 ) -> str:
     now_ams = datetime.now(AMS)
     today_str = date.today().isoformat()
@@ -322,6 +325,7 @@ def _build_review_context(
     relevant_cf = [
         wod for wod in all_wods
         if wod.get("date", "") in cf_dates
+        and wod.get("date", "") not in cancelled_cf_dates
     ]
     if relevant_cf:
         cf_lines = []
@@ -576,6 +580,7 @@ def main() -> None:
         mfp_by_date=ctx["mfp_by_date"],
         health_input=ctx["health_input"],
         activities_by_date=ctx.get("activities"),
+        cancelled_cf_dates=ctx.get("cancelled_cf_dates", frozenset()),
     )
     log.info("Review context:\n%s", context_text)
 
