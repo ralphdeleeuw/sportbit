@@ -642,30 +642,23 @@ def _build_intervals_event(spec: dict) -> dict:
         session_role = spec.get("session", "speed")
         time_str = "20:00:00" if session_role == "speed" else "09:00:00"
 
+    # intervals.icu parseert de description als ICU workout-tekst om workout_doc te bouwen.
+    # De ICU-tekst moet EERSTE staan — alles daarvoor breekt de parser.
+    # workout_doc meesturen via de events API heeft geen effect: wordt genegeerd.
     sent_at = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
     icu_text = _build_icu_workout_text(spec)
-    human_desc = _build_description(spec)
-    # ICU tekst bovenaan voor de web-grafiek; Sent-datum voor de ICU-blok als tekstregel
     if icu_text:
-        description = f"Sent: {sent_at}\n\n{icu_text}"
+        description = f"{icu_text}\n\nSent: {sent_at}"
     else:
-        description = f"Sent: {sent_at}\n\n{human_desc}"
+        description = f"Sent: {sent_at}\n\n{_build_description(spec)}"
 
-    event: dict = {
+    return {
         "start_date_local": f"{spec['date']}T{time_str}",
         "category": "WORKOUT",
         "type": "Run",
         "name": spec["name"],
         "description": description,
     }
-
-    # workout_doc voor Garmin FIT-sync: stelt gestructureerde stappen in op het horloge.
-    # De events API gebruikt dit voor Garmin-sync; de description-tekst is alleen voor de web-UI.
-    workout_doc = _build_workout_doc(spec)
-    if workout_doc:
-        event["workout_doc"] = workout_doc
-
-    return event
 
 
 # ── Push naar intervals.icu ────────────────────────────────────────────────────
