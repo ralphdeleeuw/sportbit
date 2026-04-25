@@ -501,10 +501,10 @@ def _step_to_doc(step: dict) -> dict | None:
     def pace_target(s: dict) -> dict | None:
         if s.get("pace_target"):
             sec = _pace_to_sec_per_km(s["pace_target"])
-            return {"type": "Pace", "start": sec, "end": sec}
+            return {"type": "pace", "start": sec, "end": sec}
         if s.get("pace_max"):
             sec = _pace_to_sec_per_km(s["pace_max"])
-            return {"type": "Pace", "start": sec, "end": sec}
+            return {"type": "pace", "start": sec, "end": sec}
         return None
 
     if stype in ("warmup", "cooldown"):
@@ -553,7 +553,7 @@ def _step_to_doc(step: dict) -> dict | None:
     if stype == "repeat":
         children = [_step_to_doc(c) for c in step.get("children", [])]
         return {
-            "type": "Repeat",
+            "type": "repeat",
             "reps": step["count"],
             "steps": [c for c in children if c],
         }
@@ -687,13 +687,10 @@ def _build_intervals_event(spec: dict) -> dict:
         session_role = spec.get("session", "speed")
         time_str = "20:00:00" if session_role == "speed" else "09:00:00"
 
-    # intervals.icu tekst-format bovenaan: server parseert dit naar stappen + grafiek.
-    # workout_doc via JSON wordt genegeerd door de events API (known limitation).
-    # Sent-timestamp staat VOOR de ICU-blok zodat intervals.icu het als tekst toont
-    # (niet als workout-stap).
     sent_at = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
     icu_text = _build_icu_workout_text(spec)
     human_desc = _build_description(spec)
+    # ICU tekst bovenaan voor de web-grafiek; Sent-datum voor de ICU-blok als tekstregel
     if icu_text:
         description = f"Sent: {sent_at}\n\n{icu_text}"
     else:
@@ -706,6 +703,13 @@ def _build_intervals_event(spec: dict) -> dict:
         "name": spec["name"],
         "description": description,
     }
+
+    # workout_doc voor Garmin FIT-sync: stelt gestructureerde stappen in op het horloge.
+    # De events API gebruikt dit voor Garmin-sync; de description-tekst is alleen voor de web-UI.
+    workout_doc = _build_workout_doc(spec)
+    if workout_doc:
+        event["workout_doc"] = workout_doc
+
     return event
 
 
