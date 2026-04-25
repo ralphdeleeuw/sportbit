@@ -479,48 +479,88 @@ def _pace_to_sec_per_km(pace: str) -> int:
 # ── workout_doc bouwen ─────────────────────────────────────────────────────────
 
 def _step_to_doc(step: dict) -> dict | None:
-    """Converteer een Claude-stap naar intervals.icu workout_doc stap.
+    """Converteer een Claude-stap naar het exacte intervals.icu workout_doc formaat.
 
-    Minimaal formaat: alleen distance (meters) of duration (seconden), nooit beide.
-    Geen text-veld — dat wordt niet herkend door de events API.
+    Gebaseerd op de GET /events response van een handmatig aangemaakte workout.
+    Pace zit als {"units": "secs/km", "value": <int>} op het step-niveau.
+    Warmup/cooldown zijn boolean flags + intensity string, geen type-veld.
     """
     stype = step.get("type")
 
-    def pace_target(s: dict) -> dict | None:
+    def pace_secs(s: dict) -> int | None:
         pace_str = s.get("pace_target") or s.get("pace_max")
-        if not pace_str:
-            return None
-        sec = _pace_to_sec_per_km(pace_str)
-        return {"type": "pace", "start": sec, "end": sec}
+        return _pace_to_sec_per_km(pace_str) if pace_str else None
 
-    if stype in ("warmup", "cooldown"):
+    def calc_duration(s: dict) -> int | None:
+        if s.get("duration_s"):
+            return int(s["duration_s"])
+        if s.get("duration_min"):
+            return int(s["duration_min"] * 60)
+        dist_m = s.get("distance_m")
+        pace_str = s.get("pace_target") or s.get("pace_max")
+        if dist_m and pace_str:
+            return int(dist_m / 1000 * _pace_to_sec_per_km(pace_str))
+        return None
+
+    if stype == "warmup":
         dist_m = step.get("distance_m")
         if not dist_m:
             return None
-        doc: dict = {"type": stype, "distance": dist_m}
-        t = pace_target(step)
-        if t:
-            doc["target"] = t
+        doc: dict = {"warmup": True, "intensity": "warmup", "text": "Warmup", "distance": dist_m}
+        dur = calc_duration(step)
+        if dur:
+            doc["duration"] = dur
+        ps = pace_secs(step)
+        if ps:
+            doc["pace"] = {"units": "secs/km", "value": ps}
+        return doc
+
+    if stype == "cooldown":
+        dist_m = step.get("distance_m")
+        if not dist_m:
+            return None
+        doc = {"cooldown": True, "intensity": "cooldown", "text": "Cooldown", "distance": dist_m}
+        dur = calc_duration(step)
+        if dur:
+            doc["duration"] = dur
+        ps = pace_secs(step)
+        if ps:
+            doc["pace"] = {"units": "secs/km", "value": ps}
         return doc
 
     if stype == "run":
         dist_m = step.get("distance_m")
         if not dist_m:
             return None
-        doc = {"type": "active", "distance": dist_m}
-        t = pace_target(step)
-        if t:
-            doc["target"] = t
+        doc = {"distance": dist_m}
+        dur = calc_duration(step)
+        if dur:
+            doc["duration"] = dur
+        ps = pace_secs(step)
+        if ps:
+            doc["pace"] = {"units": "secs/km", "value": ps}
         return doc
 
     if stype == "rest":
         dur = step.get("duration_s") or (int(step["duration_min"] * 60) if step.get("duration_min") else None)
-        return {"type": "rest", "duration": dur} if dur else None
+        if not dur:
+            return None
+        return {"rest": True, "intensity": "rest", "duration": dur}
 
     if stype == "repeat":
         children = [_step_to_doc(c) for c in step.get("children", [])]
         children = [c for c in children if c]
-        return {"type": "repeat", "reps": step["count"], "steps": children} if children else None
+        if not children:
+            return None
+        count = step.get("count", 1)
+        total_dist = sum(c.get("distance", 0) for c in children) * count
+        total_dur = sum(c.get("duration", 0) for c in children) * count
+        doc = {"reps": count, "text": f"Main set {count}x", "steps": children}
+        if total_dist:
+            doc["distance"] = total_dist
+        if total_dur:
+            doc["duration"] = total_dur
+        return doc
 
     return None
 
@@ -528,7 +568,18 @@ def _step_to_doc(step: dict) -> dict | None:
 def _build_workout_doc(spec: dict) -> dict | None:
     steps = [_step_to_doc(s) for s in spec.get("steps", [])]
     steps = [s for s in steps if s]
-    return {"steps": steps} if steps else None
+    if not steps:
+        return None
+    total_dist = sum(s.get("distance", 0) for s in steps)
+    total_dur = sum(s.get("duration", 0) for s in steps)
+    return {
+        "steps": steps,
+        "locales": [],
+        "options": {},
+        "distance": total_dist,
+        "duration": total_dur,
+        "description": _build_icu_workout_text(spec),
+    }
 
 
 # ── Beschrijvingstekst (Runna-stijl) ──────────────────────────────────────────
