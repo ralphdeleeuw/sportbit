@@ -441,22 +441,24 @@ def _step_to_doc(step: dict) -> dict | None:
     def pace_target(s: dict) -> dict | None:
         if s.get("pace_target"):
             sec = _pace_to_sec_per_km(s["pace_target"])
-            return {"type": "pace", "pace": sec, "paceRange": 10}
+            return {"type": "Pace", "start": sec, "end": sec}
         if s.get("pace_max"):
             sec = _pace_to_sec_per_km(s["pace_max"])
-            return {"type": "pace", "pace": sec, "paceRange": 30}
+            return {"type": "Pace", "start": sec, "end": sec}
         return None
 
     if stype in ("warmup", "cooldown"):
         label = "Warmup" if stype == "warmup" else "Cooldown"
         dist_m = step.get("distance_m")
+        dur = to_secs(step)
         if dist_m:
             doc: dict = {"type": stype, "distance": dist_m, "text": f"{label} {dist_m/1000:.1f}km"}
-        else:
-            dur = to_secs(step)
-            if not dur:
-                return None
+            if dur:
+                doc["duration"] = dur
+        elif dur:
             doc = {"type": stype, "duration": dur, "text": label}
+        else:
+            return None
         t = pace_target(step)
         if t:
             doc["target"] = t
@@ -465,18 +467,20 @@ def _step_to_doc(step: dict) -> dict | None:
     if stype == "run":
         dist_m = step.get("distance_m")
         pace = step.get("pace_target") or step.get("pace_max")
+        dur = to_secs(step)
         if dist_m:
             if step.get("pace_target"):
                 text = f"{dist_m}m @ {step['pace_target']}/km"
             else:
                 text = f"Easy {dist_m/1000:.1f}km" + (f" (max {pace}/km)" if pace else "")
             doc = {"type": "active", "distance": dist_m, "text": text}
-        else:
-            dur = to_secs(step)
-            if not dur:
-                return None
-            text = f"Easy run" + (f" (max {pace}/km)" if pace else "")
+            if dur:
+                doc["duration"] = dur
+        elif dur:
+            text = "Easy run" + (f" (max {pace}/km)" if pace else "")
             doc = {"type": "active", "duration": dur, "text": text}
+        else:
+            return None
         t = pace_target(step)
         if t:
             doc["target"] = t
