@@ -2186,6 +2186,7 @@
       const timeHtml = event.time ? `<span class="card-time" style="color:#4db8ff">${event.time}</span>` : '';
       const metaLabel = event.notes ? event.notes.split('\n')[0] : event.location;
       const locHtml  = metaLabel ? `<span> ${escapeHtml(metaLabel)}</span>` : '';
+      const routeHtml = event.route ? `<div class="card-meta" style="margin-top:0.1rem"><span style="color:#7dd3fc">Route:</span> <span>${escapeHtml(event.route)}</span></div>` : '';
       const metaHtml = (timeHtml || locHtml) ? `<div class="card-meta">${timeHtml}${locHtml}</div>` : '';
       const deleteBtn = `<button class="personal-delete-btn" title="Verwijderen"
         onclick="event.stopPropagation();deletePersonalEvent('${escapeHtml(event.id)}',this)">✕</button>`;
@@ -2199,6 +2200,7 @@
                 <div class="card-header-left">
                   <div class="card-title">${escapeHtml(event.title)}</div>
                   ${metaHtml}
+                  ${routeHtml}
                 </div>
                 <div class="card-right">
                   <div class="card-date" style="color:#4db8ff">${formatDate(event.date)}</div>
@@ -2219,6 +2221,7 @@
           <div class="card-info">
             <div class="card-title">${escapeHtml(event.title)}</div>
             ${metaHtml}
+            ${routeHtml}
           </div>
           <div class="card-right">
             <div class="card-date" style="color:#4db8ff">${formatDate(event.date)}</div>
@@ -2480,6 +2483,7 @@
                 <option value="SUPpen">SUPpen</option>
                 <option value="Zwemmen">Zwemmen</option>
                 <option value="Fietsen">Fietsen</option>
+                <option value="Mountainbiken">Mountainbiken</option>
                 <option value="Yoga">Yoga</option>
                 <option value="Gym">Gym</option>
                 <option value="Anders">Anders…</option>
@@ -2496,6 +2500,10 @@
             <div class="add-event-row">
               <span class="add-event-label">Tijd</span>
               <input type="time" class="add-event-input" id="newEventTime" />
+            </div>
+            <div class="add-event-row" id="routeRow" style="display:none">
+              <span class="add-event-label">Route</span>
+              <input type="text" class="add-event-input" id="newEventRoute" placeholder="Bijv. Veluwe Noord lus" />
             </div>
             <div class="add-event-row">
               <span class="add-event-label">Locatie</span>
@@ -2522,6 +2530,8 @@
     function handleEventTitleChange(sel) {
       const row = document.getElementById('customTitleRow');
       if (row) row.style.display = sel.value === 'Anders' ? 'flex' : 'none';
+      const routeRow = document.getElementById('routeRow');
+      if (routeRow) routeRow.style.display = sel.value === 'Mountainbiken' ? 'flex' : 'none';
     }
 
     async function savePersonalEvent() {
@@ -2541,6 +2551,7 @@
       }
       const date     = (document.getElementById('newEventDate')?.value     || '').trim();
       const time     = (document.getElementById('newEventTime')?.value     || '').trim();
+      const route    = (document.getElementById('newEventRoute')?.value    || '').trim();
       const location = (document.getElementById('newEventLocation')?.value || '').trim();
       const notes    = (document.getElementById('newEventNotes')?.value    || '').trim();
 
@@ -2558,6 +2569,7 @@
 
       const newEvent = { id: `personal_${Date.now()}`, title, date };
       if (time)     newEvent.time     = time;
+      if (route)    newEvent.route    = route;
       if (location) newEvent.location = location;
       if (notes)    newEvent.notes    = notes;
       newEvent.created_at = new Date().toISOString();
