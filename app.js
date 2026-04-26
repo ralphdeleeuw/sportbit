@@ -793,7 +793,7 @@
       if (futureSessions.length) cardsHtml += futureSessions.map((s, i) => renderRunEventCard(s, i * 0.05, 'plan')).join('');
       if (todaySessions.length) cardsHtml += divider('Vandaag') + todaySessions.map((s, i) => renderRunEventCard(s, i * 0.05, 'plan')).join('');
       if (pastAllSessions.length) {
-        const sep = (futureSessions.length || todaySessions.length) ? divider('Eerder') : '';
+        const sep = (futureSessions.length || todaySessions.length) ? divider('Geweest') : '';
         cardsHtml += sep + pastAllSessions.map((s, i) => renderRunEventCard(s, i * 0.05, 'plan')).join('');
       }
 
@@ -950,6 +950,7 @@
           ...past.slice(-5).map(e => ({ type: 'class', date: e.date, item: e })),
           ...orphanDates.map(d => ({ type: 'activity', date: d })),
           ...pastRuns.map(s => ({ type: 'run', date: s.date, item: s })),
+          ...personalEvents.filter(e => !isUpcoming(e.date, e.time || null) && e.date >= cutoffStr).map(e => ({ type: 'personal', date: e.date, item: e })),
         ].sort((a, b) => b.date.localeCompare(a.date)).slice(0, 8);
 
         // Render each tab
@@ -1093,10 +1094,11 @@
         h += `</div>`;
       }
       if (pastItems.length > 0) {
-        h += `<div class="section-title">Eerder</div><div class="cards">`;
+        h += `<div class="section-title">Geweest</div><div class="cards">`;
         pastItems.forEach((entry,i) => {
           if (entry.type==='class') h += renderPastCard(entry.item,i*0.05);
           else if (entry.type==='run') h += renderRunEventCard(entry.item,i*0.05,'schema');
+          else if (entry.type==='personal') h += renderPersonalEventCard(entry.item,i*0.05);
           else h += renderActivityCard(entry.date,i*0.05);
         });
         h += `</div>`;
