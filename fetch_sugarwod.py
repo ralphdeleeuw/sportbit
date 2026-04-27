@@ -2052,8 +2052,9 @@ def generate_recovery_advice(
     If strava_data is provided, activity details (HR, duration) per WOD date
     are included to assess training load.
 
-    If health_input is provided (subjectieve scores: slaap, energie, spierpijn),
+    If health_input is provided (subjectieve scores: energie, spierpijn, stress),
     these are included as primary physiological recovery indicators.
+    Sleep quality is sourced exclusively from the automatic Garmin sleep score.
 
     If health_history is provided (list of past health_input entries), the AI
     can identify trends over time (e.g. recurring low energy on Thursdays).
@@ -2229,14 +2230,13 @@ def generate_recovery_advice(
                         meals_text += f"  • {ing['name']}{': ' + qty if qty else ''}\n"
 
     # Build health input block (subjectieve hersteldata van atleet)
+    # Sleep quality is intentionally excluded here — use the automatic Garmin sleep
+    # score (0-100) from the intervals.icu block below, not the manual slaap field.
     health_block = ""
     if health_input:
         lines = []
-        slaap = health_input.get("slaap")
         energie = health_input.get("energie")
         spierpijn = health_input.get("spierpijn")
-        if slaap is not None:
-            lines.append(f"- Sleep quality today: {slaap}/5 (1=very poor, 5=excellent)")
         if energie is not None:
             lines.append(f"- Energy level today: {energie}/5")
         if spierpijn is not None:
@@ -2244,25 +2244,24 @@ def generate_recovery_advice(
         stress = health_input.get("stress")
         if stress is not None:
             lines.append(f"- Stress today: {stress}/5 (1=no stress, 5=high stress/busy day)")
-        # Append recent history trend (last 14 days)
+        # Append recent history trend (last 14 days) — energy/soreness/stress only
         if health_history:
             today_iso = today.isoformat() if today else ""
             recent = [h for h in health_history if h.get("date", "") < today_iso]
             recent = sorted(recent, key=lambda h: h.get("date", ""), reverse=True)[:14]
             if recent:
-                lines.append("\nTrend last 14 days (date: sleep/energy/soreness/stress; all 1–5, 5=best; a stable value is the athlete's personal baseline, not a problem):")
+                lines.append("\nTrend last 14 days (date: energy/soreness/stress; all 1–5, 5=best; a stable value is the athlete's personal baseline, not a problem):")
                 for h in reversed(recent):
                     d = h.get("date", "?")
-                    s = h.get("slaap", "?")
                     e = h.get("energie", "?")
                     p = h.get("spierpijn", "?")
                     st = h.get("stress")
                     stress_str = f" stress={st}" if st is not None else ""
-                    lines.append(f"  {d}: sleep={s} energy={e} soreness={p}{stress_str}")
+                    lines.append(f"  {d}: energy={e} soreness={p}{stress_str}")
         if lines:
             health_block = (
                 "\nSubjective recovery data (filled in by athlete — use this as primary "
-                "physiological recovery indicator):\n"
+                "physiological recovery indicator for energy, soreness and stress):\n"
                 + "\n".join(lines)
                 + "\n"
             )
@@ -2313,9 +2312,7 @@ def generate_recovery_advice(
             if garmin_entry.get("sleep_hrs") is not None:
                 g_lines.append(f"- Sleep: {garmin_entry['sleep_hrs']:.1f} hours")
             if garmin_entry.get("sleep_score") is not None:
-                g_lines.append(f"- Sleep score: {garmin_entry['sleep_score']}/100")
-            if garmin_entry.get("sleep_quality") is not None:
-                g_lines.append(f"- Sleep quality: {garmin_entry['sleep_quality']}/5 (1=very poor, 5=excellent)")
+                g_lines.append(f"- Sleep score (Garmin): {garmin_entry['sleep_score']}/100")
             if garmin_entry.get("respiration") is not None:
                 g_lines.append(f"- Respiration rate: {garmin_entry['respiration']:.1f} /min")
             ctl = garmin_entry.get("ctl")
@@ -2681,15 +2678,13 @@ def generate_workout_plans(
             barbell_trend_text = "\nStrength development vs. ~4 weeks ago:\n" + "\n".join(f"  {p}" for p in parts) + "\n"
 
     # Herstelstatus van de atleet (health scores + ACWR + Oura)
+    # Sleep quality is excluded — only use automatic Garmin sleep score.
     recovery_status_text = ""
     if health_input:
-        slaap = health_input.get("slaap")
         energie = health_input.get("energie")
         spierpijn = health_input.get("spierpijn")
         stress = health_input.get("stress")
         parts = []
-        if slaap is not None:
-            parts.append(f"sleep {slaap}/5")
         if energie is not None:
             parts.append(f"energy {energie}/5")
         if spierpijn is not None:
