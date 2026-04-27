@@ -2399,6 +2399,17 @@
         await _patchRescheduleToGist(token, sessionKey, newDatetime);
         setStatus('✓ Opgeslagen in Gist — Garmin sync starten…');
 
+        // Trigger health data refresh in the background so the AI coach advice is regenerated
+        // with the updated schedule without waiting for the next scheduled run
+        fetch(
+          'https://api.github.com/repos/ralphdeleeuw/sportbit/actions/workflows/fetch_health_data.yml/dispatches',
+          {
+            method: 'POST',
+            headers: { Authorization: `token ${token}`, Accept: 'application/vnd.github+json', 'Content-Type': 'application/json' },
+            body: JSON.stringify({ ref: 'main', inputs: {} }),
+          }
+        ).catch(() => {});
+
         // Trigger reschedule workflow
         const triggerTime = new Date();
         const triggerResp = await fetch(
