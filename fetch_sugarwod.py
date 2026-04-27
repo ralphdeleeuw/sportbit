@@ -2193,7 +2193,7 @@ def generate_recovery_advice(
 
     skill_focus_text = "\n".join(f"- {s}" for s in athlete_profile.get("skill_focus", []))
 
-    today_str = today.isoformat() if today else "unknown"
+    today_str = _nl_date(today.isoformat()) if today else "unknown"
 
     # Build meal context: recent dinners + upcoming dinner on next workout day
     meals_text = ""
@@ -2236,7 +2236,7 @@ def generate_recovery_advice(
         energie = health_input.get("energie")
         spierpijn = health_input.get("spierpijn")
         if slaap is not None:
-            lines.append(f"- Sleep quality today: {slaap}/5")
+            lines.append(f"- Sleep quality today: {slaap}/5 (1=very poor, 5=excellent)")
         if energie is not None:
             lines.append(f"- Energy level today: {energie}/5")
         if spierpijn is not None:
@@ -2250,7 +2250,7 @@ def generate_recovery_advice(
             recent = [h for h in health_history if h.get("date", "") < today_iso]
             recent = sorted(recent, key=lambda h: h.get("date", ""), reverse=True)[:14]
             if recent:
-                lines.append("\nTrend last 14 days (date: sleep/energy/muscle soreness/stress):")
+                lines.append("\nTrend last 14 days (date: sleep/energy/soreness/stress; all 1–5, 5=best; a stable value is the athlete's personal baseline, not a problem):")
                 for h in reversed(recent):
                     d = h.get("date", "?")
                     s = h.get("slaap", "?")
@@ -2315,7 +2315,7 @@ def generate_recovery_advice(
             if garmin_entry.get("sleep_score") is not None:
                 g_lines.append(f"- Sleep score: {garmin_entry['sleep_score']}/100")
             if garmin_entry.get("sleep_quality") is not None:
-                g_lines.append(f"- Sleep quality: {garmin_entry['sleep_quality']}/5")
+                g_lines.append(f"- Sleep quality: {garmin_entry['sleep_quality']}/5 (1=very poor, 5=excellent)")
             if garmin_entry.get("respiration") is not None:
                 g_lines.append(f"- Respiration rate: {garmin_entry['respiration']:.1f} /min")
             ctl = garmin_entry.get("ctl")
@@ -2533,10 +2533,29 @@ def generate_recovery_advice(
             for w in reversed(recent_runs):
                 lines.append(f"    {_nl_date(w['date'])}: {w.get('name', w.get('type', 'Run'))} "
                              f"({w.get('total_distance_km', '?')}km, {w.get('session', '')})")
+        # Apply health_input run_1/run_2 time overrides (user may have rescheduled
+        # via the PWA before the running plan was regenerated server-side)
+        _hi = health_input or {}
+        def _hi_run_time(key: str) -> str:
+            raw = _hi.get(key, "")
+            if raw and "T" in raw:
+                try:
+                    return datetime.fromisoformat(raw).strftime("%H:%M")
+                except ValueError:
+                    pass
+            return ""
+        _run1_time_ovr = _hi_run_time("run_1")
+        _run2_time_ovr = _hi_run_time("run_2")
+
         if upcoming_runs:
             lines.append("  Upcoming planned running sessions:")
             for w in upcoming_runs:
                 t = w.get("time", "")
+                session = w.get("session", "")
+                if session == "speed" and _run1_time_ovr:
+                    t = _run1_time_ovr
+                elif session == "long_run" and _run2_time_ovr:
+                    t = _run2_time_ovr
                 lines.append(f"    {_nl_date(w['date'])}{' at ' + t if t else ''}: "
                              f"{w.get('name', w.get('type', 'Run'))} "
                              f"({w.get('total_distance_km', '?')}km, {w.get('session', '')})")
@@ -2581,7 +2600,7 @@ Next workout:
 {upcoming_text}{upcoming_timing_context}{upcoming_personal_text}{running_plan_text}{meals_text}{env_block}
 {pr_text}{prev_advice_text}{deload_block}
 Provide advice on:
-1. **Recovery level** — are there muscle groups that need extra rest based on recent workouts?{"  Use the subjective recovery data (sleep, energy, muscle soreness) as the primary physiological recovery indicator. Use the Strava workout data (heart rate, duration) to assess the actual training load per session." if health_input else ""}{"  The ACWR ratio indicates training load: check if there is a pattern with the previous advice." if acwr else ""}
+1. **Recovery level** — are there muscle groups that need extra rest based on recent workouts?{"  Use the subjective recovery data (sleep, energy, muscle soreness) as the primary physiological recovery indicator. Use the Strava workout data (heart rate, duration) to assess the actual training load per session. If a subjective metric (e.g. sleep) is consistently at the same level over multiple weeks, treat it as the athlete's personal baseline — do not flag it as a persistent problem unless it has clearly worsened." if health_input else ""}{"  The ACWR ratio indicates training load: check if there is a pattern with the previous advice." if acwr else ""}
 2. **Intensity advice** — go full throttle, train controlled, or deliberately scale today?
 3. **One concrete tip** for the next workout taking recovery into account (e.g. pacing, scaling choice, specific movement)
 4. **Nutrition** — include this section only if meal information is available: consider the training time (see above) — is the meal a good recovery meal (evening training) or pre-workout preparation (morning training)? One sentence, only if relevant.
