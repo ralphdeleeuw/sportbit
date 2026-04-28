@@ -351,6 +351,11 @@ def _build_context(data: dict, open_gym_event: dict) -> str:
     dag_naam = DAY_NL[event_date.weekday()]
     sections: list[str] = []
 
+    # Gedeelde lookups — vroeg ophalen zodat alle secties ze kunnen gebruiken
+    signed_up_dates: set[str] = data.get("signed_up_dates", set())
+    wod_by_date: dict = data["wod_by_date"]
+    workout_log: dict = data["workout_log"]
+
     sections.append(
         f"Vandaag: {today.isoformat()} ({DAY_NL[today.weekday()]})\n"
         f"Open Gym datum: {event_date_str} ({dag_naam}) om {open_gym_event['time']}\n"
@@ -358,7 +363,6 @@ def _build_context(data: dict, open_gym_event: dict) -> str:
     )
 
     # ── WOD van de dag (reguliere les die wordt overgeslagen) ──────────────────
-    wod_by_date: dict = data["wod_by_date"]
     wods_today = wod_by_date.get(event_date_str, [])
     if wods_today:
         wod_lines = []
@@ -470,7 +474,6 @@ def _build_context(data: dict, open_gym_event: dict) -> str:
     # worden weggelaten zodat de coach geen verkeerde belastingsinschatting maakt.
     cutoff_14 = (today - timedelta(days=14)).isoformat()
     wod_lines = []
-    workout_log: dict = data["workout_log"]
     for d_str in sorted(wod_by_date.keys(), reverse=True):
         if d_str < cutoff_14:
             break
@@ -499,7 +502,6 @@ def _build_context(data: dict, open_gym_event: dict) -> str:
     # ── Komende training (3 dagen na Open Gym) — alleen werkelijke geplande sessies ──
     # Toon alleen dagen waarop de atleet écht staat ingeschreven (CrossFit)
     # of een hardloopsessie heeft gepland.
-    signed_up_dates: set[str] = data.get("signed_up_dates", set())
     running_workouts: list[dict] = data.get("running_plan_workouts", [])
     # Hardloopsessies geïndexeerd op datum
     run_by_date: dict[str, dict] = {
