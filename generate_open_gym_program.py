@@ -464,18 +464,26 @@ def _build_context(data: dict, open_gym_event: dict) -> str:
     else:
         sections.append("Recente activiteiten: geen data beschikbaar")
 
-    # ── WOD-geschiedenis (afgelopen 14 dagen) ──────────────────────────────────
+    # ── WOD-geschiedenis (afgelopen 14 dagen) — alleen bijgewoonde lessen ────────
+    # Toon alleen WODs op dagen dat Ralph daadwerkelijk ingeschreven was
+    # óf de les heeft afgevinkt. Overgeslagen lessen (wel WOD, niet aanwezig)
+    # worden weggelaten zodat de coach geen verkeerde belastingsinschatting maakt.
     cutoff_14 = (today - timedelta(days=14)).isoformat()
     wod_lines = []
     workout_log: dict = data["workout_log"]
     for d_str in sorted(wod_by_date.keys(), reverse=True):
         if d_str < cutoff_14:
             break
+        log_entry = workout_log.get(d_str, {})
+        was_signed_up = d_str in signed_up_dates
+        was_completed = bool(log_entry.get("checked"))
+        # Sla over als de atleet op die dag niet ingeschreven was én het niet afgevinkt heeft
+        if not was_signed_up and not was_completed:
+            continue
         for w in wod_by_date[d_str]:
             name = w.get("name") or w.get("title") or "WOD"
             desc = _strip_html(w.get("description") or "")[:120]
-            log_entry = workout_log.get(d_str, {})
-            completed = "✓" if log_entry.get("checked") else "—"
+            completed = "✓" if was_completed else "ingeschreven"
             notes = log_entry.get("notes") or ""
             line = f"  {d_str} [{completed}] — {name}"
             if desc:
@@ -484,7 +492,9 @@ def _build_context(data: dict, open_gym_event: dict) -> str:
                 line += f" | notitie: {notes[:80]}"
             wod_lines.append(line)
     if wod_lines:
-        sections.append("CrossFit WOD-geschiedenis (afgelopen 14 dagen):\n" + "\n".join(wod_lines))
+        sections.append("CrossFit lessen bijgewoond (afgelopen 14 dagen):\n" + "\n".join(wod_lines))
+    else:
+        sections.append("CrossFit lessen bijgewoond (afgelopen 14 dagen): geen data")
 
     # ── Komende training (3 dagen na Open Gym) — alleen werkelijke geplande sessies ──
     # Toon alleen dagen waarop de atleet écht staat ingeschreven (CrossFit)
