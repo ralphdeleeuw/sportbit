@@ -39,6 +39,21 @@ class GoogleCalendarSync:
         events = events_result.get('items', [])
         return events
 
+    def find_events_by_sportbit_id(self, sportbit_event_id, calendar_id='primary'):
+        result = self.service.events().list(
+            calendarId=calendar_id,
+            q=f"SportBit Event ID: {sportbit_event_id}",
+            singleEvents=True,
+        ).execute()
+        return result.get('items', [])
+
+    def delete_event(self, event_id, calendar_id='primary'):
+        self.service.events().delete(
+            calendarId=calendar_id,
+            eventId=event_id,
+        ).execute()
+        print(f'Deleted calendar event: {event_id}')
+
     def create_event(self, calendar_id='primary', event_details=None):
         if event_details is None:
             raise ValueError('Event details must be provided.')

@@ -344,6 +344,35 @@ def create_calendar_event(event: dict, date: datetime, sync_calendar: bool) -> b
         return False
 
 
+def delete_calendar_event(sportbit_event_id: int, sync_calendar: bool) -> bool:
+    if not sync_calendar:
+        return True
+
+    try:
+        creds_json = os.environ.get("GOOGLE_CREDENTIALS")
+        if not creds_json:
+            log.warning("GOOGLE_CREDENTIALS not set; skipping calendar delete.")
+            return True
+
+        cal_sync = GoogleCalendarSync(creds_json=creds_json)
+        calendar_id = os.environ.get("CALENDAR_ID", "primary")
+        calendar_events = cal_sync.find_events_by_sportbit_id(sportbit_event_id, calendar_id)
+
+        if not calendar_events:
+            log.info("No Google Calendar event found for SportBit event %s.", sportbit_event_id)
+            return True
+
+        for cal_event in calendar_events:
+            cal_sync.delete_event(cal_event["id"], calendar_id)
+            log.info("Deleted Google Calendar event %s for SportBit event %s.", cal_event["id"], sportbit_event_id)
+
+        return True
+
+    except Exception as e:
+        log.error("Failed to delete Google Calendar event for SportBit event %s: %s", sportbit_event_id, str(e))
+        return False
+
+
 # ──────────────────────────────────────────────────────────────
 # Pushover Notifications
 # ──────────────────────────────────────────────────────────────
@@ -541,7 +570,9 @@ def run(username: str, password: str, dry_run: bool, days_ahead: int, sync_calen
                     log.warning("Could not fetch events for %s: %s", date_str, exc)
                     events_cache[date_str] = []
             all_events.extend(events_cache[date_str])
-        state.detect_manual_cancellations(all_events)
+        newly_cancelled = state.detect_manual_cancellations(all_events)
+        for eid in newly_cancelled:
+            delete_calendar_event(int(eid), sync_calendar)
 
     for date, target_time in slots:
         date_str = date.strftime("%Y-%m-%d")
