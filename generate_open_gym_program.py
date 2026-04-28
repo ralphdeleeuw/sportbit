@@ -115,10 +115,73 @@ def _strip_html(text: str) -> str:
     return re.sub(r"<[^>]+>", " ", text or "").strip()
 
 
+# ── SportBit API client ────────────────────────────────────────────────────────
+
+SPORTBIT_BASE = "https://crossfithilversum.sportbitapp.nl/cbm/api/"
+SPORTBIT_ROOSTER_ID = 1
+
+
+class _SportBitClient:
+    def __init__(self, username: str, password: str):
+        self.session = requests.Session()
+        self.session.headers.update({
+            "Accept": "application/json, text/plain, */*",
+            "User-Agent": (
+                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                "AppleWebKit/537.36 (KHTML, like Gecko) "
+                "Chrome/145.0.0.0 Safari/537.36"
+            ),
+            "Referer": "https://crossfithilversum.sportbitapp.nl/web/nl/events",
+        })
+        self.username = username
+        self.password = password
+
+    def _url(self, path: str) -> str:
+        from urllib.parse import urljoin
+        return urljoin(SPORTBIT_BASE, path)
+
+    def _set_xsrf(self) -> None:
+        token = self.session.cookies.get("XSRF-TOKEN")
+        if token:
+            self.session.headers["X-XSRF-TOKEN"] = token
+
+    def login(self) -> bool:
+        self.session.get(self._url("data/heartbeat/"))
+        self._set_xsrf()
+        resp = self.session.post(
+            self._url("data/inloggen/"),
+            json={"username": self.username, "password": self.password, "remember": True},
+        )
+        if resp.status_code == 200:
+            self._set_xsrf()
+            return True
+        log.error("SportBit login mislukt: %s", resp.status_code)
+        return False
+
+    def get_events(self, date_str: str) -> list[dict]:
+        resp = self.session.get(
+            self._url("data/events/"),
+            params={"datum": date_str, "rooster": SPORTBIT_ROOSTER_ID},
+            timeout=15,
+        )
+        resp.raise_for_status()
+        data = resp.json()
+        events: list[dict] = []
+        for period in ("ochtend", "middag", "avond"):
+            if isinstance(data.get(period), list):
+                events.extend(data[period])
+        return events
+
+
+def _is_open_gym(title: str) -> bool:
+    t = title.lower()
+    return "open gym" in t or "open_gym" in t
+
+
 # ── Open Gym inschrijving zoeken ───────────────────────────────────────────────
 
-def _find_open_gym_events(files: dict[str, str]) -> list[dict]:
-    """Zoek Open Gym inschrijvingen in sportbit_state.json voor vandaag en komende 7 dagen."""
+def _find_open_gym_in_state(files: dict[str, str]) -> list[dict]:
+    """Zoek Open Gym inschrijvingen in sportbit_state.json (alleen al door autosignup gedetecteerde events)."""
     raw = files.get("sportbit_state.json", "")
     if not raw:
         return []
@@ -131,7 +194,7 @@ def _find_open_gym_events(files: dict[str, str]) -> list[dict]:
     cutoff = (date.today() + timedelta(days=7)).isoformat()
     cancelled_ids = set(state.get("cancelled", {}).keys())
 
-    open_gym_events = []
+    events = []
     for event_id, info in state.get("signed_up", {}).items():
         if event_id in cancelled_ids:
             continue
@@ -139,15 +202,73 @@ def _find_open_gym_events(files: dict[str, str]) -> list[dict]:
         event_date = info.get("date", "")
         if not (today_str <= event_date <= cutoff):
             continue
-        if "open gym" in title.lower() or "open_gym" in title.lower():
-            open_gym_events.append({
+        if _is_open_gym(title):
+            events.append({
                 "event_id": event_id,
                 "date": event_date,
                 "time": info.get("time", "?"),
                 "title": title,
             })
 
-    return sorted(open_gym_events, key=lambda x: (x["date"], x["time"]))
+    return sorted(events, key=lambda x: (x["date"], x["time"]))
+
+
+def _find_open_gym_via_api(username: str, password: str) -> list[dict]:
+    """Bevraag SportBit API direct voor Open Gym inschrijvingen (vandaag t/m +7 dagen)."""
+    client = _SportBitClient(username, password)
+    if not client.login():
+        log.warning("SportBit login mislukt — kan Open Gym niet via API ophalen.")
+        return []
+
+    today = date.today()
+    found: list[dict] = []
+    for offset in range(8):
+        d = today + timedelta(days=offset)
+        date_str = d.isoformat()
+        try:
+            events = client.get_events(date_str)
+        except Exception as exc:
+            log.warning("Events ophalen voor %s mislukt: %s", date_str, exc)
+            continue
+        for event in events:
+            if not event.get("aangemeld", False):
+                continue
+            title = event.get("titel", "")
+            if not _is_open_gym(title):
+                continue
+            start = event.get("start", "")
+            time_str = start[11:16] if len(start) > 15 else "?"
+            found.append({
+                "event_id": str(event["id"]),
+                "date": date_str,
+                "time": time_str,
+                "title": title,
+            })
+            log.info("Open Gym gevonden via API: %s op %s om %s", title, date_str, time_str)
+
+    return sorted(found, key=lambda x: (x["date"], x["time"]))
+
+
+def _find_open_gym_events(files: dict[str, str]) -> list[dict]:
+    """Zoek Open Gym inschrijvingen: eerst in state, daarna direct via SportBit API."""
+    # Stap 1: state file (snel, geen credentials nodig)
+    events = _find_open_gym_in_state(files)
+    if events:
+        log.info("Open Gym gevonden in sportbit_state.json.")
+        return events
+
+    # Stap 2: fallback — direct SportBit API bevragen
+    username = os.environ.get("SPORTBIT_USERNAME", "").strip()
+    password = os.environ.get("SPORTBIT_PASSWORD", "").strip()
+    if not username or not password:
+        log.warning(
+            "Niet gevonden in state en SPORTBIT_USERNAME/SPORTBIT_PASSWORD niet ingesteld. "
+            "Zorg dat autosignup heeft gedraaid of voeg de SportBit credentials toe als secret."
+        )
+        return []
+
+    log.info("Niet gevonden in state — SportBit API direct bevragen...")
+    return _find_open_gym_via_api(username, password)
 
 
 # ── Fitnesscontext laden ───────────────────────────────────────────────────────
