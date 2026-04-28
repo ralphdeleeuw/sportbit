@@ -660,6 +660,28 @@ def main() -> int:
         log.error("Gist opslaan mislukt: %s", exc)
         return 1
 
+    # Zorg dat het Open Gym event in sportbit_state.json staat zodat de app het toont.
+    # Handmatige inschrijvingen worden pas bij de volgende autosignup-run gedetecteerd;
+    # door het hier toe te voegen verschijnt het event direct in het dashboard.
+    try:
+        state_raw = files.get("sportbit_state.json", "{}")
+        state = json.loads(state_raw) if state_raw else {}
+        state.setdefault("signed_up", {})
+        event_id_key = open_gym_event["event_id"]
+        if event_id_key not in state["signed_up"]:
+            state["signed_up"][event_id_key] = {
+                "date": open_gym_event["date"],
+                "time": open_gym_event["time"],
+                "title": open_gym_event["title"],
+                "signed_up_at": now_ams.isoformat(timespec="seconds"),
+            }
+            _save_to_gist(gist_id, token, "sportbit_state.json", json.dumps(state, ensure_ascii=False, indent=2))
+            log.info("Open Gym event %s toegevoegd aan sportbit_state.json.", event_id_key)
+        else:
+            log.info("Open Gym event %s was al aanwezig in sportbit_state.json.", event_id_key)
+    except Exception as exc:
+        log.warning("State bijwerken mislukt (niet kritiek): %s", exc)
+
     # Pushover notificatie
     try:
         event_date = date.fromisoformat(open_gym_event["date"])

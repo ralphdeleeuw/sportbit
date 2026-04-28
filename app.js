@@ -1056,6 +1056,31 @@
         .filter(e => e.date === todayStr)
         .map(e => ({ ...e, _src: 'crossfit' }));
       const displayItems = [...todayDone, ...allUpcoming];
+
+      // Open Gym programma: toon als standalone blok wanneer het programma
+      // bestaat voor vandaag of morgen maar het event nog niet als kaart zichtbaar is
+      // (bijv. omdat autosignup nog niet heeft gedraaid en de state nog niet bijgewerkt is).
+      const tomorrowStr = (() => { const d = new Date(now); d.setDate(d.getDate()+1); return d.toISOString().slice(0,10); })();
+      const openGymAlreadyInCards = displayItems.slice(0, 2).some(
+        e => (e.title || '').toLowerCase().includes('open gym') &&
+             openGymProgram && e.date === openGymProgram.for_date
+      );
+      const openGymProgramForToday = openGymProgram &&
+        (openGymProgram.for_date === todayStr || openGymProgram.for_date === tomorrowStr);
+      if (openGymProgramForToday && !openGymAlreadyInCards) {
+        const ts = openGymProgram.generated_at
+          ? `<div class="ai-coach-timestamp">gegenereerd ${formatAdviceTimestamp(openGymProgram.generated_at)}</div>`
+          : '';
+        const eventDateLabel = openGymProgram.for_date === todayStr ? 'vandaag' : 'morgen';
+        h += `<div class="recovery-card-wrapper">
+          <div class="ai-coach-block">
+            <div class="ai-coach-label">Open Gym Programma — ${eventDateLabel} ${openGymProgram.for_time}</div>
+            ${ts}
+            <div class="ai-coach-body">${marked.parse(openGymProgram.program_markdown || '')}</div>
+          </div>
+        </div>`;
+      }
+
       h += `<div class="cards">`;
       displayItems.slice(0, 2).forEach((e, i) => {
         if (e._src === 'crossfit') {
