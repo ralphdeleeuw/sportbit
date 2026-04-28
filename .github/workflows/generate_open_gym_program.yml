@@ -1,0 +1,35 @@
+name: Genereer Open Gym Programma
+
+on:
+  workflow_dispatch:
+    inputs:
+      force_date:
+        description: "Specifieke datum (YYYY-MM-DD) — leeg = automatisch detecteren"
+        required: false
+        default: ""
+
+permissions:
+  contents: read
+
+jobs:
+  generate:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Installeer dependencies
+        run: pip install -r requirements.txt
+
+      - name: Genereer Open Gym programma
+        env:
+          GIST_ID: ${{ secrets.GIST_ID }}
+          GITHUB_TOKEN: ${{ secrets.GIST_TOKEN }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          PUSHOVER_USER_KEY: ${{ secrets.PUSHOVER_USER_KEY }}
+          PUSHOVER_API_TOKEN: ${{ secrets.PUSHOVER_API_TOKEN }}
+        run: python3 generate_open_gym_program.py

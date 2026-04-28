@@ -423,6 +423,13 @@ def find_target_slots(days_ahead: int) -> list[tuple]:
 
 
 def find_event_at_time(events: list[dict], target_time: str) -> dict | None:
+    # Prefer an event the athlete is already signed up for at this time,
+    # so we don't accidentally try to sign up for CrossFit when they already
+    # enrolled in Open Gym (or another class) at the same slot.
+    for event in events:
+        start = event.get("start", "")
+        if f"T{target_time}:00" in start and event.get("aangemeld", False):
+            return event
     for event in events:
         start = event.get("start", "")
         if f"T{target_time}:00" in start:
@@ -647,12 +654,12 @@ def run(username: str, password: str, dry_run: bool, days_ahead: int, sync_calen
     if state and capacity_updates:
         state.batch_update_capacity(capacity_updates)
 
-    # Scan non-scheduled days for manual enrollments
-    scheduled_weekdays = {weekday for weekday, _ in SCHEDULE}
+    # Scan ALL upcoming days for manual enrollments, including scheduled days.
+    # On scheduled days the main loop only handles the one targeted slot; any
+    # other manually enrolled class (e.g. Open Gym at a different time, or at
+    # the same time as CrossFit) is detected here.
     for offset in range(1, days_ahead + 1):
         d = today + timedelta(days=offset)
-        if d.weekday() in scheduled_weekdays:
-            continue  # Already handled above
         date_str = d.strftime("%Y-%m-%d")
         if date_str not in events_cache:
             events_cache[date_str] = client.get_events(date_str)

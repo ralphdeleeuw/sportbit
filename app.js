@@ -76,6 +76,46 @@
         <span class="card-time">${item.time}</span>
       </div>`;
 
+      // Open Gym: toon gegenereerd programma als beschikbaar
+      const isOpenGym = !cancelled && (item.title || '').toLowerCase().includes('open gym');
+      const openGymProgramHtml = (() => {
+        if (!isOpenGym || !openGymProgram) return null;
+        if (openGymProgram.for_date !== item.date) return null;
+        const ts = openGymProgram.generated_at
+          ? `<div class="ai-coach-timestamp">gegenereerd ${formatAdviceTimestamp(openGymProgram.generated_at)}</div>`
+          : '';
+        return `<div class="card-wod">
+          <div class="ai-coach-block" style="margin:0">
+            <div class="ai-coach-label">Open Gym Programma</div>
+            ${ts}
+            <div class="ai-coach-body">${marked.parse(openGymProgram.program_markdown || '')}</div>
+          </div>
+        </div>`;
+      })();
+
+      if (openGymProgramHtml) {
+        const envBadge = renderEnvBadge(item.date);
+        return `
+          <div class="card has-wod" style="animation-delay:${delay}s" onclick="toggleWod(this, event)">
+            <div class="card-dot dot-active" style="background:#9b59b6"></div>
+            <div class="card-info">
+              <div class="card-header">
+                <div class="card-header-left">
+                  <div class="card-title">${escapeHtml(item.title)}</div>
+                  ${metaHtml}
+                </div>
+                <div class="card-right">
+                  <div class="card-date">${formatDate(item.date)}</div>
+                  <div class="card-relative-day">${relativeDay(item.date)}</div>
+                  <div class="wod-chevron">▾</div>
+                </div>
+              </div>
+              ${envBadge ? `<div style="padding:0.3rem 0.8rem 0">${envBadge}</div>` : ''}
+              ${openGymProgramHtml}
+            </div>
+          </div>`;
+      }
+
       if (wods && wods.length > 0) {
         const sections = renderWodSections(wods, item.date);
         const envBadge = !cancelled ? renderEnvBadge(item.date) : '';
@@ -151,6 +191,7 @@
     let deloadAlert = false;    // true als overtraining risico gedetecteerd
     let environmentalData = null; // {training_conditions: {...}, aqi: {...}, fetched_at}
     let runningPlanData = null; // {generated_at, week_number, workouts: [{date, type, name, description, total_duration_min}]}
+    let openGymProgram = null; // {generated_at, for_date, for_time, event_title, program_markdown}
     let activeChartLift = null;
     let liftChart = null;
 
@@ -290,6 +331,12 @@
       const runningPlanFile = files['running_plan.json'];
       if (runningPlanFile) {
         try { runningPlanData = JSON.parse(runningPlanFile.content); } catch(e) {}
+      }
+
+      // open_gym_program.json
+      const openGymFile = files['open_gym_program.json'];
+      if (openGymFile) {
+        try { openGymProgram = JSON.parse(openGymFile.content); } catch(e) {}
       }
     }
 
@@ -1163,6 +1210,7 @@
           extras:[{id:'skipStravaHealth',label:'Strava overslaan'},{id:'skipIntervalsHealth',label:'Intervals.icu overslaan'},{id:'skipWithingsHealth',label:'Withings overslaan'},{id:'skipMFPHealth',label:'MyFitnessPal overslaan'}] },
         { btnId:'runningPlanBtn', statusId:'runningPlanStatus', lastRunId:'runningLastRun', workflowFile:'generate_running_workout.yml', icon:'🏃', title:'Hardloopplan', desc:'Nieuw hardloopschema genereren via Claude', fn:'triggerRunningPlan()', cls:'success' },
         { btnId:'repushBtn', statusId:'repushStatus', lastRunId:'repushLastRun', workflowFile:'repush_workouts.yml', icon:'↑', title:'Sync naar Garmin', desc:'Bestaande workouts opnieuw pushen naar intervals.icu / Garmin', fn:'triggerRepush()', cls:'success' },
+        { btnId:'openGymBtn', statusId:'openGymStatus', lastRunId:'openGymLastRun', workflowFile:'generate_open_gym_program.yml', icon:'🏋️', title:'Open Gym Programma', desc:'Genereer een persoonlijk programma voor je eerstvolgende Open Gym sessie', fn:'triggerOpenGymProgram()', cls:'info' },
       ];
       wfs.forEach(w => {
         const extras = (w.extras||[]).map(ex => `<label class="workflow-check"><input type="checkbox" id="${ex.id}"> ${ex.label}</label>`).join('');
@@ -1419,6 +1467,59 @@
         statusEl.style.color = 'var(--accent2)';
         btn.disabled = false;
         btn.textContent = '↑ Sync naar Garmin';
+      }
+    }
+
+    async function triggerOpenGymProgram() {
+      const token = document.getElementById('githubToken').value.trim();
+      const statusEl = document.getElementById('openGymStatus');
+      const btn = document.getElementById('openGymBtn');
+
+      if (!token) {
+        statusEl.textContent = 'Vul eerst je GitHub Token in (nodig om workflow te starten)';
+        statusEl.style.color = 'var(--accent2)';
+        return;
+      }
+
+      btn.disabled = true;
+      btn.textContent = '🏋️ Bezig…';
+      statusEl.textContent = 'Programma genereren…';
+      statusEl.style.color = 'var(--muted)';
+
+      const triggerTime = new Date();
+
+      try {
+        const resp = await fetch(
+          'https://api.github.com/repos/ralphdeleeuw/sportbit/actions/workflows/generate_open_gym_program.yml/dispatches',
+          {
+            method: 'POST',
+            headers: {
+              Authorization: `token ${token}`,
+              Accept: 'application/vnd.github+json',
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({ ref: 'main', inputs: {} }),
+          }
+        );
+
+        if (resp.status !== 204) {
+          const body = await resp.json().catch(() => ({}));
+          statusEl.textContent = `Fout ${resp.status}: ${body.message || 'onbekend'}`;
+          statusEl.style.color = 'var(--accent2)';
+          btn.disabled = false;
+          btn.textContent = '🏋️ Open Gym Programma';
+          return;
+        }
+
+        statusEl.textContent = '⏳ In wachtrij…';
+        statusEl.style.color = 'var(--muted)';
+        await pollWorkflowRun(token, triggerTime, statusEl, btn, 'generate_open_gym_program.yml', '🏋️ Open Gym Programma');
+
+      } catch (e) {
+        statusEl.textContent = `Netwerkfout: ${e.message}`;
+        statusEl.style.color = 'var(--accent2)';
+        btn.disabled = false;
+        btn.textContent = '🏋️ Open Gym Programma';
       }
     }
 
