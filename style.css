@@ -576,6 +576,12 @@
     }
     .ai-coach-timestamp { font-size: 10px; color: var(--faint); margin-bottom: 8px; }
     .ai-coach-body { font-size: 13px; color: #aaa; line-height: 1.75; }
+    .ai-coach-body h1, .ai-coach-body h2 { font-size: 1rem; font-weight: 700; color: #ccc; margin: 0.8em 0 0.3em; }
+    .ai-coach-body h3, .ai-coach-body h4 { font-size: 0.9rem; font-weight: 600; color: #bbb; margin: 0.6em 0 0.2em; }
+    .ai-coach-body p { margin: 0.4em 0; }
+    .ai-coach-body ul, .ai-coach-body ol { margin: 0.3em 0; padding-left: 1.4em; }
+    .ai-coach-body li { margin: 0.15em 0; }
+    .ai-coach-body strong { color: #ddd; }
 
     /* ── Next class card ───────────────────────────────────── */
     .next-class-card {
