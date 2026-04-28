@@ -504,10 +504,13 @@ def _step_to_doc(step: dict) -> dict | None:
 
     if stype == "warmup":
         dist_m = step.get("distance_m")
-        if not dist_m:
-            return None
-        doc: dict = {"warmup": True, "intensity": "warmup", "text": "Warmup", "distance": dist_m}
         dur = calc_duration(step)
+        if not dist_m and not dur:
+            return None
+        text = f"Warmup {dist_m/1000:.1f}km" if dist_m else "Warmup"
+        doc: dict = {"warmup": True, "intensity": "warmup", "text": text}
+        if dist_m:
+            doc["distance"] = dist_m
         if dur:
             doc["duration"] = dur
         ps = pace_secs(step)
@@ -517,10 +520,13 @@ def _step_to_doc(step: dict) -> dict | None:
 
     if stype == "cooldown":
         dist_m = step.get("distance_m")
-        if not dist_m:
-            return None
-        doc = {"cooldown": True, "intensity": "cooldown", "text": "Cooldown", "distance": dist_m}
         dur = calc_duration(step)
+        if not dist_m and not dur:
+            return None
+        text = f"Cooldown {dist_m/1000:.1f}km" if dist_m else "Cooldown"
+        doc = {"cooldown": True, "intensity": "cooldown", "text": text}
+        if dist_m:
+            doc["distance"] = dist_m
         if dur:
             doc["duration"] = dur
         ps = pace_secs(step)
@@ -530,12 +536,20 @@ def _step_to_doc(step: dict) -> dict | None:
 
     if stype == "run":
         dist_m = step.get("distance_m")
-        if not dist_m:
-            return None
-        doc = {"distance": dist_m}
+        pace_key = step.get("pace_target") or step.get("pace_max")
         dur = calc_duration(step)
-        if dur:
-            doc["duration"] = dur
+        if not dur:
+            return None
+        if dist_m:
+            if step.get("pace_target"):
+                text = f"{dist_m}m @ {step['pace_target']}/km"
+            else:
+                text = f"Easy {dist_m/1000:.1f}km" + (f" (max {pace_key}/km)" if pace_key else "")
+            doc = {"distance": dist_m, "duration": dur}
+        else:
+            text = "Easy run" + (f" (max {pace_key}/km)" if pace_key else "")
+            doc = {"duration": dur}
+        doc["text"] = text
         ps = pace_secs(step)
         if ps:
             doc["pace"] = {"units": "secs/km", "value": ps}
@@ -545,7 +559,7 @@ def _step_to_doc(step: dict) -> dict | None:
         dur = step.get("duration_s") or (int(step["duration_min"] * 60) if step.get("duration_min") else None)
         if not dur:
             return None
-        return {"rest": True, "intensity": "rest", "duration": dur}
+        return {"rest": True, "intensity": "rest", "duration": dur, "text": "Recovery walk"}
 
     if stype == "repeat":
         children = [_step_to_doc(c) for c in step.get("children", [])]
