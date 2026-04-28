@@ -579,35 +579,44 @@ Atleetprofiel:
 - Skill focus (in volgorde van prioriteit): double unders, handstand push-ups, kipping/butterfly pull-ups, handstand walk, back squat & front squat, hardlooptempo
 - RX-voorkeur: RX waar mogelijk, anders scaled
 
-Ralph gaat naar de Open Gym in plaats van de reguliere CrossFit les. Hij wil een volledig uitgewerkt programma dat:
-1. Complementair is aan zijn trainingsbelasting (gebruik CTL/ATL/TSB en recente activiteiten)
-2. Bijdraagt aan zijn specifieke doelen (skills + kracht)
-3. Rekening houdt met de WOD van vandaag (de les die hij overslaat) — vermijd overlap
-4. Rekening houdt met komende WODs — bouw geen extra vermoeidheid op als morgen een zware les volgt
-5. Past bij zijn herstelniveau (HRV, slaap, subjectieve scores)
+BELANGRIJK — Open Gym situatie:
+Ralph gaat ALLEEN naar de Open Gym. Hij volgt de reguliere CrossFit les NIET.
+De context bevat de WOD van vandaag zodat jij overlap kunt vermijden.
+Wanneer je de reguliere WOD noemt, verwijs er altijd naar als "de les die je overslaat" of "de reguliere les" —
+nooit als "de les van vandaag" of alsof Ralph die ook gaat doen.
 
-Opbouw van het programma:
-- **Warming-up** (10-15 min): activatie, mobiliteit, bewegingsvoorbereiding
-- **Skill / Techniek** (15-25 min): één skill uit zijn focus, met duidelijke progressie
-- **Kracht** (15-25 min): één barbell-oefening of gymnastics strength, met sets/reps/gewicht
-- **Conditioning** (10-20 min): een gepersonaliseerde metcon die aansluit op zijn belasting
-- **Cool-down** (5-10 min): mobiliteit, rek
+Het programma duurt precies 40-45 minuten effectieve trainingstijd.
+Geef per onderdeel de verwachte tijdsduur, zodat het totaal uitkomt op 40-45 min.
+(Voorbereiding en gezelligheid tussendoor vallen buiten deze tijd.)
+
+Criteria voor het programma:
+1. Complementair aan trainingsbelasting (gebruik CTL/ATL/TSB en recente activiteiten)
+2. Bijdraagt aan specifieke doelen (skills + kracht)
+3. Vermijdt overlap met de overgeslagen WOD
+4. Houdt rekening met komende geplande sessies (CrossFit + hardlopen)
+5. Past bij herstelniveau (HRV, slaap, subjectieve scores)
+
+Opbouw (totaal 40-45 min):
+- **Warming-up** (~8-10 min): activatie, mobiliteit, bewegingsvoorbereiding
+- **Skill / Techniek** (~12-15 min): één skill uit zijn focus, met duidelijke progressie
+- **Kracht of Gymnastics strength** (~12-15 min): één oefening, concrete sets/reps/gewicht
+- **Short metcon** (~8-10 min): kort en krachtig, aansluitend op de belasting van de dag
+(Geen aparte cool-down — dat doet hij zelf na afloop)
 
 Richtlijnen:
 - Geef concrete gewichten op basis van zijn barbell-maxima (percentages van 1RM)
 - Schrijf in het Nederlands
 - Gebruik duidelijke opmaak met Markdown (##, ###, vetgedrukt, opsommingen)
 - Voeg coaching cues toe bij technische bewegingen
-- Geef altijd een scaled versie voor de conditioning
-- Schat de totale tijdsduur in
+- Geef altijd een scaled versie voor de metcon
 
 Opmaakregels:
 - Begin NIET met een grote titel (geen # H1) — de app toont al een header boven het programma
-- Gebruik ## voor hoofdsecties (Warming-up, Skill, Kracht, Conditioning, Cool-down)
+- Eerste regel van je antwoord: `FOCUS: <3-5 kernwoorden>` (bijv. `FOCUS: DU's · Front squat · Gymnastics`)
+  Dit wordt als subtitel getoond in de app. Daarna direct het programma.
+- Gebruik ## voor hoofdsecties
 - Gebruik ### voor subsecties
-- Gebruik vetgedrukt (**tekst**) voor sets/reps/gewichten
-
-Schrijf het programma direct en volledig uit — dit is wat Ralph meeneemt naar de gym.\
+- Gebruik vetgedrukt (**tekst**) voor sets/reps/gewichten\
 """
 
 
@@ -635,6 +644,16 @@ def _generate_program(context: str, open_gym_event: dict) -> str:
         messages=[{"role": "user", "content": user_message}],
     )
     return response.content[0].text
+
+
+def _extract_focus(raw_text: str) -> tuple[str, str]:
+    """Splits de FOCUS:-regel af van de programmatekst. Retourneert (focus, programma)."""
+    lines = raw_text.strip().split("\n")
+    if lines and lines[0].upper().startswith("FOCUS:"):
+        focus = lines[0][6:].strip()
+        program = "\n".join(lines[1:]).strip()
+        return focus, program
+    return "", raw_text.strip()
 
 
 # ── Pushover ───────────────────────────────────────────────────────────────────
@@ -708,12 +727,13 @@ def main() -> int:
 
     # Programma genereren
     try:
-        program_markdown = _generate_program(context, open_gym_event)
+        raw_output = _generate_program(context, open_gym_event)
     except Exception as exc:
         log.error("Claude aanroep mislukt: %s", exc)
         return 1
 
-    log.info("Programma gegenereerd (%d tekens).", len(program_markdown))
+    focus_summary, program_markdown = _extract_focus(raw_output)
+    log.info("Programma gegenereerd (%d tekens). Focus: %s", len(program_markdown), focus_summary or "(geen)")
 
     # Opslaan in Gist
     now_ams = datetime.now(AMS)
@@ -723,6 +743,7 @@ def main() -> int:
         "for_time": open_gym_event["time"],
         "event_title": open_gym_event["title"],
         "event_id": open_gym_event["event_id"],
+        "focus_summary": focus_summary,
         "program_markdown": program_markdown,
         "generated_with_model": MODEL,
     }
