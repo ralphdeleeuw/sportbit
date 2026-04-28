@@ -194,10 +194,53 @@
     let environmentalData = null; // {training_conditions: {...}, aqi: {...}, fetched_at}
     let runningPlanData = null; // {generated_at, week_number, workouts: [{date, type, name, description, total_duration_min}]}
     let openGymProgram = null; // {generated_at, for_date, for_time, event_title, program_markdown}
+    let homeWorkoutLog = {}; // {date: entry} from home_workout_log.json
     let activeChartLift = null;
     let liftChart = null;
 
     const MAIN_KEYWORDS = ['metcon', 'weightlifting', 'team metcon', 'strength', 'conditioning'];
+
+    const HOME_WORKOUT = {
+      label: 'Thuistraining',
+      duration_min: 10,
+      exercises: [
+        { id: 'pushup_1', name: 'Pushups',  reps: 20, rest_s: 30 },
+        { id: 'situp',    name: 'Sit-ups',  reps: 50, rest_s: 30 },
+        { id: 'pushup_2', name: 'Pushups',  reps: 20, rest_s: 30 },
+        { id: 'squat',    name: 'Squats',   reps: 20, rest_s: 30, variant_key: true },
+        { id: 'pushup_3', name: 'Pushups',  reps: 20, rest_s: 0  },
+      ],
+      squat_progression: [
+        { from_week:  1, variant: 'bw',            label: 'Bodyweight Squats',          detail: '20 reps, full depth' },
+        { from_week:  5, variant: 'goblet_12kg',    label: 'Goblet Squat — KB 12kg',     detail: '20 reps, KB op borst' },
+        { from_week:  9, variant: 'goblet_2x12',    label: 'Goblet Squat — KB 12kg',     detail: '2 sets × 12 reps' },
+        { from_week: 13, variant: 'db_goblet_12',   label: 'Goblet Squat — DB 12kg',     detail: '2 sets × 15 reps' },
+        { from_week: 17, variant: 'db_goblet_16',   label: 'Goblet Squat — DB 16kg',     detail: '2 sets × 12 reps' },
+        { from_week: 21, variant: 'db_front_2x8',   label: 'DB Front Squat — 2×8kg',     detail: '3 sets × 10 reps' },
+        { from_week: 25, variant: 'db_front_2x12',  label: 'DB Front Squat — 2×12kg',    detail: '3 sets × 8 reps' },
+        { from_week: 29, variant: 'db_lunge_2x8',   label: 'DB Alternating Lunge 2×8kg', detail: '3×10/been' },
+        { from_week: 33, variant: 'db_front_2x16',  label: 'DB Front Squat — 2×16kg',    detail: '3 sets × 6 reps' },
+      ],
+    };
+
+    function getISOWeek(d) {
+      const date = new Date(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()));
+      const day = date.getUTCDay() || 7;
+      date.setUTCDate(date.getUTCDate() + 4 - day);
+      const yearStart = new Date(Date.UTC(date.getUTCFullYear(), 0, 1));
+      return Math.ceil(((date - yearStart) / 86400000 + 1) / 7);
+    }
+
+    function getCurrentSquatVariant() {
+      const week = getISOWeek(new Date());
+      const prog = HOME_WORKOUT.squat_progression;
+      let chosen = prog[0];
+      for (const step of prog) {
+        if (week >= step.from_week) chosen = step;
+        else break;
+      }
+      return chosen;
+    }
 
     // Load saved token
     const savedToken = localStorage.getItem('sportbit_github_token');
@@ -339,6 +382,16 @@
       const openGymFile = files['open_gym_program.json'];
       if (openGymFile) {
         try { openGymProgram = JSON.parse(openGymFile.content); } catch(e) {}
+      }
+
+      // home_workout_log.json
+      const hwFile = files['home_workout_log.json'];
+      if (hwFile) {
+        try {
+          const hwData = JSON.parse(hwFile.content);
+          homeWorkoutLog = {};
+          for (const entry of (hwData.entries || [])) homeWorkoutLog[entry.date] = entry;
+        } catch(e) {}
       }
     }
 
@@ -1029,6 +1082,8 @@
         <div class="today-date">${dateLabel}</div>
         <div class="today-greeting">${(() => { const h = now.getHours(); return h < 12 ? 'Goedemorgen' : h < 18 ? 'Goedemiddag' : 'Goedenavond'; })()}, Ralph</div>
       </div>`;
+
+      h += renderHomeWorkoutCard();
 
       // Recovery + AI coach
       const recoveryBlock = renderRecoveryTodayBlock();
@@ -2806,6 +2861,122 @@
     }
 
     // ── end personal events ───────────────────────────────────────────────
+
+    // ── Daily home workout ────────────────────────────────────────────────
+
+    function renderHomeWorkoutCard() {
+      const todayStr = new Date().toISOString().slice(0, 10);
+      const entry    = homeWorkoutLog[todayStr];
+      const squat    = getCurrentSquatVariant();
+      const isDone   = entry && (entry.exercises_done || []).length > 0;
+      const existingNotes = entry ? (entry.notes || '') : '';
+
+      const exerciseRows = HOME_WORKOUT.exercises.map(ex => {
+        const isSquat   = !!ex.variant_key;
+        const label     = isSquat ? squat.label : ex.name;
+        const detail    = isSquat
+          ? squat.detail
+          : `${ex.reps} reps${ex.rest_s > 0 ? ` · ${ex.rest_s}s rust` : ''}`;
+        const isChecked = entry ? (entry.exercises_done || []).includes(ex.id) : false;
+
+        return `<label class="hw-exercise-row${isChecked ? ' checked' : ''}">
+          <input type="checkbox" id="hwex-${ex.id}" value="${ex.id}"${isChecked ? ' checked' : ''}
+                 onchange="this.closest('.hw-exercise-row').classList.toggle('checked', this.checked)">
+          <div class="hw-exercise-info">
+            <span class="hw-exercise-name">${escapeHtml(label)}</span>
+            <span class="hw-exercise-detail">${escapeHtml(detail)}</span>
+          </div>
+        </label>`;
+      }).join('');
+
+      return `
+        <div class="hw-card${isDone ? ' hw-done' : ''}" onclick="toggleWod(this, event)">
+          <div class="hw-card-bar"></div>
+          <div class="hw-card-inner">
+            <div class="hw-card-header">
+              <div>
+                <div class="hw-card-eyebrow">Dagelijkse routine · ~${HOME_WORKOUT.duration_min} min</div>
+                <div class="hw-card-title">Thuistraining</div>
+              </div>
+              <div class="hw-card-right">
+                ${isDone ? '<div class="hw-done-badge">✓</div>' : ''}
+                <div class="wod-chevron" style="color:var(--purple)">▾</div>
+              </div>
+            </div>
+            <div class="card-wod" onclick="event.stopPropagation()">
+              <div class="hw-exercises" id="hw-exercises-${todayStr}">${exerciseRows}</div>
+              <div class="hw-squat-note">Squats deze week: <span style="color:var(--purple)">${escapeHtml(squat.label)}</span></div>
+              <textarea class="log-textarea" id="hw-notes-${todayStr}"
+                placeholder="Notities (bijv. squats voelden zwaar, knieën goed…)"
+                style="margin-top:0.6rem">${escapeHtml(existingNotes)}</textarea>
+              <div class="log-actions">
+                <span class="log-status${isDone ? ' ok' : ''}" id="hw-status">${isDone ? '✓ Gedaan' : ''}</span>
+                <button class="log-save-btn" onclick="saveHomeWorkout('${todayStr}')">Opslaan</button>
+              </div>
+            </div>
+          </div>
+        </div>`;
+    }
+
+    async function saveHomeWorkout(date) {
+      const token    = document.getElementById('githubToken').value.trim();
+      const statusEl = document.getElementById('hw-status');
+
+      if (!token) {
+        if (statusEl) { statusEl.textContent = '⚠ Token nodig'; statusEl.className = 'log-status err'; }
+        return;
+      }
+
+      const checks = document.querySelectorAll(`#hw-exercises-${date} input[type="checkbox"]:checked`);
+      const done   = Array.from(checks).map(cb => cb.value);
+      const notes  = (document.getElementById(`hw-notes-${date}`) || {}).value || '';
+      const squat  = getCurrentSquatVariant();
+
+      const newEntry = {
+        date,
+        exercises_done: done,
+        squat_variant:  squat.variant,
+        notes,
+        logged_at: new Date().toISOString(),
+      };
+
+      if (statusEl) { statusEl.textContent = 'Opslaan…'; statusEl.className = 'log-status'; }
+
+      try {
+        const resp = await fetch(`https://api.github.com/gists/${currentGistId}`, {
+          headers: { Authorization: `token ${token}` },
+        });
+        if (!resp.ok) throw new Error(`GitHub API ${resp.status}`);
+        const gist = await resp.json();
+
+        let entries = [];
+        const existing = gist.files['home_workout_log.json'];
+        if (existing) {
+          try { entries = JSON.parse(existing.content).entries || []; } catch(e) {}
+        }
+
+        entries = entries.filter(e => e.date !== date);
+        entries.push(newEntry);
+        entries.sort((a, b) => b.date.localeCompare(a.date));
+
+        const patch = await fetch(`https://api.github.com/gists/${currentGistId}`, {
+          method:  'PATCH',
+          headers: { Authorization: `token ${token}`, 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            files: { 'home_workout_log.json': { content: JSON.stringify({ entries }, null, 2) } }
+          }),
+        });
+        if (!patch.ok) throw new Error(`Opslaan mislukt: ${patch.status}`);
+
+        homeWorkoutLog[date] = newEntry;
+        if (statusEl) { statusEl.textContent = '✓ Opgeslagen'; statusEl.className = 'log-status ok'; }
+
+        const card = document.querySelector('.hw-card');
+        if (card && done.length > 0) card.classList.add('hw-done');
+      } catch(e) {
+        if (statusEl) { statusEl.textContent = `❌ ${e.message}`; statusEl.className = 'log-status err'; }
+      }
+    }
 
     function escapeHtml(str) {
       return String(str)

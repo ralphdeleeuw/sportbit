@@ -1756,3 +1756,92 @@
     @keyframes skeleton-pulse {
       0%, 100% { opacity: 1; } 50% { opacity: 0.4; }
     }
+
+    /* ── Daily Home Workout card ──────────────────────────── */
+    .hw-card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      margin-bottom: 12px;
+      overflow: hidden;
+      animation: fadeUp 0.4s ease both;
+      cursor: pointer;
+      transition: border-color 0.2s;
+    }
+    .hw-card.hw-done { border-color: rgba(154, 112, 255, 0.35); }
+    .hw-card-bar {
+      height: 3px;
+      background: linear-gradient(90deg, var(--purple), rgba(154, 112, 255, 0.3));
+    }
+    .hw-card-inner { padding: 14px 16px; }
+    .hw-card-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+    }
+    .hw-card-eyebrow {
+      font-size: 10px;
+      color: var(--faint);
+      font-weight: 600;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+      margin-bottom: 4px;
+    }
+    .hw-card-title {
+      font-family: 'Bebas Neue', sans-serif;
+      font-size: 20px;
+      color: var(--text);
+      letter-spacing: 0.04em;
+    }
+    .hw-card-right {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      flex-shrink: 0;
+      padding-left: 8px;
+    }
+    .hw-done-badge { font-size: 13px; color: var(--purple); font-weight: 700; }
+    .hw-exercises {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+      margin-bottom: 10px;
+    }
+    .hw-exercise-row {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 8px 12px;
+      cursor: pointer;
+      transition: border-color 0.15s;
+      user-select: none;
+    }
+    .hw-exercise-row:hover { border-color: #3a3a3a; }
+    .hw-exercise-row.checked { border-color: var(--purple); }
+    .hw-exercise-row input[type="checkbox"] {
+      accent-color: var(--purple);
+      width: 15px;
+      height: 15px;
+      flex-shrink: 0;
+      cursor: pointer;
+    }
+    .hw-exercise-info {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      flex: 1;
+      min-width: 0;
+    }
+    .hw-exercise-name { font-size: 0.83rem; color: var(--text); font-weight: 500; }
+    .hw-exercise-row.checked .hw-exercise-name { color: var(--purple); }
+    .hw-exercise-detail {
+      font-size: 0.73rem;
+      color: var(--faint);
+      text-align: right;
+      flex-shrink: 0;
+      padding-left: 8px;
+    }
+    .hw-squat-note { font-size: 0.72rem; color: var(--muted); margin-bottom: 2px; margin-top: 4px; }
