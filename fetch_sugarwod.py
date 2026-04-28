@@ -2052,8 +2052,9 @@ def generate_recovery_advice(
     If strava_data is provided, activity details (HR, duration) per WOD date
     are included to assess training load.
 
-    If health_input is provided (subjectieve scores: slaap, energie, spierpijn),
+    If health_input is provided (subjectieve scores: energie, spierpijn, stress),
     these are included as primary physiological recovery indicators.
+    Sleep quality is sourced exclusively from the automatic Garmin sleep score.
 
     If health_history is provided (list of past health_input entries), the AI
     can identify trends over time (e.g. recurring low energy on Thursdays).
@@ -2071,23 +2072,24 @@ def generate_recovery_advice(
 
     client = anthropic.Anthropic(api_key=api_key)
 
-    # Build activities-by-date lookup for WOD matching
-    activities_by_date: dict = {}
-    if strava_data:
-        activities_by_date = strava_data.get("activities_by_date") or {}
-        log.info("Strava matching: %d datums beschikbaar: %s", len(activities_by_date), sorted(activities_by_date.keys()))
+    # Build activities-by-date lookup for WOD matching (Strava primary, intervals.icu fallback)
+    strava_by_date: dict = (strava_data or {}).get("activities_by_date") or {}
+    intervals_acts_by_date: dict = (intervals_data or {}).get("activities", {}).get("by_date") or {}
+    log.info("Strava matching: %d datums beschikbaar: %s", len(strava_by_date), sorted(strava_by_date.keys()))
+    log.info("Intervals.icu activiteiten: %d datums beschikbaar", len(intervals_acts_by_date))
 
     past_text = ""
-    matched_strava = 0
+    matched_acts = 0
     for w in past_workouts:
         date = w.get("date", "?")
         title = w.get("title", "WOD")
         desc = _strip_html(w.get("description", ""))[:400]
         past_text += f"\n**{date} — {title}**\n{desc}\n"
-        # Append matched Strava activity data for this WOD date
-        if date in activities_by_date:
-            matched_strava += 1
-            for act in activities_by_date[date]:
+
+        # Strava activiteiten voor deze datum
+        if date in strava_by_date:
+            matched_acts += 1
+            for act in strava_by_date[date]:
                 avg_hr = act.get("avg_hr")
                 max_hr = act.get("max_hr")
                 dur = act.get("duration_min")
@@ -2115,7 +2117,60 @@ def generate_recovery_advice(
                     + pace_str
                 )
                 past_text += strava_line + "\n"
-    log.info("Strava matching: %d van %d WODs gematcht aan Strava-activiteit", matched_strava, len(past_workouts))
+
+        # Intervals.icu activiteiten voor deze datum (altijd tonen — rijker dan Strava voor hardlopen)
+        if date in intervals_acts_by_date:
+            if date not in strava_by_date:
+                matched_acts += 1
+            for act in intervals_acts_by_date[date]:
+                dur = act.get("duration_min")
+                act_name = act.get("name", "") or act.get("type", "")
+                avg_hr = act.get("avg_hr")
+                max_hr = act.get("max_hr")
+                cal = act.get("calories")
+                tl = act.get("training_load") or act.get("trimp")
+                rpe = act.get("rpe")
+                dist_m = act.get("distance_m")
+                cadence = act.get("avg_cadence")
+                elev = act.get("elevation_m")
+                pace_str = ""
+                if dist_m and act.get("avg_speed_ms") and act["avg_speed_ms"] > 0:
+                    spm = 1000 / act["avg_speed_ms"] / 60
+                    pace_str = f", {dist_m / 1000:.1f}km @ {int(spm)}:{int((spm % 1) * 60):02d}/km"
+                elif dist_m and dur and dur > 0:
+                    pace_sec_per_km = (dur * 60) / (dist_m / 1000)
+                    pace_str = f", {dist_m / 1000:.1f}km @ {int(pace_sec_per_km // 60)}:{int(pace_sec_per_km % 60):02d}/km"
+                icu_line = (
+                    f"  ↳ Intervals.icu ({act_name}): {dur}min"
+                    + pace_str
+                    + (f", avg.HR {avg_hr} bpm" if avg_hr else "")
+                    + (f", max.HR {max_hr} bpm" if max_hr else "")
+                    + (f", cadans {round(cadence * 2)}spm" if cadence else "")
+                    + (f", +{elev}m" if elev else "")
+                    + (f", {cal} kcal" if cal else "")
+                    + (f", RPE {rpe}" if rpe else "")
+                    + (f", TL {round(tl)}" if tl is not None else "")
+                )
+                past_text += icu_line + "\n"
+                # HR-zone verdeling
+                hz = act.get("hr_zone_times")
+                if hz and isinstance(hz, list) and sum(hz) > 0:
+                    total = sum(hz)
+                    zone_str = " ".join(
+                        f"Z{i+1}:{round(v/total*100)}%"
+                        for i, v in enumerate(hz[:5]) if v > 0
+                    )
+                    past_text += f"    HR zones: {zone_str}\n"
+                # Laps voor hardlopen
+                for i, lap in enumerate(act.get("laps", []), 1):
+                    lp_parts = [f"    lap {i}:"]
+                    if lap.get("distance_m"): lp_parts.append(f"{lap['distance_m']}m")
+                    if lap.get("pace_per_km"): lp_parts.append(f"{lap['pace_per_km']}/km")
+                    if lap.get("avg_hr"):     lp_parts.append(f"HR {lap['avg_hr']}bpm")
+                    if lap.get("avg_cadence"): lp_parts.append(f"{round(lap['avg_cadence'] * 2)}spm")
+                    past_text += " ".join(lp_parts) + "\n"
+
+    log.info("Activiteiten gematcht aan WODs: %d van %d", matched_acts, len(past_workouts))
 
     upcoming_text = ""
     upcoming_timing_context = ""
@@ -2139,7 +2194,7 @@ def generate_recovery_advice(
 
     skill_focus_text = "\n".join(f"- {s}" for s in athlete_profile.get("skill_focus", []))
 
-    today_str = today.isoformat() if today else "unknown"
+    today_str = _nl_date(today.isoformat()) if today else "unknown"
 
     # Build meal context: recent dinners + upcoming dinner on next workout day
     meals_text = ""
@@ -2175,14 +2230,13 @@ def generate_recovery_advice(
                         meals_text += f"  • {ing['name']}{': ' + qty if qty else ''}\n"
 
     # Build health input block (subjectieve hersteldata van atleet)
+    # Sleep quality is intentionally excluded here — use the automatic Garmin sleep
+    # score (0-100) from the intervals.icu block below, not the manual slaap field.
     health_block = ""
     if health_input:
         lines = []
-        slaap = health_input.get("slaap")
         energie = health_input.get("energie")
         spierpijn = health_input.get("spierpijn")
-        if slaap is not None:
-            lines.append(f"- Sleep quality today: {slaap}/5")
         if energie is not None:
             lines.append(f"- Energy level today: {energie}/5")
         if spierpijn is not None:
@@ -2190,25 +2244,24 @@ def generate_recovery_advice(
         stress = health_input.get("stress")
         if stress is not None:
             lines.append(f"- Stress today: {stress}/5 (1=no stress, 5=high stress/busy day)")
-        # Append recent history trend (last 14 days)
+        # Append recent history trend (last 14 days) — energy/soreness/stress only
         if health_history:
             today_iso = today.isoformat() if today else ""
             recent = [h for h in health_history if h.get("date", "") < today_iso]
             recent = sorted(recent, key=lambda h: h.get("date", ""), reverse=True)[:14]
             if recent:
-                lines.append("\nTrend last 14 days (date: sleep/energy/muscle soreness/stress):")
+                lines.append("\nTrend last 14 days (date: energy/soreness/stress; all 1–5, 5=best; a stable value is the athlete's personal baseline, not a problem):")
                 for h in reversed(recent):
                     d = h.get("date", "?")
-                    s = h.get("slaap", "?")
                     e = h.get("energie", "?")
                     p = h.get("spierpijn", "?")
                     st = h.get("stress")
                     stress_str = f" stress={st}" if st is not None else ""
-                    lines.append(f"  {d}: sleep={s} energy={e} soreness={p}{stress_str}")
+                    lines.append(f"  {d}: energy={e} soreness={p}{stress_str}")
         if lines:
             health_block = (
                 "\nSubjective recovery data (filled in by athlete — use this as primary "
-                "physiological recovery indicator):\n"
+                "physiological recovery indicator for energy, soreness and stress):\n"
                 + "\n".join(lines)
                 + "\n"
             )
@@ -2250,10 +2303,18 @@ def generate_recovery_advice(
                     else:
                         _hrv_line += f" — 28d avg: {_hrv_baseline:.0f} ms, status: {_hrv_status}"
                 g_lines.append(_hrv_line)
+            if garmin_entry.get("hrv_sdnn") is not None:
+                g_lines.append(f"- HRV (SDNN): {garmin_entry['hrv_sdnn']:.0f} ms")
+            if garmin_entry.get("avg_sleeping_hr") is not None:
+                g_lines.append(f"- Avg sleeping HR: {garmin_entry['avg_sleeping_hr']:.0f} bpm")
+            if garmin_entry.get("readiness") is not None:
+                g_lines.append(f"- Readiness: {garmin_entry['readiness']}/100")
             if garmin_entry.get("sleep_hrs") is not None:
                 g_lines.append(f"- Sleep: {garmin_entry['sleep_hrs']:.1f} hours")
             if garmin_entry.get("sleep_score") is not None:
-                g_lines.append(f"- Sleep score: {garmin_entry['sleep_score']}/100")
+                g_lines.append(f"- Sleep score (Garmin): {garmin_entry['sleep_score']}/100")
+            if garmin_entry.get("respiration") is not None:
+                g_lines.append(f"- Respiration rate: {garmin_entry['respiration']:.1f} /min")
             ctl = garmin_entry.get("ctl")
             atl = garmin_entry.get("atl")
             tsb = garmin_entry.get("tsb")
@@ -2469,10 +2530,29 @@ def generate_recovery_advice(
             for w in reversed(recent_runs):
                 lines.append(f"    {_nl_date(w['date'])}: {w.get('name', w.get('type', 'Run'))} "
                              f"({w.get('total_distance_km', '?')}km, {w.get('session', '')})")
+        # Apply health_input run_1/run_2 time overrides (user may have rescheduled
+        # via the PWA before the running plan was regenerated server-side)
+        _hi = health_input or {}
+        def _hi_run_time(key: str) -> str:
+            raw = _hi.get(key, "")
+            if raw and "T" in raw:
+                try:
+                    return datetime.fromisoformat(raw).strftime("%H:%M")
+                except ValueError:
+                    pass
+            return ""
+        _run1_time_ovr = _hi_run_time("run_1")
+        _run2_time_ovr = _hi_run_time("run_2")
+
         if upcoming_runs:
             lines.append("  Upcoming planned running sessions:")
             for w in upcoming_runs:
                 t = w.get("time", "")
+                session = w.get("session", "")
+                if session == "speed" and _run1_time_ovr:
+                    t = _run1_time_ovr
+                elif session == "long_run" and _run2_time_ovr:
+                    t = _run2_time_ovr
                 lines.append(f"    {_nl_date(w['date'])}{' at ' + t if t else ''}: "
                              f"{w.get('name', w.get('type', 'Run'))} "
                              f"({w.get('total_distance_km', '?')}km, {w.get('session', '')})")
@@ -2517,7 +2597,7 @@ Next workout:
 {upcoming_text}{upcoming_timing_context}{upcoming_personal_text}{running_plan_text}{meals_text}{env_block}
 {pr_text}{prev_advice_text}{deload_block}
 Provide advice on:
-1. **Recovery level** — are there muscle groups that need extra rest based on recent workouts?{"  Use the subjective recovery data (sleep, energy, muscle soreness) as the primary physiological recovery indicator. Use the Strava workout data (heart rate, duration) to assess the actual training load per session." if health_input else ""}{"  The ACWR ratio indicates training load: check if there is a pattern with the previous advice." if acwr else ""}
+1. **Recovery level** — are there muscle groups that need extra rest based on recent workouts?{"  Use the subjective recovery data (sleep, energy, muscle soreness) as the primary physiological recovery indicator. Use the Strava workout data (heart rate, duration) to assess the actual training load per session. If a subjective metric (e.g. sleep) is consistently at the same level over multiple weeks, treat it as the athlete's personal baseline — do not flag it as a persistent problem unless it has clearly worsened." if health_input else ""}{"  The ACWR ratio indicates training load: check if there is a pattern with the previous advice." if acwr else ""}
 2. **Intensity advice** — go full throttle, train controlled, or deliberately scale today?
 3. **One concrete tip** for the next workout taking recovery into account (e.g. pacing, scaling choice, specific movement)
 4. **Nutrition** — include this section only if meal information is available: consider the training time (see above) — is the meal a good recovery meal (evening training) or pre-workout preparation (morning training)? One sentence, only if relevant.
@@ -2598,15 +2678,13 @@ def generate_workout_plans(
             barbell_trend_text = "\nStrength development vs. ~4 weeks ago:\n" + "\n".join(f"  {p}" for p in parts) + "\n"
 
     # Herstelstatus van de atleet (health scores + ACWR + Oura)
+    # Sleep quality is excluded — only use automatic Garmin sleep score.
     recovery_status_text = ""
     if health_input:
-        slaap = health_input.get("slaap")
         energie = health_input.get("energie")
         spierpijn = health_input.get("spierpijn")
         stress = health_input.get("stress")
         parts = []
-        if slaap is not None:
-            parts.append(f"sleep {slaap}/5")
         if energie is not None:
             parts.append(f"energy {energie}/5")
         if spierpijn is not None:
@@ -3063,7 +3141,11 @@ def save_to_gist(gist_id: str, token: str, wod_data: dict, meals: list[dict] | N
     advice_history = wod_data.pop("_recovery_advice_history_prev", [])
     advice_history = [h for h in advice_history if h.get("date") != today_str]
     if recovery_advice:
-        advice_history.append({"date": today_str, "advice": recovery_advice})
+        ts = wod_data.get("recovery_advice_generated_at")
+        entry = {"date": today_str, "advice": recovery_advice}
+        if ts:
+            entry["timestamp"] = ts
+        advice_history.append(entry)
     advice_history = sorted(advice_history, key=lambda h: h.get("date", ""))[-3:]
     wod_data["recovery_advice_history"] = advice_history
     log.info("[gist] Recovery advice history: %d entries", len(advice_history))
@@ -3541,6 +3623,7 @@ def main() -> int:
             deload_detected=deload_detected,
         )
 
+    ai_generated_at = datetime.now(AMS).isoformat() if not skip_ai else None
     wod_data = {
         "workouts": workouts,
         "by_date": by_date,
@@ -3550,7 +3633,9 @@ def main() -> int:
         "personal_records": personal_records,
         "benchmark_workouts": benchmark_workouts,
         "workout_plans": workout_plans,
+        "workout_plans_generated_at": ai_generated_at if workout_plans else None,
         "recovery_advice": recovery_advice,
+        "recovery_advice_generated_at": ai_generated_at if recovery_advice else None,
         "strava_data": strava_data,
         "intervals_data": intervals_data,
         "withings_data": withings_data,

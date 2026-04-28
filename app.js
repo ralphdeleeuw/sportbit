@@ -132,8 +132,10 @@
     let barbellLifts = {};
     let barbellLiftsHistory = []; // [{date, lifts: {...}}]
     let recoveryAdvice = null;
-    let recoveryAdviceHistory = []; // [{date, advice}] laatste 3 dagen
+    let recoveryAdviceHistory = []; // [{date, advice, timestamp?}] laatste 3 dagen
     let recoveryAdviceFromHistory = false; // true als advies uit history komt i.p.v. vandaag
+    let recoveryAdviceGeneratedAt = null; // ISO timestamp NL tijd
+    let workoutPlansGeneratedAt = null; // ISO timestamp NL tijd
     let personalRecords = [];
     let benchmarkWorkouts = [];
     let workoutLog = {};   // {date: entry} from workout_log.json
@@ -172,6 +174,16 @@
       return div.textContent || div.innerText || '';
     }
 
+    function formatAdviceTimestamp(isoStr) {
+      if (!isoStr) return '';
+      const d = new Date(isoStr);
+      const days = ['zo','ma','di','wo','do','vr','za'];
+      const months = ['jan','feb','mrt','apr','mei','jun','jul','aug','sep','okt','nov','dec'];
+      const hh = String(d.getHours()).padStart(2, '0');
+      const mm = String(d.getMinutes()).padStart(2, '0');
+      return `${days[d.getDay()]} ${d.getDate()} ${months[d.getMonth()]} ${hh}:${mm}`;
+    }
+
     function parseGistFiles(gist) {
       // Parse all relevant files from a gist response (single network call)
       const files = gist.files || {};
@@ -197,11 +209,14 @@
           barbellLiftsHistory = data.barbell_lifts_history || [];
           recoveryAdviceHistory = data.recovery_advice_history || [];
           recoveryAdvice = data.recovery_advice || null;
+          recoveryAdviceGeneratedAt = data.recovery_advice_generated_at || null;
+          workoutPlansGeneratedAt = data.workout_plans_generated_at || null;
           // Val terug op meest recente history-entry als vandaag geen advies beschikbaar is
           if (!recoveryAdvice && recoveryAdviceHistory.length > 0) {
             const latest = recoveryAdviceHistory[recoveryAdviceHistory.length - 1];
             recoveryAdvice = latest.advice || null;
             recoveryAdviceFromHistory = !!recoveryAdvice;
+            if (recoveryAdviceFromHistory) recoveryAdviceGeneratedAt = latest.timestamp || null;
           }
           personalRecords = data.personal_records || [];
           benchmarkWorkouts = data.benchmark_workouts || [];
@@ -601,9 +616,12 @@
       const weightHtml = renderWeightSuggestions(wods);
 
       const plan = date && workoutPlans[date];
+      const planTsStr = plan ? formatAdviceTimestamp(workoutPlansGeneratedAt) : '';
+      const planTsHtml = planTsStr ? `<div class="ai-coach-timestamp">gegenereerd ${planTsStr}</div>` : '';
       const planHtml = plan ? `
         <div class="coach-plan">
           <div class="coach-plan-label">AI Coach Plan</div>
+          ${planTsHtml}
           <div class="coach-plan-body">${marked.parse(plan)}</div>
         </div>` : '';
 
@@ -634,16 +652,68 @@
       if (!intervalsData) return '';
       const acts = ((intervalsData.activities || {}).by_date || {})[date];
       if (!acts || acts.length === 0) return '';
+      const runTypes = ['run', 'running', 'trailrun', 'treadmill', 'jog'];
       return acts.map(act => {
-        const dur  = act.duration_min  ? `<span class="strava-stat"><strong>${act.duration_min}</strong> min</span>` : '';
-        const hr   = act.avg_hr        ? `<span class="strava-stat">gem.HR <strong>${act.avg_hr}</strong> bpm</span>` : '';
-        const hrMax= act.max_hr        ? `<span class="strava-stat">max.HR <strong>${act.max_hr}</strong> bpm</span>` : '';
-        const cal  = act.calories      ? `<span class="strava-stat"><strong>${act.calories}</strong> kcal</span>` : '';
-        const tl   = act.training_load != null ? `<span class="strava-stat">TL <strong>${Math.round(act.training_load)}</strong></span>` : '';
-        const name = act.name || act.type || 'Activiteit';
+        const isRun = runTypes.some(rt => (act.type || '').toLowerCase().includes(rt));
+        const dur     = act.duration_min  ? `<span class="strava-stat"><strong>${act.duration_min}</strong> min</span>` : '';
+        const hr      = act.avg_hr        ? `<span class="strava-stat">gem.HR <strong>${act.avg_hr}</strong> bpm</span>` : '';
+        const hrMax   = act.max_hr        ? `<span class="strava-stat">max.HR <strong>${act.max_hr}</strong> bpm</span>` : '';
+        const cal     = act.calories      ? `<span class="strava-stat"><strong>${act.calories}</strong> kcal</span>` : '';
+        const tl      = act.training_load != null ? `<span class="strava-stat">TL <strong>${Math.round(act.training_load)}</strong></span>` : '';
+        const trimp   = act.trimp != null ? `<span class="strava-stat">TRIMP <strong>${Math.round(act.trimp)}</strong></span>` : '';
+        const dist    = act.distance_m    ? `<span class="strava-stat"><strong>${(act.distance_m / 1000).toFixed(1)}</strong> km</span>` : '';
+        const pace    = (isRun && act.avg_speed_ms > 0)
+          ? (() => { const spm = 1000 / act.avg_speed_ms / 60; return `<span class="strava-stat">tempo <strong>${Math.floor(spm)}:${String(Math.round((spm % 1) * 60)).padStart(2,'0')}/km</strong></span>`; })()
+          : '';
+        const elev    = act.elevation_m   ? `<span class="strava-stat">↑ <strong>${act.elevation_m}</strong> m</span>` : '';
+        const rpe     = act.rpe != null   ? `<span class="strava-stat">RPE <strong>${act.rpe}</strong></span>` : '';
+        const cadence = act.avg_cadence   ? `<span class="strava-stat">cadans <strong>${isRun ? Math.round(act.avg_cadence * 2) : Math.round(act.avg_cadence)}</strong> ${isRun ? 'spm' : 'rpm'}</span>` : '';
+        const temp    = act.avg_temp_c != null ? `<span class="strava-stat">🌡 <strong>${act.avg_temp_c}°C</strong></span>` : '';
+        const flags   = [act.indoor ? '🏠 Indoor' : '', act.race ? '🏁 Race' : ''].filter(Boolean).map(f => `<span class="strava-stat">${f}</span>`).join('');
+        const name    = act.name || act.type || 'Activiteit';
+
+        // HR-zone balk: [Z1, Z2, Z3, Z4, Z5] in seconden
+        let hrZoneHtml = '';
+        if (act.hr_zone_times && act.hr_zone_times.length >= 2) {
+          const zColors = ['#4db6ac','#66bb6a','#ffa726','#ef5350','#ab47bc'];
+          const zLabels = ['Z1','Z2','Z3','Z4','Z5'];
+          const total = act.hr_zone_times.reduce((s, v) => s + v, 0);
+          if (total > 0) {
+            const bars = act.hr_zone_times.map((s, i) => {
+              const pct = Math.round(s / total * 100);
+              if (pct < 1) return '';
+              const mins = Math.floor(s / 60);
+              return `<div title="${zLabels[i]}: ${mins}min (${pct}%)" style="width:${pct}%;background:${zColors[i] || '#888'};height:100%;display:inline-block;vertical-align:top"></div>`;
+            }).join('');
+            const labels = act.hr_zone_times.map((s, i) => {
+              const pct = Math.round(s / total * 100);
+              if (pct < 5) return '';
+              return `<span style="color:${zColors[i] || '#888'};font-size:0.7rem">${zLabels[i]} ${pct}%</span>`;
+            }).filter(Boolean).join(' ');
+            hrZoneHtml = `<div style="margin-top:0.4rem">
+              <div style="height:6px;border-radius:3px;overflow:hidden;background:rgba(255,255,255,0.1)">${bars}</div>
+              <div style="margin-top:0.2rem;display:flex;gap:0.5rem;flex-wrap:wrap">${labels}</div>
+            </div>`;
+          }
+        }
+
+        let lapsHtml = '';
+        if (isRun && act.laps && act.laps.length > 1) {
+          const lapRows = act.laps.map((lap, i) => {
+            const d = lap.distance_m ? `${lap.distance_m}m` : '';
+            const p = lap.pace_per_km ? `${lap.pace_per_km}/km` : '';
+            const h = lap.avg_hr ? `${lap.avg_hr}bpm` : '';
+            const c = lap.avg_cadence ? `${Math.round(lap.avg_cadence * 2)}spm` : '';
+            return `<div style="display:flex;gap:0.6rem;font-size:0.75rem;color:#c0e8d0;padding:0.1rem 0">
+              <span style="color:#6a9a7a;min-width:1.2rem">${i+1}</span>
+              <span>${[d,p,h,c].filter(Boolean).join(' · ')}</span></div>`;
+          }).join('');
+          lapsHtml = `<div style="margin-top:0.4rem;border-top:1px solid rgba(0,200,83,0.15);padding-top:0.4rem">${lapRows}</div>`;
+        }
+
         return `<div class="strava-block">
-          <div class="strava-block-label">Intervals — ${name}</div>
-          ${dur}${hr}${hrMax}${cal}${tl}
+          <div class="strava-block-label">Intervals — ${name}${flags ? ' ' + flags : ''}</div>
+          ${dist}${dur}${pace}${cadence}${hr}${hrMax}${elev}${cal}${rpe}${tl}${trimp}${temp}${hrZoneHtml}${lapsHtml}
         </div>`;
       }).join('');
     }
@@ -723,7 +793,7 @@
       if (futureSessions.length) cardsHtml += futureSessions.map((s, i) => renderRunEventCard(s, i * 0.05, 'plan')).join('');
       if (todaySessions.length) cardsHtml += divider('Vandaag') + todaySessions.map((s, i) => renderRunEventCard(s, i * 0.05, 'plan')).join('');
       if (pastAllSessions.length) {
-        const sep = (futureSessions.length || todaySessions.length) ? divider('Eerder') : '';
+        const sep = (futureSessions.length || todaySessions.length) ? divider('Geweest') : '';
         cardsHtml += sep + pastAllSessions.map((s, i) => renderRunEventCard(s, i * 0.05, 'plan')).join('');
       }
 
@@ -837,7 +907,7 @@
         const cancelled = Object.entries(state.cancelled || {}).map(([id, info]) => ({...info, event_id: id}));
 
         signedUp.sort((a, b) => a.date.localeCompare(b.date));
-        cancelled.sort((a, b) => b.date.localeCompare(a.date));
+        cancelled.sort((a, b) => a.date.localeCompare(b.date));
 
         const upcoming = signedUp.filter(e => isUpcoming(e.date, e.time));
         const past = signedUp.filter(e => !isUpcoming(e.date, e.time));
@@ -880,6 +950,7 @@
           ...past.slice(-5).map(e => ({ type: 'class', date: e.date, item: e })),
           ...orphanDates.map(d => ({ type: 'activity', date: d })),
           ...pastRuns.map(s => ({ type: 'run', date: s.date, item: s })),
+          ...personalEvents.filter(e => !isUpcoming(e.date, e.time || null) && e.date >= cutoffStr).map(e => ({ type: 'personal', date: e.date, item: e })),
         ].sort((a, b) => b.date.localeCompare(a.date)).slice(0, 8);
 
         // Render each tab
@@ -918,8 +989,11 @@
           const label = recoveryAdviceFromHistory
             ? `Coach Advies (${recoveryAdviceHistory[recoveryAdviceHistory.length-1].date})`
             : 'AI Coach advies';
+          const tsStr = formatAdviceTimestamp(recoveryAdviceGeneratedAt);
+          const tsHtml = tsStr ? `<div class="ai-coach-timestamp">gegenereerd ${tsStr}</div>` : '';
           h += `<div class="ai-coach-block">
             <div class="ai-coach-label">${label}</div>
+            ${tsHtml}
             <div class="ai-coach-body">${marked.parse(recoveryAdvice)}</div>
           </div>`;
         }
@@ -1020,10 +1094,11 @@
         h += `</div>`;
       }
       if (pastItems.length > 0) {
-        h += `<div class="section-title">Eerder</div><div class="cards">`;
+        h += `<div class="section-title">Geweest</div><div class="cards">`;
         pastItems.forEach((entry,i) => {
           if (entry.type==='class') h += renderPastCard(entry.item,i*0.05);
           else if (entry.type==='run') h += renderRunEventCard(entry.item,i*0.05,'schema');
+          else if (entry.type==='personal') h += renderPersonalEventCard(entry.item,i*0.05);
           else h += renderActivityCard(entry.date,i*0.05);
         });
         h += `</div>`;
@@ -1770,20 +1845,32 @@
             const arrow = up ? '↑' : '↓';
             return ` <span style="color:${col2};font-size:0.78em" title="HRV trend (${trendData.days_used} dagen): ${trendData.prev_avg}ms → ${trendData.recent_avg}ms">${arrow}${Math.abs(trendData.delta_ms)}ms</span>`;
           })();
-          p.push(`HRV <strong${col} title="Vandaag${baselineTitle}">${Math.round(w.hrv)}ms</strong>${statusBadge}${trendBadge}`);
+          let hrvStr = `HRV <strong${col} title="Vandaag${baselineTitle}">${Math.round(w.hrv)}ms</strong>${statusBadge}${trendBadge}`;
+          if (w.hrv_sdnn != null) hrvStr += ` <span style="color:#888;font-size:0.8em">SDNN ${Math.round(w.hrv_sdnn)}ms</span>`;
+          p.push(hrvStr);
         }
         if (w.resting_hr != null)  p.push(`RHR <strong>${w.resting_hr}bpm</strong>`);
+        if (w.avg_sleeping_hr != null) p.push(`Slaap-HR <strong>${Math.round(w.avg_sleeping_hr)}bpm</strong>`);
+        if (w.readiness != null) {
+          const rColor = w.readiness >= 70 ? '#2ecc71' : w.readiness >= 40 ? '#f39c12' : '#e74c3c';
+          p.push(`Gereedheid <strong style="color:${rColor}">${w.readiness}</strong>`);
+        }
         if (w.sleep_hrs != null) {
           let s = `Slaap <strong>${w.sleep_hrs.toFixed(1)}u`;
           if (w.sleep_score != null) s += ` (${w.sleep_score})`;
+          if (w.sleep_quality != null) s += ` kw:${w.sleep_quality}`;
           p.push(s + '</strong>');
         }
+        if (w.respiration != null) p.push(`Adem <strong>${w.respiration.toFixed(1)}/min</strong>`);
         if (w.spo2 != null) {
           let spo2Str = `SpO₂ <strong>${w.spo2}%`;
           if (spo2Avg != null && Math.abs(w.spo2 - spo2Avg) >= 0.5)
             spo2Str += ` <span class="rec-avg">gem ${spo2Avg}%</span>`;
           p.push(spo2Str + '</strong>');
         }
+        if (w.bp_systolic != null && w.bp_diastolic != null)
+          p.push(`Bloeddruk <strong>${w.bp_systolic}/${w.bp_diastolic}</strong>`);
+        if (w.body_fat_pct != null) p.push(`Vet <strong>${w.body_fat_pct}%</strong>`);
         if (w.ctl != null && w.atl != null)
           p.push(`Fitness <strong>${Math.round(w.ctl)}</strong> · Moe <strong>${Math.round(w.atl)}</strong>`);
         if (p.length) metricsRow = `<div class="recovery-data-row"><span class="rec-source">Garmin</span>${p.join(' · ')}</div>`;
@@ -2099,7 +2186,9 @@
 
     function renderPersonalEventCard(event, delay) {
       const timeHtml = event.time ? `<span class="card-time" style="color:#4db8ff">${event.time}</span>` : '';
-      const locHtml  = event.location ? `<span>${escapeHtml(event.location)}</span>` : '';
+      const metaLabel = event.notes ? event.notes.split('\n')[0] : event.location;
+      const locHtml  = metaLabel ? `<span> ${escapeHtml(metaLabel)}</span>` : '';
+      const routeHtml = event.route ? `<div class="card-meta" style="margin-top:0.1rem"><span style="color:#7dd3fc">Route:</span> <span>${escapeHtml(event.route)}</span></div>` : '';
       const metaHtml = (timeHtml || locHtml) ? `<div class="card-meta">${timeHtml}${locHtml}</div>` : '';
       const deleteBtn = `<button class="personal-delete-btn" title="Verwijderen"
         onclick="event.stopPropagation();deletePersonalEvent('${escapeHtml(event.id)}',this)">✕</button>`;
@@ -2113,6 +2202,7 @@
                 <div class="card-header-left">
                   <div class="card-title">${escapeHtml(event.title)}</div>
                   ${metaHtml}
+                  ${routeHtml}
                 </div>
                 <div class="card-right">
                   <div class="card-date" style="color:#4db8ff">${formatDate(event.date)}</div>
@@ -2133,6 +2223,7 @@
           <div class="card-info">
             <div class="card-title">${escapeHtml(event.title)}</div>
             ${metaHtml}
+            ${routeHtml}
           </div>
           <div class="card-right">
             <div class="card-date" style="color:#4db8ff">${formatDate(event.date)}</div>
@@ -2308,6 +2399,17 @@
         await _patchRescheduleToGist(token, sessionKey, newDatetime);
         setStatus('✓ Opgeslagen in Gist — Garmin sync starten…');
 
+        // Trigger health data refresh in the background so the AI coach advice is regenerated
+        // with the updated schedule without waiting for the next scheduled run
+        fetch(
+          'https://api.github.com/repos/ralphdeleeuw/sportbit/actions/workflows/fetch_health_data.yml/dispatches',
+          {
+            method: 'POST',
+            headers: { Authorization: `token ${token}`, Accept: 'application/vnd.github+json', 'Content-Type': 'application/json' },
+            body: JSON.stringify({ ref: 'main', inputs: {} }),
+          }
+        ).catch(() => {});
+
         // Trigger reschedule workflow
         const triggerTime = new Date();
         const triggerResp = await fetch(
@@ -2394,6 +2496,7 @@
                 <option value="SUPpen">SUPpen</option>
                 <option value="Zwemmen">Zwemmen</option>
                 <option value="Fietsen">Fietsen</option>
+                <option value="Mountainbiken">Mountainbiken</option>
                 <option value="Yoga">Yoga</option>
                 <option value="Gym">Gym</option>
                 <option value="Anders">Anders…</option>
@@ -2410,6 +2513,10 @@
             <div class="add-event-row">
               <span class="add-event-label">Tijd</span>
               <input type="time" class="add-event-input" id="newEventTime" />
+            </div>
+            <div class="add-event-row" id="routeRow" style="display:none">
+              <span class="add-event-label">Route</span>
+              <input type="text" class="add-event-input" id="newEventRoute" placeholder="Bijv. Veluwe Noord lus" />
             </div>
             <div class="add-event-row">
               <span class="add-event-label">Locatie</span>
@@ -2436,6 +2543,8 @@
     function handleEventTitleChange(sel) {
       const row = document.getElementById('customTitleRow');
       if (row) row.style.display = sel.value === 'Anders' ? 'flex' : 'none';
+      const routeRow = document.getElementById('routeRow');
+      if (routeRow) routeRow.style.display = sel.value === 'Mountainbiken' ? 'flex' : 'none';
     }
 
     async function savePersonalEvent() {
@@ -2455,6 +2564,7 @@
       }
       const date     = (document.getElementById('newEventDate')?.value     || '').trim();
       const time     = (document.getElementById('newEventTime')?.value     || '').trim();
+      const route    = (document.getElementById('newEventRoute')?.value    || '').trim();
       const location = (document.getElementById('newEventLocation')?.value || '').trim();
       const notes    = (document.getElementById('newEventNotes')?.value    || '').trim();
 
@@ -2472,6 +2582,7 @@
 
       const newEvent = { id: `personal_${Date.now()}`, title, date };
       if (time)     newEvent.time     = time;
+      if (route)    newEvent.route    = route;
       if (location) newEvent.location = location;
       if (notes)    newEvent.notes    = notes;
       newEvent.created_at = new Date().toISOString();

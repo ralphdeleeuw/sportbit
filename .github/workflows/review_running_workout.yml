@@ -1,0 +1,42 @@
+name: Review Running Workout
+
+on:
+  schedule:
+    # Elke 2 uur overdag (07:00 t/m 19:00 UTC = 09:00 t/m 21:00 AMS)
+    - cron: '0 7,9,11,13,15,17,19 * * *'
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: 'Modus: auto (default), daily of prerun'
+        required: false
+        default: 'auto'
+        type: choice
+        options:
+          - auto
+          - daily
+          - prerun
+
+jobs:
+  review:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install dependencies
+        run: pip install requests anthropic
+
+      - name: Review running workout
+        env:
+          INTERVALS_ATHLETE_ID: ${{ secrets.INTERVALS_ATHLETE_ID }}
+          INTERVALS_API_KEY: ${{ secrets.INTERVALS_API_KEY }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          GIST_ID: ${{ secrets.GIST_ID }}
+          GITHUB_TOKEN: ${{ secrets.GIST_TOKEN }}
+          PUSHOVER_USER_KEY: ${{ secrets.PUSHOVER_USER_KEY }}
+          PUSHOVER_API_TOKEN: ${{ secrets.PUSHOVER_API_TOKEN }}
+        run: python3 review_running_workout.py --mode ${{ inputs.mode || 'auto' }}

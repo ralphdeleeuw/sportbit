@@ -126,6 +126,11 @@ def fetch_intervals_data() -> dict | None:
             if hrv is not None and hrv > 0:
                 entry["hrv"] = round(float(hrv), 1)
 
+            # HRV SDNN (aanvullende HRV-maat naast rMSSD)
+            hrv_sdnn = w.get("hrvSDNN")
+            if hrv_sdnn is not None and hrv_sdnn > 0:
+                entry["hrv_sdnn"] = round(float(hrv_sdnn), 1)
+
             sleep_secs = w.get("sleepSecs")
             if sleep_secs is not None and sleep_secs > 0:
                 entry["sleep_hrs"] = round(sleep_secs / 3600, 2)
@@ -133,6 +138,16 @@ def fetch_intervals_data() -> dict | None:
             sleep_score = w.get("sleepScore")
             if sleep_score is not None:
                 entry["sleep_score"] = int(sleep_score)
+
+            # Gemiddelde slaap-HR (bpm)
+            sleep_hr = w.get("avgSleepingHR")
+            if sleep_hr is not None and sleep_hr > 0:
+                entry["avg_sleeping_hr"] = round(float(sleep_hr), 1)
+
+            # Slaapkwaliteit (1–5 score)
+            sleep_quality = w.get("sleepQuality")
+            if sleep_quality is not None:
+                entry["sleep_quality"] = int(sleep_quality)
 
             ctl = w.get("ctl")
             if ctl is not None:
@@ -165,6 +180,29 @@ def fetch_intervals_data() -> dict | None:
             vo2max = w.get("vo2max")
             if vo2max is not None and vo2max > 0:
                 entry["vo2max"] = round(float(vo2max), 1)
+
+            # Gereedheid (readiness score, bijv. van Garmin Body Battery)
+            readiness = w.get("readiness")
+            if readiness is not None and readiness > 0:
+                entry["readiness"] = int(readiness)
+
+            # Ademhalingsfrequentie (ademhalingen/min, uit Garmin slaapdata)
+            resp = w.get("respiration")
+            if resp is not None and resp > 0:
+                entry["respiration"] = round(float(resp), 1)
+
+            # Bloeddruk (systolisch / diastolisch, mmHg)
+            systolic = w.get("systolic")
+            if systolic is not None and systolic > 0:
+                entry["bp_systolic"] = int(systolic)
+            diastolic = w.get("diastolic")
+            if diastolic is not None and diastolic > 0:
+                entry["bp_diastolic"] = int(diastolic)
+
+            # Vetpercentage (%)
+            body_fat = w.get("bodyFat")
+            if body_fat is not None and body_fat > 0:
+                entry["body_fat_pct"] = round(float(body_fat), 1)
 
             # Subjectieve metrics (schaal 1-4 in intervals.icu; 1=laag/best voor mood/motivatie)
             for field in ("soreness", "fatigue", "stress", "mood", "motivation"):
@@ -258,6 +296,34 @@ def fetch_intervals_data() -> dict | None:
             if rpe is not None:
                 entry["rpe"] = round(float(rpe), 1)
 
+            # Cadans (stappen/min voor hardlopen, omw/min voor fietsen)
+            cadence = act.get("average_cadence")
+            if cadence is not None and cadence > 0:
+                entry["avg_cadence"] = round(float(cadence), 1)
+
+            # TRIMP (traditionele trainingsbelasting op basis van HR)
+            trimp = act.get("trimp")
+            if trimp is not None and trimp > 0:
+                entry["trimp"] = round(float(trimp), 1)
+
+            # HR-zone verdeling: seconden per zone [Z1, Z2, Z3, Z4, Z5]
+            hr_zones = act.get("icu_hr_zone_times")
+            if hr_zones and isinstance(hr_zones, list) and any(v for v in hr_zones if v):
+                entry["hr_zone_times"] = [int(v or 0) for v in hr_zones]
+
+            # Temperatuur tijdens activiteit
+            temp = act.get("average_temp")
+            if temp is not None:
+                entry["avg_temp_c"] = round(float(temp), 1)
+
+            # Indoor / trainer vlaggen
+            if act.get("indoor") or act.get("trainer"):
+                entry["indoor"] = True
+
+            # Wedstrijd vlag
+            if act.get("race"):
+                entry["race"] = True
+
             # Sla intervals.icu activity ID op voor lap-fetch
             act_id = act.get("id")
             if act_id:
@@ -330,6 +396,9 @@ def fetch_intervals_data() -> dict | None:
                     lap_hr = lap.get("average_heartrate")
                     if lap_hr and lap_hr > 0:
                         lap_entry["avg_hr"] = int(lap_hr)
+                    lap_cadence = lap.get("average_cadence")
+                    if lap_cadence and lap_cadence > 0:
+                        lap_entry["avg_cadence"] = round(float(lap_cadence), 1)
                     if lap_entry:
                         laps.append(lap_entry)
                 if laps:

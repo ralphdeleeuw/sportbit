@@ -32,6 +32,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import re
 import sys
 from datetime import date, datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
@@ -55,7 +56,6 @@ ATHLETE_PROFILE = {
     "target_5k_min": 26,
     "target_5k_pace": "5:12",
     "running_base": "enige basis — kan 5-10km lopen maar niet regelmatig geweest",
-    "crossfit_schedule": "Maandag 20:00, Woensdag 08:00, Donderdag 20:00, Zaterdag 09:00, Zondag 09:00",
     "run_sessions": [
         {"day": "Tuesday",  "time": "20:00", "role": "speed"},
         {"day": "Saturday", "time": "09:00", "role": "long_run"},
@@ -113,6 +113,33 @@ def _parse_json(raw: str, label: str) -> dict | list | None:
 
 # ── Fitness context laden ──────────────────────────────────────────────────────
 
+def _strip_html(text: str) -> str:
+    return re.sub(r"<[^>]+>", " ", text or "").strip()
+
+
+def _cancelled_cf_dates(files: dict[str, str]) -> set[str]:
+    """Return dates where the athlete cancelled CrossFit with no remaining active sign-up."""
+    raw = files.get("sportbit_state.json", "")
+    if not raw:
+        return set()
+    try:
+        state = json.loads(raw)
+    except json.JSONDecodeError:
+        return set()
+    signed_up: dict = state.get("signed_up", {})
+    cancelled: dict = state.get("cancelled", {})
+    active_dates: set[str] = {
+        info.get("date", "")
+        for event_id, info in signed_up.items()
+        if event_id not in cancelled and info.get("date")
+    }
+    return {
+        info.get("date", "")
+        for info in cancelled.values()
+        if info.get("date") and info["date"] not in active_dates
+    }
+
+
 def _load_fitness_context(gist_id: str, token: str) -> dict:
     files = _load_gist(gist_id, token)
 
@@ -125,13 +152,34 @@ def _load_fitness_context(gist_id: str, token: str) -> dict:
     plan_raw = files.get("running_plan.json", "")
     running_plan = _parse_json(plan_raw, "running_plan.json") or {}
 
+    mfp_raw = files.get("myfitnesspal_nutrition.json", "")
+    mfp_data = _parse_json(mfp_raw, "myfitnesspal_nutrition.json") or {}
+
     intervals_data = wod_data.get("intervals_data") or {}
+
+    all_wods: list[dict] = wod_data.get("workouts") or []
+    today_str = date.today().isoformat()
+    cutoff_upcoming = (date.today() + timedelta(days=10)).isoformat()
+    cutoff_recent = (date.today() - timedelta(days=14)).isoformat()
+
+    cancelled = _cancelled_cf_dates(files)
 
     return {
         "wellness": intervals_data.get("wellness", {}).get("by_date", {}),
         "activities": intervals_data.get("activities", {}).get("by_date", {}),
         "health_input": health_input or {},
         "running_plan": running_plan,
+        "upcoming_crossfit": [
+            w for w in all_wods
+            if today_str <= w.get("date", "") <= cutoff_upcoming
+            and w.get("date", "") not in cancelled
+        ],
+        "recent_crossfit": [
+            w for w in all_wods
+            if cutoff_recent <= w.get("date", "") < today_str
+            and w.get("date", "") not in cancelled
+        ],
+        "mfp_by_date": (mfp_data.get("diary") or {}).get("by_date") or {},
     }
 
 
@@ -155,12 +203,18 @@ def _build_claude_context(ctx: dict) -> str:
     for d in recent_dates:
         w = wellness_by_date[d]
         parts = [f"  {d}:"]
-        if w.get("hrv"):       parts.append(f"HRV={w['hrv']}ms")
-        if w.get("resting_hr"):parts.append(f"resting_hr={w['resting_hr']}bpm")
-        if w.get("sleep_hrs"): parts.append(f"sleep={w['sleep_hrs']}h")
-        if w.get("ctl") is not None: parts.append(f"CTL={w['ctl']}")
-        if w.get("atl") is not None: parts.append(f"ATL={w['atl']}")
-        if w.get("tsb") is not None: parts.append(f"TSB={w['tsb']}")
+        if w.get("hrv"):           parts.append(f"HRV={w['hrv']}ms")
+        if w.get("hrv_sdnn"):      parts.append(f"SDNN={w['hrv_sdnn']}ms")
+        if w.get("resting_hr"):    parts.append(f"resting_hr={w['resting_hr']}bpm")
+        if w.get("avg_sleeping_hr"): parts.append(f"sleep_hr={w['avg_sleeping_hr']:.0f}bpm")
+        if w.get("readiness") is not None: parts.append(f"readiness={w['readiness']}")
+        if w.get("sleep_hrs"):     parts.append(f"sleep={w['sleep_hrs']}h")
+        if w.get("sleep_score") is not None: parts.append(f"sleep_score={w['sleep_score']}")
+        if w.get("respiration") is not None: parts.append(f"resp={w['respiration']:.1f}/min")
+        if w.get("spo2") is not None:  parts.append(f"SpO2={w['spo2']}%")
+        if w.get("ctl") is not None:   parts.append(f"CTL={w['ctl']}")
+        if w.get("atl") is not None:   parts.append(f"ATL={w['atl']}")
+        if w.get("tsb") is not None:   parts.append(f"TSB={w['tsb']}")
         wellness_lines.append(" ".join(parts))
 
     activities_by_date: dict = ctx["activities"]
@@ -180,9 +234,28 @@ def _build_claude_context(ctx: dict) -> str:
                 parts.append(f"pace {int(spm)}:{int((spm % 1) * 60):02d}/km")
             if act.get("avg_hr"):
                 parts.append(f"avg.HR {act['avg_hr']}bpm")
+            if act.get("max_hr"):
+                parts.append(f"max.HR {act['max_hr']}bpm")
+            if act.get("avg_cadence"):
+                parts.append(f"cadence {round(act['avg_cadence'] * 2)}spm")
+            if act.get("elevation_m"):
+                parts.append(f"elev +{act['elevation_m']}m")
             if act.get("rpe"):
                 parts.append(f"RPE {act['rpe']}")
+            tl = act.get("training_load") or act.get("trimp")
+            if tl is not None:
+                parts.append(f"TL {round(tl)}")
             run_lines.append(" ".join(parts))
+            # HR-zone verdeling tonen als aanwezig
+            hz = act.get("hr_zone_times")
+            if hz and isinstance(hz, list) and sum(hz) > 0:
+                total = sum(hz)
+                zone_labels = ["Z1", "Z2", "Z3", "Z4", "Z5"]
+                zone_str = " ".join(
+                    f"{zone_labels[i]}:{round(v/total*100)}%"
+                    for i, v in enumerate(hz[:5]) if v > 0
+                )
+                run_lines.append(f"    HR zones: {zone_str}")
             # Laps (segmenten) tonen als aanwezig
             for i, lap in enumerate(act.get("laps", []), 1):
                 lap_parts = [f"    lap {i}:"]
@@ -192,6 +265,8 @@ def _build_claude_context(ctx: dict) -> str:
                     lap_parts.append(f"{lap['pace_per_km']}/km")
                 if lap.get("avg_hr"):
                     lap_parts.append(f"HR {lap['avg_hr']}bpm")
+                if lap.get("avg_cadence"):
+                    lap_parts.append(f"cadence {round(lap['avg_cadence'] * 2)}spm")
                 run_lines.append(" ".join(lap_parts))
 
     running_plan = ctx["running_plan"]
@@ -251,6 +326,62 @@ def _build_claude_context(ctx: dict) -> str:
     else:
         sections.append("Recent running activities: none — this is the start of the program")
 
+    # Upcoming CrossFit sessions
+    upcoming_cf = ctx.get("upcoming_crossfit") or []
+    if upcoming_cf:
+        cf_lines = []
+        dag_nl = ["ma", "di", "wo", "do", "vr", "za", "zo"]
+        for w in sorted(upcoming_cf, key=lambda x: x.get("date", ""))[:10]:
+            d = w.get("date", "")
+            try:
+                dag = dag_nl[date.fromisoformat(d).weekday()]
+            except ValueError:
+                dag = ""
+            title = w.get("title") or w.get("name") or "WOD"
+            desc = _strip_html(w.get("description") or "")[:120]
+            line = f"  {d} ({dag}) — {title}"
+            if desc:
+                line += f"\n    {desc}"
+            cf_lines.append(line)
+        sections.append("Upcoming CrossFit sessions (actual schedule):\n" + "\n".join(cf_lines))
+    else:
+        sections.append("Upcoming CrossFit sessions: not available")
+
+    # Recent CrossFit sessions (last 7 days for recovery context)
+    recent_cf = ctx.get("recent_crossfit") or []
+    recent_7 = [w for w in recent_cf if w.get("date", "") >= (today - timedelta(days=7)).isoformat()]
+    if recent_7:
+        rcf_lines = []
+        for w in sorted(recent_7, key=lambda x: x.get("date", ""), reverse=True):
+            d = w.get("date", "")
+            title = w.get("title") or w.get("name") or "WOD"
+            desc = _strip_html(w.get("description") or "")[:100]
+            notes = w.get("athlete_notes") or ""
+            line = f"  {d} — {title}"
+            if desc:
+                line += f" | {desc}"
+            if notes:
+                line += f"\n    Your notes: {notes[:100]}"
+            rcf_lines.append(line)
+        sections.append("Recent CrossFit sessions (last 7 days):\n" + "\n".join(rcf_lines))
+
+    # MFP nutrition
+    mfp_by_date = ctx.get("mfp_by_date") or {}
+    mfp_dates = sorted(mfp_by_date.keys(), reverse=True)[:5]
+    if mfp_dates:
+        mfp_lines = []
+        for d in mfp_dates:
+            m = mfp_by_date[d]
+            cal = m.get("calories", 0)
+            if not cal:
+                continue
+            prot = round(m.get("protein_g") or 0)
+            carbs = round(m.get("carbs_g") or 0)
+            fat = round(m.get("fat_g") or 0)
+            mfp_lines.append(f"  {d}: {cal} kcal, {prot}g protein, {carbs}g carbs, {fat}g fat")
+        if mfp_lines:
+            sections.append("Nutrition last 5 days (MyFitnessPal):\n" + "\n".join(mfp_lines))
+
     if health_lines:
         sections.append("Subjective health scores:\n" + "\n".join(health_lines))
 
@@ -260,10 +391,11 @@ def _build_claude_context(ctx: dict) -> str:
 # ── Claude prompt ──────────────────────────────────────────────────────────────
 
 _SYSTEM_PROMPT = """You are a professional running coach. You create training schedules for Ralph de Leeuw:
-- 47 years old, 77kg, CrossFit 5x/week, runs 2x/week
+- 47 years old, 77kg, CrossFit 5x/week (actual schedule provided in context), runs 2x/week
 - Current 5K: ~28 min (5:36/km) | Goal: 26 min (5:12/km)
 - Default: Tuesday 20:00 = speed work | Saturday 09:00 = long run
 - The exact dates and times are provided in the context — always use them exactly
+- Use the upcoming CrossFit schedule in the context to avoid scheduling hard speed sessions on days with heavy CrossFit (same day or day after)
 
 Pace zones (always calibrate to recovery status via HRV/TSB):
 - Conversational (max):  6:40/km — "no faster than 6:40/km"
@@ -347,77 +479,102 @@ def _pace_to_sec_per_km(pace: str) -> int:
 # ── workout_doc bouwen ─────────────────────────────────────────────────────────
 
 def _step_to_doc(step: dict) -> dict | None:
-    """Converteer een Claude-stap naar intervals.icu workout_doc stap.
+    """Converteer een Claude-stap naar het exacte intervals.icu workout_doc formaat.
 
-    Stappen met distance_m krijgen een "distance" veld (meters) zodat Garmin
-    "Xm remaining" toont i.p.v. een afteltimer. Tijdgebaseerde stappen (rest,
-    en run met duration_min als fallback) krijgen "duration" in seconden.
+    Gebaseerd op de GET /events response van een handmatig aangemaakte workout.
+    Pace zit als {"units": "secs/km", "value": <int>} op het step-niveau.
+    Warmup/cooldown zijn boolean flags + intensity string, geen type-veld.
     """
     stype = step.get("type")
 
-    def to_secs(s: dict) -> int | None:
+    def pace_secs(s: dict) -> int | None:
+        pace_str = s.get("pace_target") or s.get("pace_max")
+        return _pace_to_sec_per_km(pace_str) if pace_str else None
+
+    def calc_duration(s: dict) -> int | None:
         if s.get("duration_s"):
             return int(s["duration_s"])
         if s.get("duration_min"):
             return int(s["duration_min"] * 60)
-        if s.get("distance_m"):
-            pace_str = s.get("pace_target") or s.get("pace_max")
-            pace_sec = _pace_to_sec_per_km(pace_str) if pace_str else 400
-            return int(s["distance_m"] / 1000 * pace_sec)
+        dist_m = s.get("distance_m")
+        pace_str = s.get("pace_target") or s.get("pace_max")
+        if dist_m and pace_str:
+            return int(dist_m / 1000 * _pace_to_sec_per_km(pace_str))
         return None
 
-    def pace_target(s: dict) -> dict | None:
-        if s.get("pace_target"):
-            sec = _pace_to_sec_per_km(s["pace_target"])
-            return {"type": "pace", "pace": sec, "paceRange": 10}
-        if s.get("pace_max"):
-            sec = _pace_to_sec_per_km(s["pace_max"])
-            return {"type": "pace", "pace": sec, "paceRange": 30}
-        return None
-
-    if stype in ("warmup", "cooldown"):
-        label = "Warmup" if stype == "warmup" else "Cooldown"
-        dur = to_secs(step)
-        if not dur:
-            return None
+    if stype == "warmup":
         dist_m = step.get("distance_m")
-        text = f"{label} {dist_m/1000:.1f}km" if dist_m else label
-        doc: dict = {"type": stype, "duration": dur, "text": text}
-        t = pace_target(step)
-        if t:
-            doc["target"] = t
+        dur = calc_duration(step)
+        if not dist_m and not dur:
+            return None
+        text = f"Warmup {dist_m/1000:.1f}km" if dist_m else "Warmup"
+        doc: dict = {"warmup": True, "intensity": "warmup", "text": text}
+        if dist_m:
+            doc["distance"] = dist_m
+        if dur:
+            doc["duration"] = dur
+        ps = pace_secs(step)
+        if ps:
+            doc["pace"] = {"units": "secs/km", "value": ps}
+        return doc
+
+    if stype == "cooldown":
+        dist_m = step.get("distance_m")
+        dur = calc_duration(step)
+        if not dist_m and not dur:
+            return None
+        text = f"Cooldown {dist_m/1000:.1f}km" if dist_m else "Cooldown"
+        doc = {"cooldown": True, "intensity": "cooldown", "text": text}
+        if dist_m:
+            doc["distance"] = dist_m
+        if dur:
+            doc["duration"] = dur
+        ps = pace_secs(step)
+        if ps:
+            doc["pace"] = {"units": "secs/km", "value": ps}
         return doc
 
     if stype == "run":
         dist_m = step.get("distance_m")
-        pace = step.get("pace_target") or step.get("pace_max")
-        dur = to_secs(step)
+        pace_key = step.get("pace_target") or step.get("pace_max")
+        dur = calc_duration(step)
         if not dur:
             return None
         if dist_m:
             if step.get("pace_target"):
                 text = f"{dist_m}m @ {step['pace_target']}/km"
             else:
-                text = f"Easy {dist_m/1000:.1f}km" + (f" (max {pace}/km)" if pace else "")
+                text = f"Easy {dist_m/1000:.1f}km" + (f" (max {pace_key}/km)" if pace_key else "")
+            doc = {"distance": dist_m, "duration": dur}
         else:
-            text = "Easy run" + (f" (max {pace}/km)" if pace else "")
-        doc = {"type": "active", "duration": dur, "text": text}
-        t = pace_target(step)
-        if t:
-            doc["target"] = t
+            text = "Easy run" + (f" (max {pace_key}/km)" if pace_key else "")
+            doc = {"duration": dur}
+        doc["text"] = text
+        ps = pace_secs(step)
+        if ps:
+            doc["pace"] = {"units": "secs/km", "value": ps}
         return doc
 
     if stype == "rest":
-        dur = to_secs(step)
-        return {"type": "rest", "duration": dur, "text": "Recovery walk"} if dur else None
+        dur = step.get("duration_s") or (int(step["duration_min"] * 60) if step.get("duration_min") else None)
+        if not dur:
+            return None
+        return {"rest": True, "intensity": "rest", "duration": dur, "text": "Recovery walk"}
 
     if stype == "repeat":
         children = [_step_to_doc(c) for c in step.get("children", [])]
-        return {
-            "type": "Repeat",
-            "reps": step["count"],
-            "steps": [c for c in children if c],
-        }
+        children = [c for c in children if c]
+        if not children:
+            return None
+        count = step.get("count", 1)
+        total_dist = sum(c.get("distance", 0) for c in children) * count
+        total_dur = sum(c.get("duration", 0) for c in children) * count
+        doc = {"reps": count, "text": f"Main set {count}x", "steps": children}
+        if total_dist:
+            doc["distance"] = total_dist
+        if total_dur:
+            doc["duration"] = total_dur
+        return doc
 
     return None
 
@@ -425,7 +582,18 @@ def _step_to_doc(step: dict) -> dict | None:
 def _build_workout_doc(spec: dict) -> dict | None:
     steps = [_step_to_doc(s) for s in spec.get("steps", [])]
     steps = [s for s in steps if s]
-    return {"steps": steps} if steps else None
+    if not steps:
+        return None
+    total_dist = sum(s.get("distance", 0) for s in steps)
+    total_dur = sum(s.get("duration", 0) for s in steps)
+    return {
+        "steps": steps,
+        "locales": [],
+        "options": {},
+        "distance": total_dist,
+        "duration": total_dur,
+        "description": _build_icu_workout_text(spec),
+    }
 
 
 # ── Beschrijvingstekst (Runna-stijl) ──────────────────────────────────────────
@@ -486,10 +654,103 @@ def _build_description(spec: dict) -> str:
     if week:
         lines.append(f"\n5K Improvement Program (Week {week})")
 
-    sent_at = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
-    lines.append(f"\nSent: {sent_at}")
-
     return "\n".join(lines)
+
+
+# ── Intervals.icu tekst-format (parsed door server naar stappen + grafiek) ────
+
+def _build_icu_workout_text(spec: dict) -> str:
+    """Bouw intervals.icu tekst-syntax op basis van Claude-stappen.
+
+    Dit formaat wordt door intervals.icu server-side geparsed naar
+    gestructureerde workout-stappen (grafiek + Garmin-sync).
+    Indeling: "<afstand>m <tempo>/km [Warmup|Cooldown]" per stap,
+    herhalingen als "Nx" gevolgd door de deelstappen.
+    """
+    lines = []
+
+    def _step_lines(step: dict) -> list[str]:
+        stype = step.get("type")
+        result = []
+        if stype == "warmup":
+            dist = step.get("distance_m")
+            pace = step.get("pace_max")
+            if dist and pace:
+                result.append(f"{dist}m {pace}/km Warmup")
+        elif stype == "cooldown":
+            dist = step.get("distance_m")
+            pace = step.get("pace_max")
+            if dist and pace:
+                result.append(f"{dist}m {pace}/km Cooldown")
+        elif stype == "run":
+            dist = step.get("distance_m")
+            pace = step.get("pace_target") or step.get("pace_max")
+            if dist and pace:
+                result.append(f"{dist}m {pace}/km")
+        elif stype == "rest":
+            dur = step.get("duration_s")
+            if dur:
+                result.append(f"{dur}s Rest")
+        elif stype == "repeat":
+            count = step.get("count", 1)
+            result.append(f"{count}x")
+            for child in step.get("children", []):
+                result.extend(_step_lines(child))
+        return result
+
+    for step in spec.get("steps", []):
+        lines.extend(_step_lines(step))
+
+    return " ".join(lines)
+
+
+def _build_expanded_description(spec: dict) -> str:
+    """Bouw de volledige description op zoals de intervals.icu UI dat doet.
+
+    Format (exact zoals handmatig aangemaakte workout):
+      {icu_one_liner}
+
+      Warmup
+      - Warmup 1km 6:40/km Pace intensity=warmup
+
+      Main set 6x
+      - 0.2km 5:35/km Pace
+      - 0.2km 6:40/km Pace
+
+      Cooldown
+      - Cooldown 1.4km 6:40/km Pace intensity=cooldown
+    """
+    def dist_str(m: int) -> str:
+        km = m / 1000
+        return f"{km:g}km"
+
+    sections: list[str] = []
+    for step in spec.get("steps", []):
+        stype = step.get("type")
+        dist = step.get("distance_m", 0)
+        pace = step.get("pace_max") or step.get("pace_target") or ""
+
+        if stype == "warmup":
+            sections.append(f"Warmup\n- Warmup {dist_str(dist)} {pace}/km Pace intensity=warmup")
+
+        elif stype == "cooldown":
+            sections.append(f"Cooldown\n- Cooldown {dist_str(dist)} {pace}/km Pace intensity=cooldown")
+
+        elif stype == "run":
+            pace = step.get("pace_target") or step.get("pace_max") or ""
+            sections.append(f"- {dist_str(dist)} {pace}/km Pace")
+
+        elif stype == "repeat":
+            count = step.get("count", 1)
+            lines = [f"Main set {count}x"]
+            for child in step.get("children", []):
+                cdist = child.get("distance_m", 0)
+                cpace = child.get("pace_target") or child.get("pace_max") or ""
+                lines.append(f"- {dist_str(cdist)} {cpace}/km Pace")
+            sections.append("\n".join(lines))
+
+    icu_text = _build_icu_workout_text(spec)
+    return icu_text + "\n\n" + "\n\n".join(sections)
 
 
 # ── Intervals.icu event bouwen ─────────────────────────────────────────────────
@@ -504,8 +765,12 @@ def _build_intervals_event(spec: dict) -> dict:
         session_role = spec.get("session", "speed")
         time_str = "20:00:00" if session_role == "speed" else "09:00:00"
 
-    description = _build_description(spec)
-    workout_doc = _build_workout_doc(spec)
+    # De intervals.icu UI parsed ICU-tekst client-side, genereeert de expanded description
+    # (met Warmup / Main set Nx / Cooldown secties) en stuurt dit als description mee.
+    # De server parseert deze expanded description naar workout_doc.steps.
+    sent_at = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
+    expanded = _build_expanded_description(spec)
+    description = f"{expanded}\n\nSent: {sent_at}" if expanded else f"Sent: {sent_at}"
 
     event: dict = {
         "start_date_local": f"{spec['date']}T{time_str}",
@@ -514,6 +779,8 @@ def _build_intervals_event(spec: dict) -> dict:
         "name": spec["name"],
         "description": description,
     }
+
+    workout_doc = _build_workout_doc(spec)
     if workout_doc:
         event["workout_doc"] = workout_doc
 
@@ -612,13 +879,31 @@ def _push_to_intervals(athlete_id: str, api_key: str, events: list[dict]) -> lis
                 results.append(None)
                 continue
             result = resp.json()
+            stored_doc = result.get("workout_doc")
             log.info(
-                "Event aangemaakt: '%s' op %s om %s (id: %s)",
+                "Event aangemaakt: '%s' op %s om %s (id: %s, stappen: %d)",
                 event["name"],
                 event["start_date_local"][:10],
                 event["start_date_local"][11:16],
                 result.get("id"),
+                len((stored_doc or {}).get("steps") or []),
             )
+
+            # PUT-fallback als POST geen stappen opleverde
+            event_id = result.get("id")
+            if event_id and event.get("workout_doc") and not (stored_doc or {}).get("steps"):
+                log.warning("POST leverde geen stappen op — retry via PUT voor event %s", event_id)
+                put_url = f"{INTERVALS_BASE}/{athlete_id}/events/{event_id}"
+                put_payload: dict = {"workout_doc": event["workout_doc"]}
+                if event.get("description"):
+                    put_payload["description"] = event["description"]
+                put_resp = session.put(put_url, json=put_payload, timeout=20)
+                if put_resp.ok:
+                    put_steps = len(((put_resp.json().get("workout_doc") or {}).get("steps")) or [])
+                    log.info("PUT geslaagd: %d stappen opgeslagen", put_steps)
+                else:
+                    log.warning("PUT ook mislukt: %s — %s", put_resp.status_code, put_resp.text[:200])
+
             results.append(result)
         except Exception as exc:
             log.error("Fout bij aanmaken event '%s': %s", event.get("name"), exc)
