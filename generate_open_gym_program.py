@@ -158,10 +158,13 @@ class _SportBitClient:
         log.error("SportBit login mislukt: %s", resp.status_code)
         return False
 
-    def get_events(self, date_str: str) -> list[dict]:
+    def get_events_for_rooster(self, date_str: str, rooster_id: int | None) -> list[dict]:
+        params: dict = {"datum": date_str}
+        if rooster_id is not None:
+            params["rooster"] = rooster_id
         resp = self.session.get(
             self._url("data/events/"),
-            params={"datum": date_str, "rooster": SPORTBIT_ROOSTER_ID},
+            params=params,
             timeout=15,
         )
         resp.raise_for_status()
@@ -171,6 +174,23 @@ class _SportBitClient:
             if isinstance(data.get(period), list):
                 events.extend(data[period])
         return events
+
+    def get_all_events(self, date_str: str) -> list[dict]:
+        """Haal events op voor alle bekende roosters + zonder filter, dedupliceer op ID."""
+        seen_ids: set = set()
+        all_events: list[dict] = []
+        # Probeer rooster 1 (CrossFit WOD) en 2 (Open Gym), plus zonder filter
+        for rooster_id in (SPORTBIT_ROOSTER_ID, 2, None):
+            try:
+                events = self.get_events_for_rooster(date_str, rooster_id)
+                for e in events:
+                    eid = e.get("id")
+                    if eid not in seen_ids:
+                        seen_ids.add(eid)
+                        all_events.append(e)
+            except Exception as exc:
+                log.debug("Events ophalen rooster=%s voor %s mislukt: %s", rooster_id, date_str, exc)
+        return all_events
 
 
 def _is_open_gym(title: str) -> bool:
@@ -226,25 +246,29 @@ def _find_open_gym_via_api(username: str, password: str) -> list[dict]:
         d = today + timedelta(days=offset)
         date_str = d.isoformat()
         try:
-            events = client.get_events(date_str)
+            events = client.get_all_events(date_str)
         except Exception as exc:
             log.warning("Events ophalen voor %s mislukt: %s", date_str, exc)
             continue
         for event in events:
-            if not event.get("aangemeld", False):
-                continue
             title = event.get("titel", "")
-            if not _is_open_gym(title):
-                continue
+            aangemeld = event.get("aangemeld", False)
+            event_id = event.get("id")
             start = event.get("start", "")
             time_str = start[11:16] if len(start) > 15 else "?"
+            log.info("Event %s: titel='%s' aangemeld=%s tijd=%s", event_id, title, aangemeld, time_str)
+            if not aangemeld:
+                continue
+            if not _is_open_gym(title):
+                log.info("  → aangemeld maar geen Open Gym — overgeslagen (titel: '%s')", title)
+                continue
             found.append({
-                "event_id": str(event["id"]),
+                "event_id": str(event_id),
                 "date": date_str,
                 "time": time_str,
                 "title": title,
             })
-            log.info("Open Gym gevonden via API: %s op %s om %s", title, date_str, time_str)
+            log.info("  → Open Gym gevonden op %s om %s", date_str, time_str)
 
     return sorted(found, key=lambda x: (x["date"], x["time"]))
 
