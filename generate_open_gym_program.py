@@ -302,6 +302,8 @@ def _load_fitness_data(files: dict[str, str]) -> dict:
     health_input_raw = _parse_json(files.get("health_input.json", ""), "health_input.json") or {}
     workout_log_raw = _parse_json(files.get("workout_log.json", ""), "workout_log.json") or {}
     mfp_raw = _parse_json(files.get("myfitnesspal_nutrition.json", ""), "myfitnesspal_nutrition.json") or {}
+    running_plan_raw = _parse_json(files.get("running_plan.json", ""), "running_plan.json") or {}
+    state_raw = _parse_json(files.get("sportbit_state.json", ""), "sportbit_state.json") or {}
 
     intervals_data = wod_data.get("intervals_data") or {}
     strava_data = wod_data.get("strava_data") or {}
@@ -313,6 +315,14 @@ def _load_fitness_data(files: dict[str, str]) -> dict:
         if "date" in entry:
             workout_log[entry["date"]] = entry
 
+    # Werkelijke inschrijvingen uit state (CrossFit én Open Gym)
+    cancelled_ids = set(state_raw.get("cancelled", {}).keys())
+    signed_up_dates: set[str] = {
+        info["date"]
+        for eid, info in state_raw.get("signed_up", {}).items()
+        if eid not in cancelled_ids and info.get("date")
+    }
+
     return {
         "wod_by_date": wod_data.get("by_date") or {},
         "barbell_lifts": barbell_lifts,
@@ -323,6 +333,8 @@ def _load_fitness_data(files: dict[str, str]) -> dict:
         "health_history": health_input_raw.get("history", []),
         "workout_log": workout_log,
         "mfp": (mfp_raw.get("diary") or {}).get("by_date") or {},
+        "running_plan_workouts": running_plan_raw.get("workouts") or [],
+        "signed_up_dates": signed_up_dates,
     }
 
 
@@ -405,19 +417,35 @@ def _build_context(data: dict, open_gym_event: dict) -> str:
         sections.append("Subjectieve herstelscores (laatste 5 invoeren):\n" + "\n".join(h_lines))
 
     # ── Recente activiteiten (7 dagen) ─────────────────────────────────────────
+    # Intervals.icu en Strava kunnen dezelfde activiteit bevatten (sync).
+    # Dedupliceer op datum + type + duur (binnen 5 minuten).
     cutoff_7 = (today - timedelta(days=7)).isoformat()
     acts_by_date: dict = data["activities"]
     strava_by_date: dict = data["strava"]
-    all_dates = sorted(
+    all_act_dates = sorted(
         set(list(acts_by_date.keys()) + list(strava_by_date.keys())),
         reverse=True,
     )
-    recent_act_dates = [d_str for d_str in all_dates if d_str >= cutoff_7]
+    recent_act_dates = [d_str for d_str in all_act_dates if d_str >= cutoff_7]
+
+    def _dedup_activities(day_acts: list[dict]) -> list[dict]:
+        seen: list[tuple] = []
+        result: list[dict] = []
+        for act in day_acts:
+            dur = round(act.get("duration_min") or 0)
+            act_type = (act.get("type") or "").lower()
+            key = (act_type, dur // 5)  # bucket per 5 min
+            if key not in seen:
+                seen.append(key)
+                result.append(act)
+        return result
 
     if recent_act_dates:
         act_lines = []
         for d_str in recent_act_dates:
-            day_acts = acts_by_date.get(d_str, []) + strava_by_date.get(d_str, [])
+            day_acts = _dedup_activities(
+                acts_by_date.get(d_str, []) + strava_by_date.get(d_str, [])
+            )
             for act in day_acts:
                 name = act.get("name") or act.get("type") or "activiteit"
                 dur = act.get("duration_min")
@@ -458,17 +486,57 @@ def _build_context(data: dict, open_gym_event: dict) -> str:
     if wod_lines:
         sections.append("CrossFit WOD-geschiedenis (afgelopen 14 dagen):\n" + "\n".join(wod_lines))
 
-    # ── Komende WODs (2 dagen na Open Gym) ────────────────────────────────────
+    # ── Komende training (3 dagen na Open Gym) — alleen werkelijke geplande sessies ──
+    # Toon alleen dagen waarop de atleet écht staat ingeschreven (CrossFit)
+    # of een hardloopsessie heeft gepland.
+    signed_up_dates: set[str] = data.get("signed_up_dates", set())
+    running_workouts: list[dict] = data.get("running_plan_workouts", [])
+    # Hardloopsessies geïndexeerd op datum
+    run_by_date: dict[str, dict] = {
+        s["date"]: s for s in running_workouts if s.get("date")
+    }
+
     upcoming_lines = []
     for offset in range(1, 4):
-        d_str = (event_date + timedelta(days=offset)).isoformat()
-        wods = wod_by_date.get(d_str, [])
-        for w in wods:
-            name = w.get("name") or w.get("title") or "WOD"
-            desc = _strip_html(w.get("description") or "")[:120]
-            upcoming_lines.append(f"  {d_str}: {name}" + (f" — {desc}" if desc else ""))
+        d = event_date + timedelta(days=offset)
+        d_str = d.isoformat()
+        dag = DAY_NL[d.weekday()]
+        day_parts: list[str] = []
+
+        # CrossFit: alleen als ingeschreven
+        if d_str in signed_up_dates:
+            wods = wod_by_date.get(d_str, [])
+            if wods:
+                for w in wods:
+                    name = w.get("name") or w.get("title") or "WOD"
+                    desc = _strip_html(w.get("description") or "")[:120]
+                    day_parts.append(f"CrossFit: {name}" + (f" — {desc}" if desc else ""))
+            else:
+                day_parts.append("CrossFit (WOD nog niet bekend)")
+
+        # Hardlopen: als er een sessie gepland staat
+        if d_str in run_by_date:
+            run = run_by_date[d_str]
+            run_name = run.get("name") or run.get("type") or "hardloopsessie"
+            run_dur = run.get("total_duration_min")
+            run_dist = run.get("total_distance_km")
+            run_desc = f"Hardlopen: {run_name}"
+            if run_dist:
+                run_desc += f" {run_dist}km"
+            if run_dur:
+                run_desc += f" ~{run_dur}min"
+            day_parts.append(run_desc)
+
+        if day_parts:
+            upcoming_lines.append(f"  {d_str} ({dag}): " + " | ".join(day_parts))
+        else:
+            upcoming_lines.append(f"  {d_str} ({dag}): rustdag (geen inschrijving / geplande run)")
+
     if upcoming_lines:
-        sections.append("Komende CrossFit WODs (2 dagen na Open Gym — houd hier rekening mee):\n" + "\n".join(upcoming_lines))
+        sections.append(
+            "Komende 3 dagen na Open Gym — werkelijk geplande belasting:\n"
+            + "\n".join(upcoming_lines)
+        )
 
     # ── Barbell maxima ─────────────────────────────────────────────────────────
     lifts: dict = data["barbell_lifts"]
@@ -532,6 +600,12 @@ Richtlijnen:
 - Voeg coaching cues toe bij technische bewegingen
 - Geef altijd een scaled versie voor de conditioning
 - Schat de totale tijdsduur in
+
+Opmaakregels:
+- Begin NIET met een grote titel (geen # H1) — de app toont al een header boven het programma
+- Gebruik ## voor hoofdsecties (Warming-up, Skill, Kracht, Conditioning, Cool-down)
+- Gebruik ### voor subsecties
+- Gebruik vetgedrukt (**tekst**) voor sets/reps/gewichten
 
 Schrijf het programma direct en volledig uit — dit is wat Ralph meeneemt naar de gym.\
 """
