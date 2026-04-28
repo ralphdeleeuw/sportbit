@@ -61,6 +61,14 @@ ATHLETE_PROFILE = {
         {"day": "Saturday", "time": "09:00", "role": "long_run"},
     ],
     "schedule_note": "Hardloopdagen zijn standaard dinsdag en zaterdag, maar kunnen via health_input.json worden verplaatst.",
+    "max_hr_estimate": 173,  # 220 - 47 jaar
+    "hr_zones": {
+        "Z1": "recovery (<104 bpm, <60% max)",
+        "Z2": "aerobic base (104-121 bpm, 60-70% max)",
+        "Z3": "tempo (121-138 bpm, 70-80% max)",
+        "Z4": "threshold (138-155 bpm, 80-90% max)",
+        "Z5": "VO2max (>155 bpm, >90% max)",
+    },
 }
 
 # Pacezones op basis van huidig 5K (5:36/km) en doel (5:12/km)
@@ -407,6 +415,13 @@ Pace zones (always calibrate to recovery status via HRV/TSB):
 - Interval pace 300m:    5:20-5:35/km
 - Interval pace 200m:    5:00-5:15/km
 
+HR zones (max HR ~173 bpm, age 47):
+- Z1 recovery:   <104 bpm  — warmup, cooldown, recovery walk
+- Z2 aerobic:    104-121   — easy runs, long runs, base building
+- Z3 tempo:      121-138   — aerobic threshold, fartlek surges
+- Z4 threshold:  138-155   — tempo runs, threshold intervals
+- Z5 VO2max:     >155      — hard intervals (400m, 300m, 200m)
+
 Periodization (continuous, no end date):
 - Weeks 1-4:   base building — easy long runs + light fartlek, max 6km Saturday
 - Weeks 5-8:   first structured work — rolling repeats (300m/400m), progressive long runs
@@ -430,12 +445,19 @@ Output: return ONLY valid JSON (no markdown, no explanation):
 ]
 
 Step formats:
-  Warm-up:      {"type":"warmup",   "distance_m":<int>, "pace_max":"M:SS"}
-  Easy/long run:{"type":"run",      "distance_m":<int>, "pace_max":"M:SS"}
-  Interval:     {"type":"run",      "distance_m":<int>, "pace_target":"M:SS"}
+  Warm-up:      {"type":"warmup",   "distance_m":<int>, "pace_max":"M:SS", "hr_zone":"Z1"}
+  Easy/long run:{"type":"run",      "distance_m":<int>, "pace_max":"M:SS", "hr_zone":"Z2"}
+  Interval:     {"type":"run",      "distance_m":<int>, "pace_target":"M:SS", "hr_zone":"Z4"}
   Repeat:       {"type":"repeat",   "count":<int>, "children":[<steps>]}
   Walking rest: {"type":"rest",     "duration_s":<int>}
-  Cool-down:    {"type":"cooldown", "distance_m":<int>, "pace_max":"M:SS"}
+  Cool-down:    {"type":"cooldown", "distance_m":<int>, "pace_max":"M:SS", "hr_zone":"Z1"}
+
+HR zone guidance per step:
+  warmup/cooldown → always "Z1"
+  easy/long run   → "Z2" (base), "Z2-Z3" (aerobic push)
+  fartlek surge   → "Z3" or "Z3-Z4"
+  tempo/threshold → "Z4"
+  hard interval   → "Z4-Z5"
 
 IMPORTANT: Always use distance_m for every run step — warmup, cooldown, easy runs, and long runs alike.
 Never use duration_min. The athlete sees distance remaining on their Garmin, not a countdown timer.
@@ -507,7 +529,8 @@ def _step_to_doc(step: dict) -> dict | None:
         dur = calc_duration(step)
         if not dist_m and not dur:
             return None
-        text = f"Warmup {dist_m/1000:.1f}km" if dist_m else "Warmup"
+        hr_zone = step.get("hr_zone", "Z1")
+        text = f"Warmup {dist_m/1000:.1f}km {hr_zone}" if dist_m else f"Warmup {hr_zone}"
         doc: dict = {"warmup": True, "intensity": "warmup", "text": text}
         if dist_m:
             doc["distance"] = dist_m
@@ -516,6 +539,7 @@ def _step_to_doc(step: dict) -> dict | None:
         ps = pace_secs(step)
         if ps:
             doc["pace"] = {"units": "secs/km", "value": ps}
+        doc["hr"] = hr_zone
         return doc
 
     if stype == "cooldown":
@@ -523,7 +547,8 @@ def _step_to_doc(step: dict) -> dict | None:
         dur = calc_duration(step)
         if not dist_m and not dur:
             return None
-        text = f"Cooldown {dist_m/1000:.1f}km" if dist_m else "Cooldown"
+        hr_zone = step.get("hr_zone", "Z1")
+        text = f"Cooldown {dist_m/1000:.1f}km {hr_zone}" if dist_m else f"Cooldown {hr_zone}"
         doc = {"cooldown": True, "intensity": "cooldown", "text": text}
         if dist_m:
             doc["distance"] = dist_m
@@ -532,27 +557,32 @@ def _step_to_doc(step: dict) -> dict | None:
         ps = pace_secs(step)
         if ps:
             doc["pace"] = {"units": "secs/km", "value": ps}
+        doc["hr"] = hr_zone
         return doc
 
     if stype == "run":
         dist_m = step.get("distance_m")
         pace_key = step.get("pace_target") or step.get("pace_max")
+        hr_zone = step.get("hr_zone")
         dur = calc_duration(step)
         if not dur:
             return None
+        hr_str = f" {hr_zone}" if hr_zone else ""
         if dist_m:
             if step.get("pace_target"):
-                text = f"{dist_m}m @ {step['pace_target']}/km"
+                text = f"{dist_m}m @ {step['pace_target']}/km{hr_str}"
             else:
-                text = f"Easy {dist_m/1000:.1f}km" + (f" (max {pace_key}/km)" if pace_key else "")
+                text = f"Easy {dist_m/1000:.1f}km" + (f" (max {pace_key}/km)" if pace_key else "") + hr_str
             doc = {"distance": dist_m, "duration": dur}
         else:
-            text = "Easy run" + (f" (max {pace_key}/km)" if pace_key else "")
+            text = "Easy run" + (f" (max {pace_key}/km)" if pace_key else "") + hr_str
             doc = {"duration": dur}
         doc["text"] = text
         ps = pace_secs(step)
         if ps:
             doc["pace"] = {"units": "secs/km", "value": ps}
+        if hr_zone:
+            doc["hr"] = hr_zone
         return doc
 
     if stype == "rest":
@@ -671,22 +701,24 @@ def _build_icu_workout_text(spec: dict) -> str:
 
     def _step_lines(step: dict) -> list[str]:
         stype = step.get("type")
+        hr = step.get("hr_zone", "")
+        hr_str = f" {hr}" if hr else ""
         result = []
         if stype == "warmup":
             dist = step.get("distance_m")
             pace = step.get("pace_max")
             if dist and pace:
-                result.append(f"{dist}m {pace}/km Warmup")
+                result.append(f"{dist}m {pace}/km{hr_str} Warmup")
         elif stype == "cooldown":
             dist = step.get("distance_m")
             pace = step.get("pace_max")
             if dist and pace:
-                result.append(f"{dist}m {pace}/km Cooldown")
+                result.append(f"{dist}m {pace}/km{hr_str} Cooldown")
         elif stype == "run":
             dist = step.get("distance_m")
             pace = step.get("pace_target") or step.get("pace_max")
             if dist and pace:
-                result.append(f"{dist}m {pace}/km")
+                result.append(f"{dist}m {pace}/km{hr_str}")
         elif stype == "rest":
             dur = step.get("duration_s")
             if dur:
@@ -729,16 +761,18 @@ def _build_expanded_description(spec: dict) -> str:
         stype = step.get("type")
         dist = step.get("distance_m", 0)
         pace = step.get("pace_max") or step.get("pace_target") or ""
+        hr = step.get("hr_zone", "")
+        hr_str = f" {hr}" if hr else ""
 
         if stype == "warmup":
-            sections.append(f"Warmup\n- Warmup {dist_str(dist)} {pace}/km Pace intensity=warmup")
+            sections.append(f"Warmup\n- Warmup {dist_str(dist)} {pace}/km Pace{hr_str} intensity=warmup")
 
         elif stype == "cooldown":
-            sections.append(f"Cooldown\n- Cooldown {dist_str(dist)} {pace}/km Pace intensity=cooldown")
+            sections.append(f"Cooldown\n- Cooldown {dist_str(dist)} {pace}/km Pace{hr_str} intensity=cooldown")
 
         elif stype == "run":
             pace = step.get("pace_target") or step.get("pace_max") or ""
-            sections.append(f"- {dist_str(dist)} {pace}/km Pace")
+            sections.append(f"- {dist_str(dist)} {pace}/km Pace{hr_str}")
 
         elif stype == "repeat":
             count = step.get("count", 1)
@@ -746,7 +780,9 @@ def _build_expanded_description(spec: dict) -> str:
             for child in step.get("children", []):
                 cdist = child.get("distance_m", 0)
                 cpace = child.get("pace_target") or child.get("pace_max") or ""
-                lines.append(f"- {dist_str(cdist)} {cpace}/km Pace")
+                chr_zone = child.get("hr_zone", "")
+                chr_str = f" {chr_zone}" if chr_zone else ""
+                lines.append(f"- {dist_str(cdist)} {cpace}/km Pace{chr_str}")
             sections.append("\n".join(lines))
 
     icu_text = _build_icu_workout_text(spec)
