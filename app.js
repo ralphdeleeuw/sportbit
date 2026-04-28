@@ -94,7 +94,9 @@
       })();
 
       if (openGymProgramHtml) {
-        const envBadge = renderEnvBadge(item.date);
+        const focusBadge = openGymProgram?.focus_summary
+          ? `<div class="card-wod-preview" style="padding:0.25rem 0.8rem 0.1rem;font-size:0.72rem;color:var(--accent);opacity:0.85">${escapeHtml(openGymProgram.focus_summary)}</div>`
+          : '';
         return `
           <div class="card has-wod" style="animation-delay:${delay}s" onclick="toggleWod(this, event)">
             <div class="card-dot dot-active" style="background:#9b59b6"></div>
@@ -110,7 +112,7 @@
                   <div class="wod-chevron">▾</div>
                 </div>
               </div>
-              ${envBadge ? `<div style="padding:0.3rem 0.8rem 0">${envBadge}</div>` : ''}
+              ${focusBadge}
               ${openGymProgramHtml}
             </div>
           </div>`;
