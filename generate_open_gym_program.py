@@ -668,6 +668,69 @@ def _extract_focus(raw_text: str) -> tuple[str, str]:
     return "", raw_text.strip()
 
 
+# ── Intervals.icu push ────────────────────────────────────────────────────────
+
+INTERVALS_BASE = "https://intervals.icu/api/v1/athlete"
+
+
+def _markdown_to_plain(text: str) -> str:
+    """Zet Markdown om naar leesbare platte tekst voor intervals.icu description."""
+    lines = []
+    for line in text.split("\n"):
+        # Headers: ## Titel → TITEL
+        m = re.match(r"^(#{1,4})\s+(.+)$", line)
+        if m:
+            lines.append(m.group(2).upper())
+            continue
+        # Bold/italic: **tekst** of *tekst* → tekst
+        line = re.sub(r"\*{1,2}([^*]+)\*{1,2}", r"\1", line)
+        # Bullet list: - item → • item
+        line = re.sub(r"^\s*[-*]\s+", "• ", line)
+        # Inline code: `code` → code
+        line = re.sub(r"`([^`]+)`", r"\1", line)
+        lines.append(line)
+    return "\n".join(lines).strip()
+
+
+def _push_open_gym_to_intervals(
+    open_gym_event: dict,
+    program_markdown: str,
+    focus_summary: str,
+    athlete_id: str,
+    api_key: str,
+) -> str | None:
+    """Push het Open Gym programma als WeightTraining event naar intervals.icu."""
+    event_date = open_gym_event["date"]
+    event_time = open_gym_event.get("time", "20:00")
+    if len(event_time) == 5:
+        event_time += ":00"
+
+    name = f"Open Gym — {focus_summary}" if focus_summary else "Open Gym"
+    description = _markdown_to_plain(program_markdown)
+
+    payload = {
+        "start_date_local": f"{event_date}T{event_time}",
+        "category": "WORKOUT",
+        "type": "WeightTraining",
+        "name": name,
+        "description": description,
+    }
+
+    session = requests.Session()
+    session.auth = ("API_KEY", api_key)
+
+    url = f"{INTERVALS_BASE}/{athlete_id}/events"
+    try:
+        resp = session.post(url, json=payload, timeout=20)
+        resp.raise_for_status()
+        event_id = resp.json().get("id")
+        log.info("intervals.icu event aangemaakt: id=%s naam='%s'", event_id, name)
+        return str(event_id) if event_id else None
+    except Exception as exc:
+        log.warning("intervals.icu push mislukt: %s", exc)
+        return None
+
+
 # ── Pushover ───────────────────────────────────────────────────────────────────
 
 def _send_pushover(title: str, message: str) -> None:
@@ -747,6 +810,19 @@ def main() -> int:
     focus_summary, program_markdown = _extract_focus(raw_output)
     log.info("Programma gegenereerd (%d tekens). Focus: %s", len(program_markdown), focus_summary or "(geen)")
 
+    # Optioneel: push naar intervals.icu
+    intervals_athlete_id = os.environ.get("INTERVALS_ATHLETE_ID", "").strip()
+    intervals_api_key = os.environ.get("INTERVALS_API_KEY", "").strip()
+    intervals_event_id: str | None = None
+    if intervals_athlete_id and intervals_api_key:
+        log.info("Programma pushen naar intervals.icu...")
+        intervals_event_id = _push_open_gym_to_intervals(
+            open_gym_event, program_markdown, focus_summary,
+            intervals_athlete_id, intervals_api_key,
+        )
+    else:
+        log.info("INTERVALS_ATHLETE_ID/INTERVALS_API_KEY niet ingesteld — intervals.icu push overgeslagen.")
+
     # Opslaan in Gist
     now_ams = datetime.now(AMS)
     output = {
@@ -759,6 +835,8 @@ def main() -> int:
         "program_markdown": program_markdown,
         "generated_with_model": MODEL,
     }
+    if intervals_event_id:
+        output["intervals_event_id"] = intervals_event_id
 
     try:
         _save_to_gist(gist_id, token, GIST_FILENAME, json.dumps(output, ensure_ascii=False, indent=2))
