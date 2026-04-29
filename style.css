@@ -1845,3 +1845,6 @@
       padding-left: 8px;
     }
     .hw-squat-note { font-size: 0.72rem; color: var(--muted); margin-bottom: 2px; margin-top: 4px; }
+    .hw-card .card-wod { display: none; margin-top: 12px; }
+    .hw-card.open .card-wod { display: block; }
+    .hw-card.open .wod-chevron { transform: rotate(180deg); }
