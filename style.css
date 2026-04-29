@@ -1844,7 +1844,44 @@
       flex-shrink: 0;
       padding-left: 8px;
     }
-    .hw-squat-note { font-size: 0.72rem; color: var(--muted); margin-bottom: 2px; margin-top: 4px; }
+    .hw-exercise-left {
+      display: flex;
+      flex-direction: column;
+      gap: 1px;
+      flex: 1;
+      min-width: 0;
+    }
+    .hw-exercise-sub { font-size: 0.68rem; color: var(--faint); }
+    .hw-reps-block {
+      flex-shrink: 0;
+      text-align: right;
+      padding-left: 8px;
+    }
+    .hw-reps-num { font-size: 0.82rem; color: var(--muted); font-weight: 500; }
+    .hw-reps-block.adjusted .hw-reps-num { color: var(--neutral); }
+    .hw-exercise-row.checked .hw-reps-num { color: var(--purple); }
+    .hw-section-label {
+      font-size: 0.7rem;
+      font-weight: 700;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+      color: var(--faint);
+      margin: 10px 0 6px;
+    }
+    .hw-optional { font-weight: 400; text-transform: none; letter-spacing: 0; }
+    .hw-mob-row { opacity: 0.8; }
+    .hw-mob-row.checked { opacity: 1; }
+    .hw-adj-banner {
+      display: flex;
+      flex-direction: column;
+      gap: 3px;
+      margin-bottom: 8px;
+      padding: 6px 10px;
+      background: rgba(240, 180, 41, 0.08);
+      border: 1px solid rgba(240, 180, 41, 0.2);
+      border-radius: 8px;
+    }
+    .hw-adj-banner span { font-size: 0.72rem; color: var(--neutral); }
     .hw-card .card-wod { display: none; margin-top: 12px; }
     .hw-card.open .card-wod { display: block; }
     .hw-card.open .wod-chevron { transform: rotate(180deg); }
