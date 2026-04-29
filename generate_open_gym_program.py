@@ -367,16 +367,37 @@ def _find_open_gym_events(files: dict[str, str]) -> list[dict]:
         return events
 
     # Stap 3: geen inschrijving gevonden, maar de gebruiker heeft de workflow handmatig
-    # gestart — dat is zelf het signaal dat ze vandaag naar Open Gym willen. Kies het
-    # eerstvolgende Open Gym slot van vandaag (voorkeur: 's avonds).
-    today_str = date.today().isoformat()
-    now_time = datetime.now(AMS).strftime("%H:%M")
-    log.info(
-        "Geen inschrijving gevonden. Workflow handmatig gestart → "
-        "automatisch Open Gym slot zoeken voor vandaag (%s, huidige tijd %s)...",
-        today_str, now_time,
-    )
-    return _find_open_gym_forced(today_str, now_time)
+    # gestart — dat is zelf het signaal dat ze een programma willen. Zoek het Open Gym
+    # slot (gisteren of vandaag) dat het dichtst bij het huidige moment ligt.
+    now_dt = datetime.now(AMS)
+    now_time = now_dt.strftime("%H:%M")
+    now_minutes = now_dt.hour * 60 + now_dt.minute
+    today = date.today()
+    candidates: list[dict] = []
+
+    for offset in (-1, 0):
+        day = today + timedelta(days=offset)
+        day_str = day.isoformat()
+        try:
+            slots = _find_open_gym_forced(day_str, now_time)
+            for s in slots:
+                h, m = (int(x) for x in s["time"].split(":"))
+                delta = abs((offset * 24 * 60 + h * 60 + m) - now_minutes)
+                candidates.append((delta, s))
+        except Exception:
+            pass
+
+    if candidates:
+        candidates.sort(key=lambda x: x[0])
+        chosen = candidates[0][1]
+        log.info(
+            "Geen inschrijving gevonden. Dichtstbijzijnd Open Gym slot gekozen: %s om %s.",
+            chosen["date"], chosen["time"],
+        )
+        return [chosen]
+
+    log.warning("Geen Open Gym slots gevonden op gisteren of vandaag.")
+    return []
 
 
 # ── Fitnesscontext laden ───────────────────────────────────────────────────────
