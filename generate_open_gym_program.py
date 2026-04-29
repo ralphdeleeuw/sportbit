@@ -332,7 +332,7 @@ def _find_open_gym_forced(date_str: str, preferred_time: str) -> list[dict]:
 
 
 def _find_open_gym_events(files: dict[str, str]) -> list[dict]:
-    """Zoek Open Gym inschrijvingen: geforceerde datum → state → SportBit API."""
+    """Zoek Open Gym inschrijvingen: geforceerde datum → state → SportBit API (aangemeld) → vandaag automatisch."""
     # Stap 0: geforceerde datum via workflow_dispatch input
     force_date = os.environ.get("FORCE_DATE", "").strip()
     if force_date:
@@ -351,7 +351,7 @@ def _find_open_gym_events(files: dict[str, str]) -> list[dict]:
         log.info("Open Gym gevonden in sportbit_state.json.")
         return events
 
-    # Stap 2: fallback — direct SportBit API bevragen
+    # Stap 2: SportBit API bevragen op aangemelde inschrijving (komende 7 dagen)
     username = os.environ.get("SPORTBIT_USERNAME", "").strip()
     password = os.environ.get("SPORTBIT_PASSWORD", "").strip()
     if not username or not password:
@@ -362,7 +362,21 @@ def _find_open_gym_events(files: dict[str, str]) -> list[dict]:
         return []
 
     log.info("Niet gevonden in state — SportBit API direct bevragen...")
-    return _find_open_gym_via_api(username, password)
+    events = _find_open_gym_via_api(username, password)
+    if events:
+        return events
+
+    # Stap 3: geen inschrijving gevonden, maar de gebruiker heeft de workflow handmatig
+    # gestart — dat is zelf het signaal dat ze vandaag naar Open Gym willen. Kies het
+    # eerstvolgende Open Gym slot van vandaag (voorkeur: 's avonds).
+    today_str = date.today().isoformat()
+    now_time = datetime.now(AMS).strftime("%H:%M")
+    log.info(
+        "Geen inschrijving gevonden. Workflow handmatig gestart → "
+        "automatisch Open Gym slot zoeken voor vandaag (%s, huidige tijd %s)...",
+        today_str, now_time,
+    )
+    return _find_open_gym_forced(today_str, now_time)
 
 
 # ── Fitnesscontext laden ───────────────────────────────────────────────────────
