@@ -273,8 +273,78 @@ def _find_open_gym_via_api(username: str, password: str) -> list[dict]:
     return sorted(found, key=lambda x: (x["date"], x["time"]))
 
 
+def _find_open_gym_forced(date_str: str, preferred_time: str) -> list[dict]:
+    """Zoek een Open Gym slot op een specifieke datum, zonder inschrijvingseis.
+
+    Wanneer de gebruiker via workflow_dispatch een datum opgaf maar nog niet
+    ingeschreven is, pakken we het slot dat het dichtst bij de gewenste tijd ligt.
+    Als er geen Open Gym slots bestaan op die dag, vallen we terug op een
+    synthetisch event zodat het programma toch gegenereerd kan worden.
+    """
+    username = os.environ.get("SPORTBIT_USERNAME", "").strip()
+    password = os.environ.get("SPORTBIT_PASSWORD", "").strip()
+
+    if username and password:
+        client = _SportBitClient(username, password)
+        if client.login():
+            try:
+                events = client.get_all_events(date_str)
+                gym_events = [
+                    e for e in events if _is_open_gym(e.get("titel", ""))
+                ]
+                if gym_events:
+                    # Kies het slot het dichtst bij de gewenste tijd
+                    def _slot_time(e: dict) -> str:
+                        start = e.get("start", "")
+                        return start[11:16] if len(start) > 15 else "20:00"
+
+                    if preferred_time:
+                        gym_events.sort(key=lambda e: abs(
+                            int(_slot_time(e).replace(":", "")) -
+                            int(preferred_time.replace(":", ""))
+                        ))
+                    chosen = gym_events[0]
+                    t = _slot_time(chosen)
+                    log.info(
+                        "Geforceerde datum %s: Open Gym slot gevonden om %s (event_id=%s)",
+                        date_str, t, chosen.get("id"),
+                    )
+                    return [{
+                        "event_id": str(chosen.get("id", f"forced-{date_str}")),
+                        "date": date_str,
+                        "time": t,
+                        "title": chosen.get("titel", "Open Gym"),
+                    }]
+                else:
+                    log.info("Geen Open Gym slots gevonden op %s via SportBit — synthetisch event aanmaken.", date_str)
+            except Exception as exc:
+                log.warning("SportBit events ophalen voor %s mislukt: %s — synthetisch event aanmaken.", date_str, exc)
+
+    # Synthetisch event als SportBit niet bereikbaar is of geen slots heeft
+    time_str = preferred_time if preferred_time else "20:00"
+    log.info("Synthetisch Open Gym event aangemaakt voor %s om %s.", date_str, time_str)
+    return [{
+        "event_id": f"forced-{date_str}-{time_str.replace(':', '')}",
+        "date": date_str,
+        "time": time_str,
+        "title": "Open Gym",
+    }]
+
+
 def _find_open_gym_events(files: dict[str, str]) -> list[dict]:
-    """Zoek Open Gym inschrijvingen: eerst in state, daarna direct via SportBit API."""
+    """Zoek Open Gym inschrijvingen: geforceerde datum → state → SportBit API."""
+    # Stap 0: geforceerde datum via workflow_dispatch input
+    force_date = os.environ.get("FORCE_DATE", "").strip()
+    if force_date:
+        try:
+            date.fromisoformat(force_date)  # valideer formaat
+        except ValueError:
+            log.error("Ongeldige FORCE_DATE: '%s' — verwacht YYYY-MM-DD.", force_date)
+            return []
+        force_time = os.environ.get("FORCE_TIME", "").strip()
+        log.info("FORCE_DATE=%s ingesteld — inschrijving overgeslagen.", force_date)
+        return _find_open_gym_forced(force_date, force_time)
+
     # Stap 1: state file (snel, geen credentials nodig)
     events = _find_open_gym_in_state(files)
     if events:
