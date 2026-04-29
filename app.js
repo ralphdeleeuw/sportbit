@@ -77,25 +77,29 @@
       </div>`;
 
       // Open Gym: toon gegenereerd programma als beschikbaar
+      // Zoek eerst op event_id (permanent opgeslagen in state), dan op datum als fallback
       const isOpenGym = !cancelled && (item.title || '').toLowerCase().includes('open gym');
+      const _prog = isOpenGym
+        ? (openGymProgramsByEventId[item.event_id]
+           || (openGymProgram && openGymProgram.for_date === item.date ? openGymProgram : null))
+        : null;
       const openGymProgramHtml = (() => {
-        if (!isOpenGym || !openGymProgram) return null;
-        if (openGymProgram.for_date !== item.date) return null;
-        const ts = openGymProgram.generated_at
-          ? `<div class="ai-coach-timestamp">gegenereerd ${formatAdviceTimestamp(openGymProgram.generated_at)}</div>`
+        if (!_prog) return null;
+        const ts = _prog.generated_at
+          ? `<div class="ai-coach-timestamp">gegenereerd ${formatAdviceTimestamp(_prog.generated_at)}</div>`
           : '';
         return `<div class="card-wod">
           <div class="ai-coach-block" style="margin:0">
             <div class="ai-coach-label">Open Gym Programma</div>
             ${ts}
-            <div class="ai-coach-body">${marked.parse(openGymProgram.program_markdown || '')}</div>
+            <div class="ai-coach-body">${marked.parse(_prog.program_markdown || '')}</div>
           </div>
         </div>`;
       })();
 
       if (openGymProgramHtml) {
-        const focusBadge = openGymProgram?.focus_summary
-          ? `<div class="card-wod-preview" style="padding:0.25rem 0.8rem 0.1rem;font-size:0.72rem;color:var(--accent);opacity:0.85">${escapeHtml(openGymProgram.focus_summary)}</div>`
+        const focusBadge = _prog.focus_summary
+          ? `<div class="card-wod-preview" style="padding:0.25rem 0.8rem 0.1rem;font-size:0.72rem;color:var(--accent);opacity:0.85">${escapeHtml(_prog.focus_summary)}</div>`
           : '';
         return `
           <div class="card has-wod" style="animation-delay:${delay}s" onclick="toggleWod(this, event)">
@@ -194,6 +198,7 @@
     let environmentalData = null; // {training_conditions: {...}, aqi: {...}, fetched_at}
     let runningPlanData = null; // {generated_at, week_number, workouts: [{date, type, name, description, total_duration_min}]}
     let openGymProgram = null; // {generated_at, for_date, for_time, event_title, program_markdown}
+    let openGymProgramsByEventId = {}; // event_id → {program_markdown, focus_summary, generated_at}
     let homeWorkoutLog = {}; // {date: entry} from home_workout_log.json
     let activeChartLift = null;
     let liftChart = null;
@@ -1064,6 +1069,19 @@
         if (!stateFile) throw new Error('sportbit_state.json niet gevonden in Gist');
 
         const state = JSON.parse(stateFile.content);
+
+        // Bouw lookup van Open Gym programma's op basis van event_id (opgeslagen door generate_open_gym_program.py)
+        openGymProgramsByEventId = {};
+        for (const [id, info] of Object.entries(state.signed_up || {})) {
+          if (info.program_markdown) {
+            openGymProgramsByEventId[id] = {
+              program_markdown: info.program_markdown,
+              focus_summary: info.focus_summary || '',
+              generated_at: info.program_generated_at || '',
+            };
+          }
+        }
+
         // Include event_id in each item so the "Niet gedaan" button can patch the state
         const signedUp = Object.entries(state.signed_up || {}).map(([id, info]) => ({...info, event_id: id}));
         const cancelled = Object.entries(state.cancelled || {}).map(([id, info]) => ({...info, event_id: id}));
