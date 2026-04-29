@@ -263,6 +263,11 @@
       const dt = new Date();
       dt.setDate(dt.getDate() + dayOffset);
       const dateStr = dt.toISOString().slice(0, 10);
+      // Only return WOD text for classes the user is actually attending
+      const isSignedUp = dayOffset >= 0
+        ? _upcomingCrossfit.some(e => e.date === dateStr)
+        : _pastCrossfit.some(e => e.date === dateStr);
+      if (!isSignedUp) return '';
       const wods = wodByDate[dateStr] || [];
       return wods.map(w => [w.title, w.description, w.scaling].filter(Boolean).join(' ')).join(' ').toLowerCase();
     }
@@ -1075,6 +1080,7 @@
 
         // Build shared data structures
         _upcomingCrossfit = upcoming;
+        _pastCrossfit     = past;
         const cutoffRun = (() => { const d = new Date(); d.setDate(d.getDate() + 14); return d.toISOString().slice(0, 10); })();
         const upcomingPersonal = personalEvents.filter(e => isUpcoming(e.date, e.time || null));
         const upcomingRuns = runningPlanData
@@ -2893,6 +2899,7 @@
 
     // Re-renders only the upcoming cards list (used after add/delete without full reload)
     let _upcomingCrossfit = [];
+    let _pastCrossfit = [];
     function rerenderUpcomingCards() {
       const cardsEl = document.getElementById('upcomingCards');
       if (!cardsEl) return;
