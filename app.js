@@ -203,6 +203,7 @@
     const HOME_WORKOUT = {
       label: 'Thuistraining',
       duration_min: 10,
+      start_date: '2026-04-28', // programma-week 1 begint hier
       exercises: [
         { id: 'pushup_1', name: 'Pushups',  reps: 20, rest_s: 30 },
         { id: 'situp',    name: 'Sit-ups',  reps: 50, rest_s: 30 },
@@ -223,16 +224,15 @@
       ],
     };
 
-    function getISOWeek(d) {
-      const date = new Date(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()));
-      const day = date.getUTCDay() || 7;
-      date.setUTCDate(date.getUTCDate() + 4 - day);
-      const yearStart = new Date(Date.UTC(date.getUTCFullYear(), 0, 1));
-      return Math.ceil(((date - yearStart) / 86400000 + 1) / 7);
+    function getProgramWeek() {
+      const start = new Date(HOME_WORKOUT.start_date);
+      const now   = new Date();
+      const days  = Math.floor((now - start) / 86400000);
+      return Math.max(1, Math.floor(days / 7) + 1);
     }
 
     function getCurrentSquatVariant() {
-      const week = getISOWeek(new Date());
+      const week = getProgramWeek();
       const prog = HOME_WORKOUT.squat_progression;
       let chosen = prog[0];
       for (const step of prog) {
