@@ -203,7 +203,7 @@
     const HOME_WORKOUT = {
       label: 'Thuistraining',
       duration_min: 10,
-      start_date: '2026-04-28', // programma-week 1 begint hier
+      start_date: '2026-04-28',
       exercises: [
         { id: 'pushup_1', name: 'Pushups',  reps: 20, rest_s: 30 },
         { id: 'situp',    name: 'Sit-ups',  reps: 50, rest_s: 30 },
@@ -212,17 +212,34 @@
         { id: 'pushup_3', name: 'Pushups',  reps: 20, rest_s: 0  },
       ],
       squat_progression: [
-        { from_week:  1, variant: 'bw',            label: 'Bodyweight Squats',          detail: '20 reps, full depth' },
-        { from_week:  5, variant: 'goblet_12kg',    label: 'Goblet Squat — KB 12kg',     detail: '20 reps, KB op borst' },
-        { from_week:  9, variant: 'goblet_2x12',    label: 'Goblet Squat — KB 12kg',     detail: '2 sets × 12 reps' },
-        { from_week: 13, variant: 'db_goblet_12',   label: 'Goblet Squat — DB 12kg',     detail: '2 sets × 15 reps' },
-        { from_week: 17, variant: 'db_goblet_16',   label: 'Goblet Squat — DB 16kg',     detail: '2 sets × 12 reps' },
-        { from_week: 21, variant: 'db_front_2x8',   label: 'DB Front Squat — 2×8kg',     detail: '3 sets × 10 reps' },
-        { from_week: 25, variant: 'db_front_2x12',  label: 'DB Front Squat — 2×12kg',    detail: '3 sets × 8 reps' },
-        { from_week: 29, variant: 'db_lunge_2x8',   label: 'DB Alternating Lunge 2×8kg', detail: '3×10/been' },
-        { from_week: 33, variant: 'db_front_2x16',  label: 'DB Front Squat — 2×16kg',    detail: '3 sets × 6 reps' },
+        { from_week:  1, variant: 'bw',            label: 'Bodyweight Squats',    sub: '',        sets: 1, reps: 20 },
+        { from_week:  5, variant: 'goblet_12kg',    label: 'Goblet Squat',         sub: 'KB 12kg', sets: 1, reps: 20 },
+        { from_week:  9, variant: 'goblet_2x12',    label: 'Goblet Squat',         sub: 'KB 12kg', sets: 2, reps: 12 },
+        { from_week: 13, variant: 'db_goblet_12',   label: 'Goblet Squat',         sub: 'DB 12kg', sets: 2, reps: 15 },
+        { from_week: 17, variant: 'db_goblet_16',   label: 'Goblet Squat',         sub: 'DB 16kg', sets: 2, reps: 12 },
+        { from_week: 21, variant: 'db_front_2x8',   label: 'DB Front Squat',       sub: '2×8kg',   sets: 3, reps: 10 },
+        { from_week: 25, variant: 'db_front_2x12',  label: 'DB Front Squat',       sub: '2×12kg',  sets: 3, reps: 8  },
+        { from_week: 29, variant: 'db_lunge_2x8',   label: 'DB Alternating Lunge', sub: '2×8kg',   sets: 3, reps: 10 },
+        { from_week: 33, variant: 'db_front_2x16',  label: 'DB Front Squat',       sub: '2×16kg',  sets: 3, reps: 6  },
       ],
     };
+
+    const MOBILITY_CATALOG = [
+      { id: 'mob_hip_flexor',  name: 'Heupbuiger Stretch',       duration: '45s/kant', keywords: ['squat', 'lunge', 'thruster', 'wallball', 'wall ball', 'run'] },
+      { id: 'mob_pigeon',      name: 'Duif Pose (Pigeon)',        duration: '60s/kant', keywords: ['squat', 'hip', 'run', 'deadlift', 'kettlebell'] },
+      { id: 'mob_ankle',       name: 'Enkel Mobiliteit',          duration: '10r/kant', keywords: ['squat', 'run', 'box jump', 'double under'] },
+      { id: 'mob_quad',        name: 'Quad Stretch (staand)',     duration: '45s/kant', keywords: ['squat', 'lunge', 'run', 'bike'] },
+      { id: 'mob_glute_bridge',name: 'Glute Bridge',              duration: '15 reps',  keywords: ['squat', 'deadlift', 'run', 'hip', 'lunge'] },
+      { id: 'mob_chest',       name: 'Deurpost Borststretch',     duration: '30s/kant', keywords: ['push', 'bench', 'dip', 'handstand'] },
+      { id: 'mob_shoulder',    name: 'Schouder Openingsstretch',  duration: '30s/kant', keywords: ['shoulder', 'press', 'snatch', 'overhead', 'thruster', 'jerk'] },
+      { id: 'mob_wrist',       name: 'Pols Mobiliteit',           duration: '1 min',    keywords: ['push', 'clean', 'snatch', 'front squat', 'handstand'] },
+      { id: 'mob_lat',         name: 'Lat Stretch aan Deur',      duration: '30s/kant', keywords: ['pull', 'row', 'rope climb', 'muscle'] },
+      { id: 'mob_hamstring',   name: 'Hamstring Stretch',         duration: '45s/kant', keywords: ['deadlift', 'rdl', 'run', 'swing', 'good morning'] },
+      { id: 'mob_cat_cow',     name: 'Cat-Cow',                   duration: '10 reps',  keywords: ['deadlift', 'back', 'situp', 'sit-up', 'ghd'] },
+      { id: 'mob_thoracic',    name: 'Thoracale Rotatie',         duration: '10r/kant', keywords: ['row', 'press', 'snatch', 'back', 'shoulder'] },
+      { id: 'mob_calf',        name: 'Kuit Stretch',              duration: '45s/kant', keywords: ['run', 'box jump', 'double under', 'jump rope'] },
+      { id: 'mob_t_spine',     name: 'Foam Roller Ruggengraat',   duration: '1 min',    keywords: ['deadlift', 'row', 'back squat', 'bench'] },
+    ];
 
     function getProgramWeek() {
       const start = new Date(HOME_WORKOUT.start_date);
@@ -240,6 +257,44 @@
         else break;
       }
       return chosen;
+    }
+
+    function getWodText(dayOffset) {
+      const dt = new Date();
+      dt.setDate(dt.getDate() + dayOffset);
+      const dateStr = dt.toISOString().slice(0, 10);
+      const wods = wodByDate[dateStr] || [];
+      return wods.map(w => [w.title, w.description, w.scaling].filter(Boolean).join(' ')).join(' ').toLowerCase();
+    }
+
+    function getWorkoutModifications() {
+      const upcomingText = getWodText(0) + ' ' + getWodText(1);
+      const exercises    = HOME_WORKOUT.exercises.map(e => ({ ...e }));
+      const squat        = getCurrentSquatVariant();
+      let squatReps      = squat.reps;
+      const notes        = [];
+
+      if (/squat|thruster|wall.?ball|lunge/.test(upcomingText)) {
+        squatReps = Math.max(5, Math.round(squat.reps * 0.6));
+        notes.push('Squats teruggeschroefd — CrossFit heeft squatwerk vandaag/morgen');
+      }
+      if (/push.?up|push.?press|push.?jerk|bench press|handstand push|dip/.test(upcomingText)) {
+        exercises.filter(e => e.id.startsWith('pushup')).forEach(e => {
+          e.reps = Math.max(8, Math.round(e.reps * 0.6));
+          e.adjusted = true;
+        });
+        notes.push('Pushups teruggeschroefd — CrossFit heeft pushwerk vandaag/morgen');
+      }
+      return { exercises, notes, squatReps, squatSets: squat.sets };
+    }
+
+    function getRelevantMobility() {
+      const allText = [getWodText(-2), getWodText(-1), getWodText(0), getWodText(1), getWodText(2)].join(' ');
+      const defaults = ['mob_hip_flexor', 'mob_chest', 'mob_cat_cow'];
+      const matched  = MOBILITY_CATALOG.filter(m =>
+        defaults.includes(m.id) || m.keywords.some(kw => allText.includes(kw))
+      );
+      return matched.length > 0 ? matched.slice(0, 6) : MOBILITY_CATALOG.filter(m => defaults.includes(m.id));
     }
 
     // Load saved token
@@ -2869,22 +2924,52 @@
       const entry    = homeWorkoutLog[todayStr];
       const squat    = getCurrentSquatVariant();
       const isDone   = entry && (entry.exercises_done || []).length > 0;
-      const existingNotes = entry ? (entry.notes || '') : '';
+      const existingNotes   = entry ? (entry.notes || '') : '';
+      const doneMobility    = entry ? (entry.mobility_done || []) : [];
 
-      const exerciseRows = HOME_WORKOUT.exercises.map(ex => {
+      const { exercises, notes: adjNotes, squatReps, squatSets } = getWorkoutModifications();
+
+      const exerciseRows = exercises.map(ex => {
         const isSquat   = !!ex.variant_key;
-        const label     = isSquat ? squat.label : ex.name;
-        const detail    = isSquat
-          ? squat.detail
-          : `${ex.reps} reps${ex.rest_s > 0 ? ` · ${ex.rest_s}s rust` : ''}`;
+        const name      = isSquat ? escapeHtml(squat.label) : escapeHtml(ex.name);
+        const sub       = isSquat && squat.sub ? `<span class="hw-exercise-sub">${escapeHtml(squat.sub)}</span>` : '';
+        const repsNum   = isSquat ? squatReps : ex.reps;
+        const repsLabel = isSquat && squatSets > 1 ? `${squatSets}×${repsNum} reps` : `${repsNum} reps`;
+        const adjusted  = isSquat ? (squatReps !== squat.reps) : !!ex.adjusted;
         const isChecked = entry ? (entry.exercises_done || []).includes(ex.id) : false;
 
         return `<label class="hw-exercise-row${isChecked ? ' checked' : ''}">
           <input type="checkbox" id="hwex-${ex.id}" value="${ex.id}"${isChecked ? ' checked' : ''}
                  onchange="this.closest('.hw-exercise-row').classList.toggle('checked', this.checked)">
           <div class="hw-exercise-info">
-            <span class="hw-exercise-name">${escapeHtml(label)}</span>
-            <span class="hw-exercise-detail">${escapeHtml(detail)}</span>
+            <div class="hw-exercise-left">
+              <span class="hw-exercise-name">${name}</span>
+              ${sub}
+            </div>
+            <div class="hw-reps-block${adjusted ? ' adjusted' : ''}">
+              <span class="hw-reps-num">${repsLabel}</span>
+            </div>
+          </div>
+        </label>`;
+      }).join('');
+
+      const adjBanner = adjNotes.length
+        ? `<div class="hw-adj-banner">${adjNotes.map(n => `<span>↓ ${escapeHtml(n)}</span>`).join('')}</div>`
+        : '';
+
+      const mobilityItems = getRelevantMobility();
+      const mobilityRows  = mobilityItems.map(m => {
+        const isChecked = doneMobility.includes(m.id);
+        return `<label class="hw-exercise-row hw-mob-row${isChecked ? ' checked' : ''}">
+          <input type="checkbox" id="hwmob-${m.id}" value="${m.id}"${isChecked ? ' checked' : ''}
+                 onchange="this.closest('.hw-exercise-row').classList.toggle('checked', this.checked)">
+          <div class="hw-exercise-info">
+            <div class="hw-exercise-left">
+              <span class="hw-exercise-name">${escapeHtml(m.name)}</span>
+            </div>
+            <div class="hw-reps-block">
+              <span class="hw-reps-num">${escapeHtml(m.duration)}</span>
+            </div>
           </div>
         </label>`;
       }).join('');
@@ -2904,8 +2989,10 @@
               </div>
             </div>
             <div class="card-wod" onclick="event.stopPropagation()">
+              ${adjBanner}
               <div class="hw-exercises" id="hw-exercises-${todayStr}">${exerciseRows}</div>
-              <div class="hw-squat-note">Squats deze week: <span style="color:var(--purple)">${escapeHtml(squat.label)}</span></div>
+              <div class="hw-section-label">Stretch &amp; Mobiliteit <span class="hw-optional">(optioneel)</span></div>
+              <div class="hw-exercises" id="hw-mob-${todayStr}">${mobilityRows}</div>
               <textarea class="log-textarea" id="hw-notes-${todayStr}"
                 placeholder="Notities (bijv. squats voelden zwaar, knieën goed…)"
                 style="margin-top:0.6rem">${escapeHtml(existingNotes)}</textarea>
@@ -2927,14 +3014,17 @@
         return;
       }
 
-      const checks = document.querySelectorAll(`#hw-exercises-${date} input[type="checkbox"]:checked`);
-      const done   = Array.from(checks).map(cb => cb.value);
-      const notes  = (document.getElementById(`hw-notes-${date}`) || {}).value || '';
-      const squat  = getCurrentSquatVariant();
+      const checks    = document.querySelectorAll(`#hw-exercises-${date} input[type="checkbox"]:checked`);
+      const done      = Array.from(checks).map(cb => cb.value);
+      const mobChecks = document.querySelectorAll(`#hw-mob-${date} input[type="checkbox"]:checked`);
+      const mobDone   = Array.from(mobChecks).map(cb => cb.value);
+      const notes     = (document.getElementById(`hw-notes-${date}`) || {}).value || '';
+      const squat     = getCurrentSquatVariant();
 
       const newEntry = {
         date,
         exercises_done: done,
+        mobility_done:  mobDone,
         squat_variant:  squat.variant,
         notes,
         logged_at: new Date().toISOString(),
