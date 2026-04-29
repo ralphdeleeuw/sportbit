@@ -584,19 +584,9 @@
         <span class="card-time">${item.time}</span>
       </div>`;
 
-      const wodSections = hasWod ? wods.map(w => {
-        const desc = stripHtml(w.description || '').trim();
-        return `<div class="wod-section">
-          <div class="wod-section-title">${w.title}</div>
-          ${desc ? `<div class="wod-section-body">${desc}</div>` : ''}
-        </div>`;
-      }).join('') : '';
-
       const logHtml = renderLogSection(item.date);
       const stravaHtml = renderStravaBlock(item.date);
 
-      // "Niet gedaan" button — marks this class as cancelled in the state so the
-      // AI coach stops counting it as an attended session
       const nietGedaanBtn = eventId ? `
         <div style="margin-top:0.75rem;padding-top:0.75rem;border-top:1px solid var(--border);display:flex;justify-content:flex-end">
           <button class="niet-gedaan-btn" id="ng-${eventId}"
@@ -604,6 +594,52 @@
             Niet gedaan
           </button>
         </div>` : '';
+
+      // Open Gym: toon het gegenereerde programma, niet de CrossFit WOD
+      const isOpenGym = (item.title || '').toLowerCase().includes('open gym');
+      const prog = isOpenGym ? openGymProgramsByEventId[eventId] : null;
+      if (prog) {
+        const ts = prog.generated_at
+          ? `<div class="ai-coach-timestamp">gegenereerd ${formatAdviceTimestamp(prog.generated_at)}</div>`
+          : '';
+        const focusBadge = prog.focus_summary
+          ? `<div class="card-wod-preview" style="padding:0.25rem 0.8rem 0.1rem;font-size:0.72rem;color:var(--accent);opacity:0.85">${escapeHtml(prog.focus_summary)}</div>`
+          : '';
+        return `
+          <div class="card has-wod" style="animation-delay:${delay}s">
+            <div class="card-dot dot-active" style="background:#9b59b6;opacity:0.4"></div>
+            <div class="card-info">
+              <div class="card-header" onclick="toggleWod(this.closest('.card'), event)" style="cursor:pointer">
+                <div class="card-header-left">
+                  <div class="card-title">${escapeHtml(item.title)}</div>
+                  ${metaHtml}
+                </div>
+                <div class="card-right">
+                  <div class="card-date">${formatDate(item.date)}</div>
+                  <div class="card-relative-day">${relativeDay(item.date)}</div>
+                  <div class="wod-chevron">▾</div>
+                </div>
+              </div>
+              ${focusBadge}
+              <div class="card-wod">
+                <div class="ai-coach-block" style="margin:0">
+                  <div class="ai-coach-label">Open Gym Programma</div>
+                  ${ts}
+                  <div class="ai-coach-body">${marked.parse(prog.program_markdown || '')}</div>
+                </div>
+                ${stravaHtml}${logHtml}${nietGedaanBtn}
+              </div>
+            </div>
+          </div>`;
+      }
+
+      const wodSections = hasWod ? wods.map(w => {
+        const desc = stripHtml(w.description || '').trim();
+        return `<div class="wod-section">
+          <div class="wod-section-title">${w.title}</div>
+          ${desc ? `<div class="wod-section-body">${desc}</div>` : ''}
+        </div>`;
+      }).join('') : '';
 
       return `
         <div class="card has-wod" style="animation-delay:${delay}s">
