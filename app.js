@@ -1238,7 +1238,7 @@
       // bestaat voor vandaag of morgen maar het event nog niet als kaart zichtbaar is
       // (bijv. omdat autosignup nog niet heeft gedraaid en de state nog niet bijgewerkt is).
       const tomorrowStr = (() => { const d = new Date(now); d.setDate(d.getDate()+1); return d.toISOString().slice(0,10); })();
-      const openGymAlreadyInCards = displayItems.slice(0, 2).some(
+      const openGymAlreadyInCards = displayItems.slice(0, 3).some(
         e => (e.title || '').toLowerCase().includes('open gym') &&
              openGymProgram && e.date === openGymProgram.for_date
       );
@@ -1259,7 +1259,7 @@
       }
 
       h += `<div class="cards">`;
-      displayItems.slice(0, 2).forEach((e, i) => {
+      displayItems.slice(0, 3).forEach((e, i) => {
         if (e._src === 'crossfit') {
           h += renderCard(e, 'active', i * 0.05, wodByDate[e.date] || []);
         } else if (e._src === 'run') {
