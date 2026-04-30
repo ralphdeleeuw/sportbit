@@ -482,9 +482,9 @@
       );
     }
 
-    function renderLogSection(date) {
+    function renderLogSection(date, customWods) {
       const entry = workoutLog[date];
-      const mainWods = wodByDate[date] || [];
+      const mainWods = customWods || wodByDate[date] || [];
       const checkedTitles = entry ? (entry.workouts_done || []) : [];
       const existingNotes = entry ? (entry.notes || '') : '';
 
@@ -599,12 +599,17 @@
       const isOpenGym = (item.title || '').toLowerCase().includes('open gym');
       const prog = isOpenGym ? openGymProgramsByEventId[eventId] : null;
       if (prog) {
+        // Extraheer ## secties uit de programma-markdown als log-checkboxes
+        const openGymSections = (prog.program_markdown || '').split('\n')
+          .filter(l => /^##\s/.test(l))
+          .map(l => ({ title: l.replace(/^##\s+/, '').trim() }));
         const ts = prog.generated_at
           ? `<div class="ai-coach-timestamp">gegenereerd ${formatAdviceTimestamp(prog.generated_at)}</div>`
           : '';
         const focusBadge = prog.focus_summary
           ? `<div class="card-wod-preview" style="padding:0.25rem 0.8rem 0.1rem;font-size:0.72rem;color:var(--accent);opacity:0.85">${escapeHtml(prog.focus_summary)}</div>`
           : '';
+        const openGymLogHtml = renderLogSection(item.date, openGymSections.length ? openGymSections : undefined);
         return `
           <div class="card has-wod" style="animation-delay:${delay}s">
             <div class="card-dot dot-active" style="background:#9b59b6;opacity:0.4"></div>
@@ -627,7 +632,7 @@
                   ${ts}
                   <div class="ai-coach-body">${marked.parse(prog.program_markdown || '')}</div>
                 </div>
-                ${stravaHtml}${logHtml}${nietGedaanBtn}
+                ${stravaHtml}${openGymLogHtml}${nietGedaanBtn}
               </div>
             </div>
           </div>`;
