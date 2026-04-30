@@ -1165,8 +1165,19 @@
           ...Object.keys((stravaData?.activities_by_date) || {}),
         ]);
         const orphanDates = Array.from(activityDates).filter(d => !classDates.has(d) && d >= cutoffStr && d <= todayStr);
+        const _runTypes = ['run', 'running', 'trailrun', 'treadmill', 'jog'];
+        const runActivityDates = new Set();
+        Object.keys((intervalsData?.activities || {}).by_date || {}).forEach(date => {
+          const acts = ((intervalsData.activities || {}).by_date || {})[date] || [];
+          if (acts.some(a => _runTypes.some(rt => (a.type || '').toLowerCase().includes(rt)))) runActivityDates.add(date);
+        });
+        Object.keys(stravaData?.activities_by_date || {}).forEach(date => {
+          if (runActivityDates.has(date)) return;
+          const acts = (stravaData.activities_by_date || {})[date] || [];
+          if (acts.some(a => _runTypes.some(rt => (a.type || '').toLowerCase().includes(rt)))) runActivityDates.add(date);
+        });
         const pastRuns = runningPlanData
-          ? (runningPlanData.workouts || []).filter(s => { const t = s.time || (s.session === 'speed' ? '20:00' : '09:00'); return s.date >= cutoffStr && !isUpcoming(s.date, t) && !activityDates.has(s.date); })
+          ? (runningPlanData.workouts || []).filter(s => { const t = s.time || (s.session === 'speed' ? '20:00' : '09:00'); return s.date >= cutoffStr && !isUpcoming(s.date, t) && !(runActivityDates.has(s.date) && !classDates.has(s.date)); })
           : [];
         const pastItems = [
           ...past.slice(-5).map(e => ({ type: 'class', date: e.date, item: e })),
