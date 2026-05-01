@@ -2174,12 +2174,15 @@ def generate_recovery_advice(
 
     upcoming_text = ""
     upcoming_timing_context = ""
+    upcoming_workout_label = "Next workout"
     if upcoming_workout:
         date = upcoming_workout.get("date", "?")
         title = upcoming_workout.get("title", "WOD")
         desc = _strip_html(upcoming_workout.get("description", ""))[:400]
         upcoming_text = f"**{date} — {title}**\n{desc}"
         upcoming_timing_context = _training_time_context(date, signed_up_times)
+        if today and date == today.isoformat():
+            upcoming_workout_label = "Today's workout (this is today — apply intensity advice accordingly)"
     else:
         upcoming_text = "No upcoming workout known."
 
@@ -2593,7 +2596,7 @@ Use this to assess the actual intensity, NOT just the WOD description:
 {hr_zones_text}
 {past_text if past_text.strip() else "No recent workouts known."}
 {past_personal_text}
-Next workout:
+{upcoming_workout_label}:
 {upcoming_text}{upcoming_timing_context}{upcoming_personal_text}{running_plan_text}{meals_text}{env_block}
 {pr_text}{prev_advice_text}{deload_block}
 Provide advice on:
