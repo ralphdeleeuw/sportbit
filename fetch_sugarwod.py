@@ -2477,11 +2477,11 @@ def generate_recovery_advice(
     if personal_events:
         today_iso = today.isoformat() if today else ""
         upcoming_pe = sorted(
-            [e for e in personal_events if e.get("date", "") > today_iso],
+            [e for e in personal_events if e.get("date", "") >= today_iso],
             key=lambda e: (e.get("date", ""), e.get("time", "")),
         )[:7]
         recent_pe = sorted(
-            [e for e in personal_events if e.get("date", "") <= today_iso],
+            [e for e in personal_events if e.get("date", "") < today_iso],
             key=lambda e: e.get("date", ""),
             reverse=True,
         )[:5]
@@ -2498,7 +2498,7 @@ def generate_recovery_advice(
                 lines.append(line)
             past_personal_text = "\n" + "\n".join(lines) + "\n"
         if upcoming_pe:
-            lines = [f"Upcoming personal activities (planned, date AFTER today {today_iso}):"]
+            lines = [f"Upcoming personal activities (planned, from today {today_iso} onwards):"]
             for e in upcoming_pe:
                 line = f"  {_nl_date(e['date'])}: {e['title']}"
                 if e.get("time"):
@@ -2516,11 +2516,11 @@ def generate_recovery_advice(
         workouts_list = running_plan["workouts"]
         week_nr = running_plan.get("week_number", "?")
         upcoming_runs = sorted(
-            [w for w in workouts_list if w.get("date", "") > today_iso],
+            [w for w in workouts_list if w.get("date", "") >= today_iso],
             key=lambda w: w.get("date", ""),
         )[:3]
         recent_runs = sorted(
-            [w for w in workouts_list if w.get("date", "") <= today_iso],
+            [w for w in workouts_list if w.get("date", "") < today_iso],
             key=lambda w: w.get("date", ""),
             reverse=True,
         )[:2]
