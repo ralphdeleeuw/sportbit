@@ -1,7 +1,7 @@
     const DAY_NL = ['Zo', 'Ma', 'Di', 'Wo', 'Do', 'Vr', 'Za'];
     const MONTH_NL = ['jan', 'feb', 'mrt', 'apr', 'mei', 'jun', 'jul', 'aug', 'sep', 'okt', 'nov', 'dec'];
     // Vervang dit door je eigen VAPID public key (gegenereerd met: vapid --gen && vapid --applicationServerKey)
-    const VAPID_PUBLIC_KEY = 'VERVANG_MET_JOUW_VAPID_PUBLIC_KEY';
+    const VAPID_PUBLIC_KEY = 'BEHjNc5ry_se3HeXSfl2QIWOtkZIT69L5rVDNHxqNzZrL0hZ0az8InWjZw8g2IZhLT9_B28XaSWdrL64TcQKnHM';
     let currentGistId = '';
 
     // ── Tab system ────────────────────────────────────────────
