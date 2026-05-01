@@ -26,6 +26,8 @@ from zoneinfo import ZoneInfo
 import anthropic
 import requests
 
+import notify
+
 from generate_running_workout import (
     AMS,
     INTERVALS_BASE,
@@ -459,19 +461,12 @@ def _apply_adjustments(
     return [adj for adj in updated if adj.get("date") in {w.get("date") for w in original_workouts}]
 
 
-# ── Pushover notificatie ──────────────────────────────────────────────────────
-
-def _notify_pushover(
+def _notify(
     mode: str,
     workouts: list[dict],
     adjusted: bool,
     reason: str,
 ) -> None:
-    user_key = os.environ.get("PUSHOVER_USER_KEY", "")
-    api_token = os.environ.get("PUSHOVER_API_TOKEN", "")
-    if not user_key or not api_token:
-        return
-
     dag_nl = ["ma", "di", "wo", "do", "vr", "za", "zo"]
 
     if mode == "prerun":
@@ -494,7 +489,7 @@ def _notify_pushover(
     else:
         if not adjusted:
             return
-        title = "Hardloopplan bijgesteld"
+        title = "Hardloopplan bijgesteld 🏃"
         lines = [f"Reden: {reason}", ""]
         for w in workouts:
             d = datetime.strptime(w["date"], "%Y-%m-%d")
@@ -503,15 +498,7 @@ def _notify_pushover(
             lines.append(f"{dag} {d.day}/{d.month} — {w['name']} ({dist}km)")
         msg = "\n".join(lines)
 
-    try:
-        requests.post(
-            "https://api.pushover.net/1/messages.json",
-            data={"token": api_token, "user": user_key, "title": title, "message": msg},
-            timeout=10,
-        )
-        log.info("Pushover verstuurd: %s", title)
-    except Exception as exc:
-        log.warning("Pushover mislukt: %s", exc)
+    notify.send_notification(title, msg)
 
 
 # ── Main ──────────────────────────────────────────────────────────────────────
@@ -615,7 +602,7 @@ def main() -> None:
         _save_to_gist(gist_id, github_token, "running_plan.json",
                       json.dumps(plan, indent=2, ensure_ascii=False))
 
-    _notify_pushover(mode, target_workouts, adjusted, reason)
+    _notify(mode, target_workouts, adjusted, reason)
     log.info("Klaar.")
 
 

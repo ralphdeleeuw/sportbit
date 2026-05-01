@@ -1,5 +1,7 @@
     const DAY_NL = ['Zo', 'Ma', 'Di', 'Wo', 'Do', 'Vr', 'Za'];
     const MONTH_NL = ['jan', 'feb', 'mrt', 'apr', 'mei', 'jun', 'jul', 'aug', 'sep', 'okt', 'nov', 'dec'];
+    // Vervang dit door je eigen VAPID public key (gegenereerd met: vapid --gen && vapid --applicationServerKey)
+    const VAPID_PUBLIC_KEY = 'VERVANG_MET_JOUW_VAPID_PUBLIC_KEY';
     let currentGistId = '';
 
     // ── Tab system ────────────────────────────────────────────
@@ -24,7 +26,7 @@
       loadData();
     } else {
       const todayEl = document.getElementById('today-content');
-      if (todayEl) todayEl.innerHTML = `<div class="empty-state"><p>Ga naar <strong>Acties</strong> om je Gist ID in te stellen.</p></div>`;
+      if (todayEl) todayEl.innerHTML = `<div class="empty-state"><p>Ga naar <strong>Acties</strong> om je Gist ID en GitHub token in te stellen.</p></div>`;
     }
 
     function relTime(iso) {
@@ -169,8 +171,59 @@
     }
 
     // Registreer service worker
+    let swRegistration = null;
     if ('serviceWorker' in navigator) {
-      navigator.serviceWorker.register('/sw.js');
+      navigator.serviceWorker.register('/sportbit/sw.js').then(reg => {
+        swRegistration = reg;
+      });
+    }
+
+    function _urlBase64ToUint8Array(base64String) {
+      const padding = '='.repeat((4 - base64String.length % 4) % 4);
+      const base64 = (base64String + padding).replace(/-/g, '+').replace(/_/g, '/');
+      const raw = atob(base64);
+      return Uint8Array.from([...raw].map(c => c.charCodeAt(0)));
+    }
+
+    async function subscribeToPush() {
+      if (!('Notification' in window) || !('PushManager' in window)) {
+        alert('Push notificaties worden niet ondersteund door deze browser.');
+        return;
+      }
+      const permission = await Notification.requestPermission();
+      if (permission !== 'granted') {
+        alert('Notificatietoestemming geweigerd.');
+        return;
+      }
+      if (!swRegistration) {
+        swRegistration = await navigator.serviceWorker.ready;
+      }
+      try {
+        const subscription = await swRegistration.pushManager.subscribe({
+          userVisibleOnly: true,
+          applicationServerKey: _urlBase64ToUint8Array(VAPID_PUBLIC_KEY),
+        });
+        await _savePushSubscription(subscription);
+        localStorage.setItem('sportbit_push_subscribed', '1');
+        renderActiesTab(null);
+        alert('Notificaties ingeschakeld! 🎉');
+      } catch (err) {
+        console.error('Push subscribe mislukt:', err);
+        alert('Inschrijven voor notificaties mislukt: ' + err.message);
+      }
+    }
+
+    async function _savePushSubscription(subscription) {
+      const token = document.getElementById('githubToken').value.trim();
+      const gistId = currentGistId;
+      if (!token || !gistId) throw new Error('GitHub token of Gist ID ontbreekt');
+      await fetch(`https://api.github.com/gists/${gistId}`, {
+        method: 'PATCH',
+        headers: { Authorization: `token ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          files: { 'push_subscription.json': { content: JSON.stringify(subscription.toJSON(), null, 2) } },
+        }),
+      }).then(r => { if (!r.ok) throw new Error(`Gist PATCH mislukt: ${r.status}`); });
     }
 
     // ── SugarWOD ──────────────────────────────────────────────
@@ -1411,15 +1464,34 @@
       const el = document.getElementById('acties-content');
       if (!el) return;
       const updLabel = updatedAt ? new Date(updatedAt).toLocaleString('nl-NL') : '—';
+      const hasToken = !!localStorage.getItem('sportbit_github_token');
+      const hasGist = !!currentGistId;
+      const isConfigured = hasToken && hasGist;
+      const isPushSubscribed = !!localStorage.getItem('sportbit_push_subscribed');
+
       let h = `<div class="tab-page-header">
         <div class="tab-page-title">Acties & Sync</div>
         <div class="acties-updated">Bijgewerkt · <span id="lastUpdated">${updLabel}</span></div>
-      </div>
-      <div class="acties-config">
-        <input type="text" id="gistId-vis" class="config-input" placeholder="Gist ID" value="${escapeHtml(currentGistId)}"
-          onchange="document.getElementById('gistId').value=this.value;localStorage.setItem('sportbit_gist_id',this.value);loadData()">
-        <input type="password" id="githubToken-vis" class="config-input" placeholder="GitHub Token">
       </div>`;
+
+      if (!isConfigured) {
+        h += `<div class="acties-config">
+          ${!hasGist ? `<input type="text" id="gistId-vis" class="config-input" placeholder="Gist ID"
+            onchange="document.getElementById('gistId').value=this.value;localStorage.setItem('sportbit_gist_id',this.value);currentGistId=this.value.trim();loadData()">` : ''}
+          <input type="password" id="githubToken-vis" class="config-input" placeholder="GitHub Token (ghp_...)">
+          <button class="workflow-btn" onclick="_saveActiesConfig()">Opslaan</button>
+        </div>`;
+      } else {
+        h += `<details class="acties-token-details">
+          <summary>⚙ Instellingen wijzigen</summary>
+          <div class="acties-config">
+            <input type="text" id="gistId-vis" class="config-input" placeholder="Gist ID" value="${escapeHtml(currentGistId)}"
+              onchange="document.getElementById('gistId').value=this.value;localStorage.setItem('sportbit_gist_id',this.value);currentGistId=this.value.trim()">
+            <input type="password" id="githubToken-vis" class="config-input" placeholder="GitHub Token">
+            <button class="workflow-btn" onclick="_saveActiesConfig()">Opslaan</button>
+          </div>
+        </details>`;
+      }
 
       const wfs = [
         { btnId:'signupBtn', statusId:'signupStatus', lastRunId:'signupLastRun', workflowFile:'autosignup.yml', icon:'⚡', title:'Inschrijven', desc:'CrossFit auto-inschrijving & Google Calendar sync', fn:'triggerSignup()', cls:'' },
@@ -1445,22 +1517,50 @@
         </div>`;
       });
 
+      if (!isPushSubscribed && isConfigured) {
+        h += `<div class="workflow-card">
+          <div class="workflow-title">🔔 Notificaties</div>
+          <div class="workflow-desc">Ontvang push notificaties rechtstreeks op je telefoon (vervangt Pushover)</div>
+          <div class="workflow-footer">
+            <button class="workflow-btn info" onclick="subscribeToPush()">🔔 Notificaties inschakelen</button>
+          </div>
+        </div>`;
+      } else if (isPushSubscribed) {
+        h += `<div class="workflow-card">
+          <div class="workflow-title">🔔 Notificaties</div>
+          <div class="workflow-desc" style="color:var(--accent)">✅ Notificaties ingeschakeld op dit apparaat</div>
+          <div class="workflow-footer">
+            <button class="workflow-btn" onclick="subscribeToPush()" style="opacity:.6;font-size:.8rem">Opnieuw inschrijven</button>
+          </div>
+        </div>`;
+      }
+
       h += `<div id="barbellStatus" class="barbell-status"></div>`;
       h += renderDataSourcesBlock();
       el.innerHTML = h;
 
-      // Sync visible token input with hidden input
       const savedTok = localStorage.getItem('sportbit_github_token');
       const tokVis = document.getElementById('githubToken-vis');
       if (savedTok && tokVis) tokVis.value = savedTok;
-      if (tokVis) tokVis.addEventListener('change', e => {
-        const t = e.target.value.trim();
-        document.getElementById('githubToken').value = t;
-        if (t) localStorage.setItem('sportbit_github_token', t);
-        loadWorkflowLastRuns(t);
-      });
 
       if (savedTok) loadWorkflowLastRuns(savedTok);
+    }
+
+    function _saveActiesConfig() {
+      const gistVis = document.getElementById('gistId-vis');
+      const tokVis = document.getElementById('githubToken-vis');
+      if (gistVis && gistVis.value.trim()) {
+        const g = gistVis.value.trim();
+        document.getElementById('gistId').value = g;
+        localStorage.setItem('sportbit_gist_id', g);
+        currentGistId = g;
+      }
+      if (tokVis && tokVis.value.trim()) {
+        const t = tokVis.value.trim();
+        document.getElementById('githubToken').value = t;
+        localStorage.setItem('sportbit_github_token', t);
+      }
+      loadData();
     }
 
     async function triggerSync() {

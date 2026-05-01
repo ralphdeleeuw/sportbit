@@ -28,7 +28,7 @@ from zoneinfo import ZoneInfo
 
 import requests
 
-# Import Google Calendar sync
+import notify
 from google_calendar_sync import GoogleCalendarSync
 
 # ──────────────────────────────────────────────────────────────
@@ -373,35 +373,6 @@ def delete_calendar_event(sportbit_event_id: int, sync_calendar: bool) -> bool:
         return False
 
 
-# ──────────────────────────────────────────────────────────────
-# Pushover Notifications
-# ──────────────────────────────────────────────────────────────
-
-def send_pushover_notification(message: str) -> bool:
-    user_key = os.environ.get("PUSHOVER_USER_KEY")
-    api_token = os.environ.get("PUSHOVER_API_TOKEN")
-
-    if not user_key or not api_token:
-        log.warning("PUSHOVER_USER_KEY or PUSHOVER_API_TOKEN not set; skipping notification.")
-        return False
-
-    try:
-        resp = requests.post(
-            "https://api.pushover.net/1/messages.json",
-            json={
-                "token": api_token,
-                "user": user_key,
-                "title": "CrossFit Inschrijving ✅",
-                "message": message,
-            },
-            timeout=10,
-        )
-        resp.raise_for_status()
-        log.info("Pushover notification sent.")
-        return True
-    except Exception as e:
-        log.error("Failed to send Pushover notification: %s", e)
-        return False
 
 
 # ──────────────────────────────────────────────────────────────
@@ -472,41 +443,16 @@ def send_weekly_summary(username: str, password: str):
     if not registered_events:
         log.info("Geen inschrijvingen gevonden voor de komende week.")
         message = "Komende week: geen inschrijvingen."
-        send_pushover_notification_summary(message)
+        notify.send_notification("CrossFit week overzicht 📅", message)
         return
 
     registered_events.sort(key=lambda x: (x[0], x[1]))
     lines = [line for _, _, line in registered_events]
     message = "Komende week:\n" + "\n".join(lines)
     log.info("Weekly summary:\n%s", message)
-    send_pushover_notification_summary(message)
+    notify.send_notification("CrossFit week overzicht 📅", message)
 
 
-def send_pushover_notification_summary(message: str) -> bool:
-    user_key = os.environ.get("PUSHOVER_USER_KEY")
-    api_token = os.environ.get("PUSHOVER_API_TOKEN")
-
-    if not user_key or not api_token:
-        log.warning("PUSHOVER_USER_KEY or PUSHOVER_API_TOKEN not set; skipping notification.")
-        return False
-
-    try:
-        resp = requests.post(
-            "https://api.pushover.net/1/messages.json",
-            json={
-                "token": api_token,
-                "user": user_key,
-                "title": "CrossFit week overzicht 📅",
-                "message": message,
-            },
-            timeout=10,
-        )
-        resp.raise_for_status()
-        log.info("Pushover weekly summary sent.")
-        return True
-    except Exception as e:
-        log.error("Failed to send Pushover notification: %s", e)
-        return False
 
 
 def run(username: str, password: str, dry_run: bool, days_ahead: int, sync_calendar: bool,
@@ -642,8 +588,9 @@ def run(username: str, password: str, dry_run: bool, days_ahead: int, sync_calen
                 results["signed_up"].append(label)
                 if state:
                     state.mark_signed_up(eid, date_str, target_time, title)
-                send_pushover_notification(
-                    f"Ingeschreven voor {title} op {day_name} {date_str} om {target_time} 💪"
+                notify.send_notification(
+                    "CrossFit Inschrijving ✅",
+                    f"Ingeschreven voor {title} op {day_name} {date_str} om {target_time} 💪",
                 )
                 if not create_calendar_event(event, date, sync_calendar):
                     log.warning("Calendar sync failed for %s, but signup was successful.", label)
@@ -708,7 +655,7 @@ def main():
     parser.add_argument("--sync-calendar", action="store_true", help="Sync successful signups to Google Calendar")
     parser.add_argument("--username", "-u", help="SportBit username (or set SPORTBIT_USERNAME env var)")
     parser.add_argument("--password", "-p", help="SportBit password (or set SPORTBIT_PASSWORD env var)")
-    parser.add_argument("--test-notification", action="store_true", help="Stuur een testnotificatie via Pushover en stop")
+    parser.add_argument("--test-notification", action="store_true", help="Stuur een testnotificatie en stop")
     parser.add_argument("--force", action="store_true", help="Sla tijdzone check over (voor handmatige runs)")
     parser.add_argument("--weekly-summary", action="store_true", help="Stuur een weekoverzicht via Pushover en stop")
     args = parser.parse_args()
@@ -723,10 +670,9 @@ def main():
         send_weekly_summary(username, password)
         sys.exit(0)
 
-    # Test notification mode: geen credentials nodig
     if args.test_notification:
-        log.info("Sending test Pushover notification...")
-        success = send_pushover_notification("Dit is een testbericht van SportBit 🎉")
+        log.info("Sending test notification...")
+        success = notify.send_notification("SportBit Test 🎉", "Dit is een testbericht van SportBit")
         sys.exit(0 if success else 1)
 
     # Tijdzone check: alleen uitvoeren net na middernacht Amsterdam tijd
