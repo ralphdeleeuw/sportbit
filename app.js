@@ -1282,23 +1282,9 @@
       h += `</div>`;
 
       // Stats row
-      const thisM = now.getMonth(), thisY = now.getFullYear();
-      const inThisMonth = d => { const dt = new Date(d+'T00:00:00'); return dt.getMonth()===thisM && dt.getFullYear()===thisY; };
-      const pastCrossfit = past.filter(e => inThisMonth(e.date)).length;
-      const pastRunsMonth = (runningPlanData?.workouts || []).filter(s => {
-        const t = s.time || (s.session === 'speed' ? '20:00' : '09:00');
-        return !isUpcoming(s.date, t) && inThisMonth(s.date);
-      }).length;
-      const pastPersonalMonth = personalEvents.filter(e => !isUpcoming(e.date, e.time || null) && inThisMonth(e.date)).length;
-      const monthCount = pastCrossfit + pastRunsMonth + pastPersonalMonth;
       const rawEst = runningPlanData?.estimated_5k_seconds;
       const est5k = (rawEst && rawEst <= 32*60) ? rawEst : null;
       const fiveK = est5k ? `${Math.floor(est5k/60)}:${String(est5k%60).padStart(2,'0')}` : '—';
-      h += `<div class="stats-row">
-        <div class="stat-card"><div class="stat-value accent">${allUpcoming.length}</div><div class="stat-label">Aankomend</div><div class="stat-sub">activiteiten</div></div>
-        <div class="stat-card"><div class="stat-value">${monthCount}</div><div class="stat-label">Deze maand</div><div class="stat-sub">trainingen</div></div>
-        <div class="stat-card"><div class="stat-value">${fiveK}</div><div class="stat-label">5K schatting</div><div class="stat-sub">→ 26:00</div></div>
-      </div>`;
 
       // Nutrition
       const mealsHtml = renderMealsBlock(); if (mealsHtml) h += mealsHtml;
