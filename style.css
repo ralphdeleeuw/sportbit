@@ -438,7 +438,15 @@
     }
 
     .card.has-wod { cursor: pointer; }
-    .card.cancelled { opacity: 0.5; }
+    .card.cancelled { opacity: 0.5; cursor: pointer; padding: 8px 16px; }
+    .card.cancelled .card-title { font-size: 14px; }
+    .card.cancelled .card-time { font-size: 14px; }
+    .card.cancelled.open { padding: 14px 16px; }
+    .card.cancelled.open .card-title { font-size: 17px; }
+    .card.cancelled.open .card-time { font-size: 17px; }
+
+    .cancelled-undo { display: none; margin-top: 0.5rem; }
+    .card.cancelled.open .cancelled-undo { display: block; }
 
     .card-dot {
       width: 8px; height: 8px;
