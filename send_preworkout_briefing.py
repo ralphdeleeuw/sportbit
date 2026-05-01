@@ -1,13 +1,13 @@
 #!/usr/bin/env python3
 """
-send_preworkout_briefing.py — Stuurt een Pushover notificatie 30 minuten
+send_preworkout_briefing.py — Stuurt een Web Push notificatie 30 minuten
 voor een geplande CrossFit les met WOD-samenvatting en hersteladvies.
 
 Vereiste secrets:
   GIST_ID              — GitHub Gist ID
   GITHUB_TOKEN         — GitHub token met gist read scope
-  PUSHOVER_USER_KEY    — Pushover user key
-  PUSHOVER_API_TOKEN   — Pushover API token
+  VAPID_PRIVATE_KEY    — VAPID private key voor Web Push
+  VAPID_CLAIMS_EMAIL   — Contactadres voor Web Push (mailto:...)
 
 Optioneel:
   TZ_OFFSET            — tijdzone offset in uren t.o.v. UTC (default: 2 voor CEST)
@@ -24,10 +24,11 @@ from zoneinfo import ZoneInfo
 
 import requests
 
+import notify
+
 log = logging.getLogger(__name__)
 AMS = ZoneInfo("Europe/Amsterdam")
 
-PUSHOVER_URL = "https://api.pushover.net/1/messages.json"
 WINDOW_MINUTES = 45   # stuur notificatie als les binnen dit aantal minuten begint
 BUFFER_MINUTES = 15   # maar niet eerder dan dit aantal minuten
 
@@ -41,16 +42,6 @@ def _load_gist(gist_id: str, token: str) -> dict:
     resp.raise_for_status()
     files = resp.json().get("files", {})
     return {name: meta.get("content", "") for name, meta in files.items()}
-
-
-def _send_pushover(token: str, user: str, title: str, message: str) -> None:
-    resp = requests.post(
-        PUSHOVER_URL,
-        data={"token": token, "user": user, "title": title, "message": message},
-        timeout=10,
-    )
-    resp.raise_for_status()
-    log.info("Pushover verstuurd: %s", title)
 
 
 def _tsb_label(tsb: float | None) -> str:
@@ -79,11 +70,9 @@ def main() -> int:
 
     gist_id = os.environ.get("GIST_ID", "").strip()
     token = os.environ.get("GITHUB_TOKEN", "").strip()
-    pushover_user = os.environ.get("PUSHOVER_USER_KEY", "").strip()
-    pushover_token = os.environ.get("PUSHOVER_API_TOKEN", "").strip()
 
-    if not all([gist_id, token, pushover_user, pushover_token]):
-        log.error("Vereiste env vars ontbreken (GIST_ID, GITHUB_TOKEN, PUSHOVER_USER_KEY, PUSHOVER_API_TOKEN)")
+    if not all([gist_id, token]):
+        log.error("Vereiste env vars ontbreken (GIST_ID, GITHUB_TOKEN)")
         return 1
 
     now = datetime.now(AMS)
@@ -205,10 +194,8 @@ def main() -> int:
 
     message = "\n".join(lines)
 
-    try:
-        _send_pushover(pushover_token, pushover_user, "Pre-workout briefing", message)
-    except Exception as exc:
-        log.error("Pushover versturen mislukt: %s", exc)
+    if not notify.send_notification("Pre-workout briefing 💪", message):
+        log.error("Notificatie versturen mislukt")
         return 1
 
     return 0

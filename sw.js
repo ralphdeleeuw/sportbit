@@ -25,6 +25,23 @@ self.addEventListener('activate', e => {
   self.clients.claim();
 });
 
+self.addEventListener('push', e => {
+  const data = e.data?.json() ?? {};
+  e.waitUntil(
+    self.registration.showNotification(data.title ?? 'Sportbit', {
+      body: data.body ?? '',
+      icon: '/sportbit/icon.svg',
+      badge: '/sportbit/icon-maskable.svg',
+      data: { url: data.url ?? '/sportbit/' },
+    })
+  );
+});
+
+self.addEventListener('notificationclick', e => {
+  e.notification.close();
+  e.waitUntil(clients.openWindow(e.notification.data.url));
+});
+
 self.addEventListener('fetch', e => {
   const url = new URL(e.request.url);
 

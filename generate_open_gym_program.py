@@ -13,7 +13,7 @@ Environment variables:
   GIST_ID           — GitHub Gist ID (vereist)
   GITHUB_TOKEN      — GitHub token met gist scope (vereist)
   ANTHROPIC_API_KEY — Claude API key (vereist)
-  PUSHOVER_USER_KEY / PUSHOVER_API_TOKEN — optioneel voor notificatie
+  VAPID_PRIVATE_KEY / VAPID_CLAIMS_EMAIL — voor Web Push notificaties
 """
 
 from __future__ import annotations
@@ -28,6 +28,8 @@ from zoneinfo import ZoneInfo
 
 import anthropic
 import requests
+
+import notify
 
 log = logging.getLogger(__name__)
 AMS = ZoneInfo("Europe/Amsterdam")
@@ -836,22 +838,6 @@ def _push_open_gym_to_intervals(
         return None
 
 
-# ── Pushover ───────────────────────────────────────────────────────────────────
-
-def _send_pushover(title: str, message: str) -> None:
-    user_key = os.environ.get("PUSHOVER_USER_KEY")
-    api_token = os.environ.get("PUSHOVER_API_TOKEN")
-    if not user_key or not api_token:
-        return
-    try:
-        requests.post(
-            "https://api.pushover.net/1/messages.json",
-            json={"token": api_token, "user": user_key, "title": title, "message": message},
-            timeout=10,
-        ).raise_for_status()
-        log.info("Pushover notificatie verstuurd.")
-    except Exception as exc:
-        log.warning("Pushover mislukt: %s", exc)
 
 
 # ── Main ───────────────────────────────────────────────────────────────────────
@@ -981,7 +967,7 @@ def main() -> int:
     except ValueError:
         datum_label = open_gym_event["date"]
 
-    _send_pushover(
+    notify.send_notification(
         "Open Gym Programma 🏋️",
         f"Programma klaar voor {datum_label} om {open_gym_event['time']} — check de SportBit app!",
     )

@@ -19,8 +19,8 @@ GitHub Secrets vereist:
   ANTHROPIC_API_KEY     — Claude API key
   GIST_ID               — GitHub Gist ID
   GITHUB_TOKEN          — GitHub token met gist scope (gebruik GIST_TOKEN secret)
-  PUSHOVER_USER_KEY     — (optioneel) Pushover user key
-  PUSHOVER_API_TOKEN    — (optioneel) Pushover API token
+  VAPID_PRIVATE_KEY     — VAPID private key voor Web Push notificaties
+  VAPID_CLAIMS_EMAIL    — Contactadres voor Web Push (mailto:...)
 
 Eenmalige instelling:
   intervals.icu → Settings → Connected Accounts → Garmin
@@ -39,6 +39,8 @@ from zoneinfo import ZoneInfo
 
 import anthropic
 import requests
+
+import notify
 
 log = logging.getLogger(__name__)
 AMS = ZoneInfo("Europe/Amsterdam")
@@ -1162,14 +1164,7 @@ def _save_plan_to_gist(gist_id: str, token: str, specs: list[dict], week_number:
     log.info("running_plan.json opgeslagen in Gist (week %d)", week_number)
 
 
-# ── Pushover notificatie ───────────────────────────────────────────────────────
-
-def _notify_pushover(specs: list[dict]) -> None:
-    user_key = os.environ.get("PUSHOVER_USER_KEY", "")
-    api_token = os.environ.get("PUSHOVER_API_TOKEN", "")
-    if not user_key or not api_token:
-        return
-
+def _notify(specs: list[dict]) -> None:
     lines = ["Hardloopschema deze week:"]
     for s in specs:
         d = datetime.strptime(s["date"], "%Y-%m-%d")
@@ -1177,17 +1172,7 @@ def _notify_pushover(specs: list[dict]) -> None:
         time_str = s.get("time", "20:00" if s.get("session") == "speed" else "09:00")
         dist = s.get("total_distance_km", "?")
         lines.append(f"\n{dag} {d.day}/{d.month} {time_str} — {s['name']} ({dist}km)")
-
-    try:
-        requests.post(
-            "https://api.pushover.net/1/messages.json",
-            data={"token": api_token, "user": user_key,
-                  "title": "Hardloopplan klaar", "message": "\n".join(lines)},
-            timeout=10,
-        )
-        log.info("Pushover notificatie verstuurd")
-    except Exception as exc:
-        log.warning("Pushover mislukt: %s", exc)
+    notify.send_notification("Hardloopplan klaar 🏃", "\n".join(lines))
 
 
 # ── Main ───────────────────────────────────────────────────────────────────────
@@ -1323,7 +1308,7 @@ def main() -> None:
     ical = _generate_ical(specs)
     _save_ical_to_gist(gist_id, github_token, ical)
 
-    _notify_pushover(specs)
+    _notify(specs)
 
     log.info("Klaar! %d workout(s) gepland in intervals.icu.", len(specs))
 

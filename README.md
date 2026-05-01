@@ -7,7 +7,7 @@ Automated sign-up system for CrossFit WOD classes at CrossFit Hilversum via Spor
 This project automates the process of signing up for CrossFit classes on SportBit. It:
 - Automatically signs up for predefined weekly training sessions
 - Syncs confirmed registrations to Google Calendar
-- Sends push notifications via Pushover when successfully registered
+- Sends native Web Push notifications to the installed PWA when successfully registered
 - Tracks sign-up state to avoid duplicate registrations
 - Detects manual cancellations and updates calendar accordingly
 - Provides a weekly summary of upcoming classes every Sunday
@@ -30,9 +30,11 @@ The following secrets need to be configured in your GitHub repository settings:
 - **`GIST_ID`** — GitHub Gist ID for storing sign-up state between runs
 - **`GIST_TOKEN`** — GitHub personal access token with gist permissions
 
-### Push Notifications
-- **`PUSHOVER_USER_KEY`** — Your Pushover user key for receiving notifications
-- **`PUSHOVER_API_TOKEN`** — Pushover application API token
+### Push Notifications (Web Push via VAPID)
+- **`VAPID_PRIVATE_KEY`** — VAPID private key (generate with: `pip install py-vapid && vapid --gen && vapid --applicationServerKey`)
+- **`VAPID_CLAIMS_EMAIL`** — Contact email for Web Push (e.g. `mailto:jij@example.com`)
+
+After setting these secrets, open the app in Chrome on Android, install it ("Add to Home Screen"), go to the Acties tab and click "Notificaties inschakelen". Your push subscription will be saved to the Gist automatically.
 
 ### README Generation
 - **`ANTHROPIC_API_KEY`** — Anthropic API key for automated README updates (optional)
