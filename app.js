@@ -1165,7 +1165,22 @@
           ...Object.keys((stravaData?.activities_by_date) || {}),
         ]);
         const planDates = new Set((runningPlanData?.workouts || []).map(s => s.date));
-        const orphanDates = Array.from(activityDates).filter(d => !classDates.has(d) && !planDates.has(d) && d >= cutoffStr && d <= todayStr);
+        const _runTypes2 = ['run', 'running', 'trailrun', 'treadmill', 'jog'];
+        const runActivityDates2 = new Set();
+        Object.keys((intervalsData?.activities || {}).by_date || {}).forEach(d2 => {
+          const a2 = ((intervalsData.activities || {}).by_date || {})[d2] || [];
+          if (a2.some(a => _runTypes2.some(rt => (a.type || '').toLowerCase().includes(rt)))) runActivityDates2.add(d2);
+        });
+        Object.keys(stravaData?.activities_by_date || {}).forEach(d2 => {
+          if (runActivityDates2.has(d2)) return;
+          const a2 = (stravaData.activities_by_date || {})[d2] || [];
+          if (a2.some(a => _runTypes2.some(rt => (a.type || '').toLowerCase().includes(rt)))) runActivityDates2.add(d2);
+        });
+        // Orphan activities: no class + no plan, OR run activity on a class day (but still no plan)
+        const orphanDates = Array.from(activityDates).filter(d => {
+          if (planDates.has(d) || d < cutoffStr || d > todayStr) return false;
+          return !classDates.has(d) || runActivityDates2.has(d);
+        });
         const pastRuns = runningPlanData
           ? (runningPlanData.workouts || []).filter(s => { const t = s.time || (s.session === 'speed' ? '20:00' : '09:00'); return s.date >= cutoffStr && !isUpcoming(s.date, t); })
           : [];
