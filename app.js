@@ -146,13 +146,15 @@
       }
 
       const undoBtn = cancelled && item.event_id ? `
-        <button class="niet-gedaan-btn" style="margin-top:0.5rem;font-size:0.75rem" id="undo-${item.event_id}"
-          onclick="markOngedaanGemaakt('${item.event_id}','${item.date}','${item.time}','${escapeHtml(item.title)}',this)">
-          Ongedaan maken
-        </button>` : '';
+        <div class="cancelled-undo" onclick="event.stopPropagation()">
+          <button class="niet-gedaan-btn" id="undo-${item.event_id}"
+            onclick="markOngedaanGemaakt('${item.event_id}','${item.date}','${item.time}','${escapeHtml(item.title)}',this)">
+            Ongedaan maken
+          </button>
+        </div>` : '';
 
       return `
-        <div class="card ${cancelled ? 'cancelled' : ''}" style="animation-delay:${delay}s">
+        <div class="card ${cancelled ? 'cancelled' : ''}" style="animation-delay:${delay}s" ${cancelled ? 'onclick="this.classList.toggle(\'open\')"' : ''}>
           <div class="card-dot ${cancelled ? 'dot-cancelled' : 'dot-active'}"></div>
           <div class="card-info">
             <div class="card-title">${item.title}</div>
