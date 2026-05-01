@@ -587,7 +587,7 @@
       </div>`;
 
       const logHtml = renderLogSection(item.date);
-      const stravaHtml = renderStravaBlock(item.date);
+      const stravaHtml = renderStravaBlock(item.date, 'non-run');
 
       const nietGedaanBtn = eventId ? `
         <div style="margin-top:0.75rem;padding-top:0.75rem;border-top:1px solid var(--border);display:flex;justify-content:flex-end">
@@ -838,10 +838,14 @@
       return sections + weightHtml + planHtml;
     }
 
-    function renderStravaBlock(date) {
+    function renderStravaBlock(date, typeFilter) {
       if (!stravaData) return '';
-      const acts = (stravaData.activities_by_date || {})[date];
+      const _rtS = ['run', 'running', 'trailrun', 'treadmill', 'jog'];
+      let acts = (stravaData.activities_by_date || {})[date];
       if (!acts || acts.length === 0) return '';
+      if (typeFilter === 'run') acts = acts.filter(a => _rtS.some(rt => (a.type || '').toLowerCase().includes(rt)));
+      else if (typeFilter === 'non-run') acts = acts.filter(a => !_rtS.some(rt => (a.type || '').toLowerCase().includes(rt)));
+      if (acts.length === 0) return '';
       return acts.map(act => {
         const dur     = act.duration_min ? `<span class="strava-stat"><strong>${act.duration_min}</strong> min</span>` : '';
         const elapsed = act.elapsed_min  ? `<span class="strava-stat">totaal <strong>${act.elapsed_min}</strong> min</span>` : '';
@@ -858,11 +862,14 @@
       }).join('');
     }
 
-    function renderIntervalsBlock(date) {
+    function renderIntervalsBlock(date, typeFilter) {
       if (!intervalsData) return '';
-      const acts = ((intervalsData.activities || {}).by_date || {})[date];
-      if (!acts || acts.length === 0) return '';
       const runTypes = ['run', 'running', 'trailrun', 'treadmill', 'jog'];
+      let acts = ((intervalsData.activities || {}).by_date || {})[date];
+      if (!acts || acts.length === 0) return '';
+      if (typeFilter === 'run') acts = acts.filter(a => runTypes.some(rt => (a.type || '').toLowerCase().includes(rt)));
+      else if (typeFilter === 'non-run') acts = acts.filter(a => !runTypes.some(rt => (a.type || '').toLowerCase().includes(rt)));
+      if (acts.length === 0) return '';
       return acts.map(act => {
         const isRun = runTypes.some(rt => (act.type || '').toLowerCase().includes(rt));
         const dur     = act.duration_min  ? `<span class="strava-stat"><strong>${act.duration_min}</strong> min</span>` : '';
@@ -1014,15 +1021,19 @@
         <div class="cards">${cardsHtml}</div>`;
     }
 
-    function renderActivityCard(date, delay) {
-      const acts = ((intervalsData?.activities || {}).by_date || {})[date] || [];
-      const stravaActs = (stravaData?.activities_by_date || {})[date] || [];
+    function renderActivityCard(date, delay, runOnly) {
+      const _rtA = ['run', 'running', 'trailrun', 'treadmill', 'jog'];
+      const tf = runOnly ? 'run' : null;
+      let acts = ((intervalsData?.activities || {}).by_date || {})[date] || [];
+      let stravaActs = (stravaData?.activities_by_date || {})[date] || [];
+      if (runOnly) {
+        acts = acts.filter(a => _rtA.some(rt => (a.type || '').toLowerCase().includes(rt)));
+        stravaActs = stravaActs.filter(a => _rtA.some(rt => (a.type || '').toLowerCase().includes(rt)));
+      }
       if (acts.length === 0 && stravaActs.length === 0) return '';
 
-      // Gebruik intervals.icu data als die beschikbaar is; anders Strava
-      const intervalsHtml = renderIntervalsBlock(date);
-      // Strava alleen tonen als er geen intervals data is (voorkomt dubbeling)
-      const stravaHtml = intervalsHtml ? '' : renderStravaBlock(date);
+      const intervalsHtml = renderIntervalsBlock(date, tf);
+      const stravaHtml = intervalsHtml ? '' : renderStravaBlock(date, tf);
       if (!intervalsHtml && !stravaHtml) return '';
 
       const first = acts[0] || {};
@@ -1178,17 +1189,19 @@
           const a2 = (stravaData.activities_by_date || {})[d2] || [];
           if (a2.some(a => _runTypes2.some(rt => (a.type || '').toLowerCase().includes(rt)))) runActivityDates2.add(d2);
         });
-        // Orphan activities: no class + no plan, OR run activity on a class day (but still no plan)
-        const orphanDates = Array.from(activityDates).filter(d => {
-          if (planDates.has(d) || d < cutoffStr || d > todayStr) return false;
-          return !classDates.has(d) || runActivityDates2.has(d);
+        // Orphan activities: no class + no plan → show all; run on class day → show run-only
+        const orphanEntries = [];
+        Array.from(activityDates).forEach(d => {
+          if (planDates.has(d) || d < cutoffStr || d > todayStr) return;
+          if (!classDates.has(d)) orphanEntries.push({ date: d, runOnly: false });
+          else if (runActivityDates2.has(d)) orphanEntries.push({ date: d, runOnly: true });
         });
         const pastRuns = runningPlanData
           ? (runningPlanData.workouts || []).filter(s => { const t = s.time || (s.session === 'speed' ? '20:00' : '09:00'); return s.date >= cutoffStr && !isUpcoming(s.date, t); })
           : [];
         const pastItems = [
           ...past.slice(-5).map(e => ({ type: 'class', date: e.date, item: e })),
-          ...orphanDates.map(d => ({ type: 'activity', date: d })),
+          ...orphanEntries.map(({ date: d, runOnly }) => ({ type: 'activity', date: d, runOnly })),
           ...pastRuns.map(s => ({ type: 'run', date: s.date, item: s })),
           ...personalEvents.filter(e => !isUpcoming(e.date, e.time || null) && e.date >= cutoffStr).map(e => ({ type: 'personal', date: e.date, item: e })),
         ].sort((a, b) => b.date.localeCompare(a.date)).slice(0, 8);
@@ -1352,7 +1365,7 @@
           if (entry.type==='class') h += renderPastCard(entry.item,i*0.05);
           else if (entry.type==='run') h += renderRunEventCard(entry.item,i*0.05,'schema');
           else if (entry.type==='personal') h += renderPersonalEventCard(entry.item,i*0.05);
-          else h += renderActivityCard(entry.date,i*0.05);
+          else h += renderActivityCard(entry.date,i*0.05,entry.runOnly);
         });
         h += `</div>`;
       }
