@@ -15,7 +15,7 @@ jobs:
           python-version: '3.12'
 
       - name: Install dependencies
-        run: pip install requests anthropic google-auth google-auth-oauthlib google-api-python-client
+        run: pip install -r requirements.txt
 
       - name: Repush workouts naar intervals.icu (zonder Claude)
         env:
@@ -23,4 +23,6 @@ jobs:
           INTERVALS_API_KEY: ${{ secrets.INTERVALS_API_KEY }}
           GIST_ID: ${{ secrets.GIST_ID }}
           GITHUB_TOKEN: ${{ secrets.GIST_TOKEN }}
+          VAPID_PRIVATE_KEY: ${{ secrets.VAPID_PRIVATE_KEY }}
+          VAPID_CLAIMS_EMAIL: ${{ secrets.VAPID_CLAIMS_EMAIL }}
         run: python3 generate_running_workout.py --repush
