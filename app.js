@@ -1130,7 +1130,7 @@
     function toggleWod(card, e) {
       const evt = e || event;
       if (evt && evt.target && evt.target.closest &&
-          evt.target.closest('.run-reschedule-btn, .run-reschedule-form')) return;
+          evt.target.closest('.run-reschedule-btn, .run-reschedule-form, .personal-edit-btn, .personal-edit-panel')) return;
       card.classList.toggle('open');
     }
 
@@ -2605,52 +2605,183 @@
     // ── Personal events ───────────────────────────────────────────────────
 
     function renderPersonalEventCard(event, delay) {
+      const id = escapeHtml(event.id);
       const timeHtml = event.time ? `<span class="card-time" style="color:#4db8ff">${event.time}</span>` : '';
       const metaLabel = event.notes ? event.notes.split('\n')[0] : event.location;
       const locHtml  = metaLabel ? `<span> ${escapeHtml(metaLabel)}</span>` : '';
       const routeHtml = event.route ? `<div class="card-meta" style="margin-top:0.1rem"><span style="color:#7dd3fc">Route:</span> <span>${escapeHtml(event.route)}</span></div>` : '';
       const metaHtml = (timeHtml || locHtml) ? `<div class="card-meta">${timeHtml}${locHtml}</div>` : '';
       const deleteBtn = `<button class="personal-delete-btn" title="Verwijderen"
-        onclick="event.stopPropagation();deletePersonalEvent('${escapeHtml(event.id)}',this)">✕</button>`;
-
-      if (event.notes) {
-        return `
-          <div class="card has-wod" style="animation-delay:${delay}s" onclick="toggleWod(this, event)">
-            <div class="card-dot dot-personal"></div>
-            <div class="card-info">
-              <div class="card-header">
-                <div class="card-header-left">
-                  <div class="card-title">${escapeHtml(event.title)}</div>
-                  ${metaHtml}
-                  ${routeHtml}
-                </div>
-                <div class="card-right">
-                  <div class="card-date" style="color:#4db8ff">${formatDate(event.date)}</div>
-                  <div class="card-relative-day">${relativeDay(event.date)}</div>
-                  <div style="display:flex;gap:0.3rem;align-items:center">${deleteBtn}<div class="wod-chevron" style="color:#4db8ff">▾</div></div>
-                </div>
-              </div>
-              <div class="card-wod">
-                <div style="font-size:0.82rem;color:#b0ccf0;white-space:pre-wrap;line-height:1.6">${escapeHtml(event.notes)}</div>
-              </div>
-            </div>
-          </div>`;
-      }
+        onclick="event.stopPropagation();deletePersonalEvent('${id}',this)">✕</button>`;
+      const editBtn = `<button class="personal-edit-btn" title="Wijzigen"
+        onclick="togglePersonalEventEdit('${id}',event)">✎</button>`;
+      const notesHtml = event.notes
+        ? `<div class="card-wod"><div style="font-size:0.82rem;color:#b0ccf0;white-space:pre-wrap;line-height:1.6">${escapeHtml(event.notes)}</div></div>`
+        : '';
+      const hasWod = event.notes ? ' has-wod' : '';
+      const clickAttr = event.notes ? ' onclick="toggleWod(this, event)"' : '';
+      const chevron = event.notes ? `<div class="wod-chevron" style="color:#4db8ff">▾</div>` : '';
 
       return `
-        <div class="card" style="animation-delay:${delay}s">
+        <div class="card${hasWod}" data-event-id="${id}" style="animation-delay:${delay}s"${clickAttr}>
           <div class="card-dot dot-personal"></div>
           <div class="card-info">
-            <div class="card-title">${escapeHtml(event.title)}</div>
-            ${metaHtml}
-            ${routeHtml}
-          </div>
-          <div class="card-right">
-            <div class="card-date" style="color:#4db8ff">${formatDate(event.date)}</div>
-            <div class="card-relative-day">${relativeDay(event.date)}</div>
-            ${deleteBtn}
+            <div class="card-header">
+              <div class="card-header-left">
+                <div class="card-title">${escapeHtml(event.title)}</div>
+                ${metaHtml}
+                ${routeHtml}
+              </div>
+              <div class="card-right">
+                <div class="card-date" style="color:#4db8ff">${formatDate(event.date)}</div>
+                <div class="card-relative-day">${relativeDay(event.date)}</div>
+                <div style="display:flex;gap:0.3rem;align-items:center">${editBtn}${deleteBtn}${chevron}</div>
+              </div>
+            </div>
+            ${notesHtml}
+            ${buildPersonalEditPanel(event)}
           </div>
         </div>`;
+    }
+
+    function buildPersonalEditPanel(event) {
+      const id = escapeHtml(event.id);
+      const knownTypes = ['Hardlopen','Hiken','SUPpen','Zwemmen','Fietsen','Mountainbiken','Yoga','Gym'];
+      const isCustom = !knownTypes.includes(event.title);
+      const opts = [...knownTypes, 'Anders'].map(v => {
+        const sel = (v === 'Anders' ? isCustom : event.title === v) ? ' selected' : '';
+        return `<option value="${v}"${sel}>${v}</option>`;
+      }).join('');
+      return `
+        <div id="personal-edit-${id}" class="personal-edit-panel" onclick="event.stopPropagation()" style="display:none">
+          <div class="add-event-fields">
+            <div class="add-event-row">
+              <span class="add-event-label">Activiteit</span>
+              <select class="add-event-input" id="editTitle-${id}" onchange="handleEditTitleChange(this,'${id}')">
+                <option value="">— Kies type —</option>
+                ${opts}
+              </select>
+            </div>
+            <div class="add-event-row" id="editCustomRow-${id}" style="display:${isCustom ? 'flex' : 'none'}">
+              <span class="add-event-label"></span>
+              <input type="text" class="add-event-input" id="editTitleCustom-${id}" value="${isCustom ? escapeHtml(event.title) : ''}" placeholder="Eigen naam" />
+            </div>
+            <div class="add-event-row">
+              <span class="add-event-label">Datum</span>
+              <input type="date" class="add-event-input" id="editDate-${id}" value="${escapeHtml(event.date)}" />
+            </div>
+            <div class="add-event-row">
+              <span class="add-event-label">Tijd</span>
+              <input type="time" class="add-event-input" id="editTime-${id}" value="${escapeHtml(event.time || '')}" />
+            </div>
+            <div class="add-event-row" id="editRouteRow-${id}" style="display:${event.title === 'Mountainbiken' ? 'flex' : 'none'}">
+              <span class="add-event-label">Route</span>
+              <input type="text" class="add-event-input" id="editRoute-${id}" value="${escapeHtml(event.route || '')}" placeholder="Bijv. Veluwe Noord lus" />
+            </div>
+            <div class="add-event-row">
+              <span class="add-event-label">Locatie</span>
+              <input type="text" class="add-event-input" id="editLocation-${id}" value="${escapeHtml(event.location || '')}" placeholder="Optioneel" />
+            </div>
+            <div class="add-event-row">
+              <span class="add-event-label">Notities</span>
+              <textarea class="add-event-input" id="editNotes-${id}" rows="2" style="resize:vertical">${escapeHtml(event.notes || '')}</textarea>
+            </div>
+          </div>
+          <div class="add-event-actions">
+            <span class="add-event-status" id="editStatus-${id}"></span>
+            <button class="add-event-cancel-btn" onclick="togglePersonalEventEdit('${id}',event)">Annuleren</button>
+            <button class="add-event-save-btn" id="editSaveBtn-${id}" onclick="savePersonalEventEdit('${id}')">Opslaan</button>
+          </div>
+        </div>`;
+    }
+
+    function togglePersonalEventEdit(eventId, e) {
+      if (e) { e.stopPropagation(); e.preventDefault(); }
+      const panel = document.getElementById('personal-edit-' + eventId);
+      if (!panel) return;
+      const opening = panel.style.display === 'none';
+      panel.style.display = opening ? 'block' : 'none';
+      if (opening) requestAnimationFrame(() => panel.scrollIntoView({ behavior: 'smooth', block: 'nearest' }));
+    }
+
+    function handleEditTitleChange(sel, eventId) {
+      const customRow = document.getElementById('editCustomRow-' + eventId);
+      if (customRow) customRow.style.display = sel.value === 'Anders' ? 'flex' : 'none';
+      const routeRow = document.getElementById('editRouteRow-' + eventId);
+      if (routeRow) routeRow.style.display = sel.value === 'Mountainbiken' ? 'flex' : 'none';
+    }
+
+    async function savePersonalEventEdit(eventId) {
+      const token = document.getElementById('githubToken').value.trim();
+      const statusEl = document.getElementById('editStatus-' + eventId);
+      const saveBtn  = document.getElementById('editSaveBtn-' + eventId);
+
+      if (!token) {
+        if (statusEl) { statusEl.textContent = '⚠ Token nodig'; statusEl.className = 'add-event-status err'; }
+        return;
+      }
+
+      const titleSel = document.getElementById('editTitle-' + eventId);
+      let title = titleSel ? titleSel.value : '';
+      if (title === 'Anders') title = (document.getElementById('editTitleCustom-' + eventId)?.value || '').trim();
+      const date     = (document.getElementById('editDate-'     + eventId)?.value || '').trim();
+      const time     = (document.getElementById('editTime-'     + eventId)?.value || '').trim();
+      const route    = (document.getElementById('editRoute-'    + eventId)?.value || '').trim();
+      const location = (document.getElementById('editLocation-' + eventId)?.value || '').trim();
+      const notes    = (document.getElementById('editNotes-'    + eventId)?.value || '').trim();
+
+      if (!title) {
+        if (statusEl) { statusEl.textContent = '⚠ Kies een activiteit'; statusEl.className = 'add-event-status err'; }
+        return;
+      }
+      if (!date) {
+        if (statusEl) { statusEl.textContent = '⚠ Kies een datum'; statusEl.className = 'add-event-status err'; }
+        return;
+      }
+
+      if (statusEl) { statusEl.textContent = 'Opslaan…'; statusEl.className = 'add-event-status'; }
+      if (saveBtn)  saveBtn.disabled = true;
+
+      const idx = personalEvents.findIndex(e => e.id === eventId);
+      if (idx === -1) {
+        if (statusEl) { statusEl.textContent = '⚠ Event niet gevonden'; statusEl.className = 'add-event-status err'; }
+        if (saveBtn) saveBtn.disabled = false;
+        return;
+      }
+
+      const original = { ...personalEvents[idx] };
+      const updated  = { id: eventId, title, date, created_at: original.created_at };
+      if (time)     updated.time     = time;
+      if (route)    updated.route    = route;
+      if (location) updated.location = location;
+      if (notes)    updated.notes    = notes;
+      personalEvents[idx] = updated;
+
+      try {
+        const patch = await fetch(`https://api.github.com/gists/${currentGistId}`, {
+          method: 'PATCH',
+          headers: { Authorization: `token ${token}`, 'Content-Type': 'application/json' },
+          body: JSON.stringify({ files: { 'personal_events.json': { content: JSON.stringify({ events: personalEvents }, null, 2) } } }),
+        });
+        if (!patch.ok) throw new Error(`Opslaan mislukt: ${patch.status}`);
+
+        if (statusEl) { statusEl.textContent = '✓ Opgeslagen'; statusEl.className = 'add-event-status ok'; }
+        setTimeout(() => {
+          rerenderUpcomingCards();
+          document.querySelectorAll(`[data-event-id="${eventId}"]`).forEach(el => {
+            if (!el.closest('#upcomingCards')) {
+              const tmp = document.createElement('div');
+              tmp.innerHTML = renderPersonalEventCard(updated, 0);
+              el.replaceWith(tmp.firstElementChild);
+            }
+          });
+        }, 500);
+
+      } catch(err) {
+        personalEvents[idx] = original;
+        if (statusEl) { statusEl.textContent = `❌ ${err.message}`; statusEl.className = 'add-event-status err'; }
+        if (saveBtn) saveBtn.disabled = false;
+      }
     }
 
     // ── Hardlooplan event cards ────────────────────────────────────────────────

@@ -1613,6 +1613,25 @@
     .personal-delete-btn:hover { color: var(--accent2); }
     .personal-delete-btn:disabled { opacity: 0.4; cursor: default; }
 
+    .personal-edit-btn {
+      background: transparent;
+      color: var(--muted);
+      border: none;
+      font-size: 0.9rem;
+      cursor: pointer;
+      padding: 0.1rem 0.35rem;
+      border-radius: 4px;
+      line-height: 1;
+      transition: color 0.15s;
+    }
+    .personal-edit-btn:hover { color: #4db8ff; }
+
+    .personal-edit-panel {
+      margin-top: 0.75rem;
+      padding-top: 0.75rem;
+      border-top: 1px solid rgba(77,184,255,0.2);
+    }
+
     .add-event-form {
       background: var(--surface);
       border: 1px solid rgba(77,184,255,0.4);
