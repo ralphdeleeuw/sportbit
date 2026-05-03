@@ -2690,14 +2690,16 @@
           <div class="add-event-actions">
             <span class="add-event-status" id="editStatus-${id}"></span>
             <button class="add-event-cancel-btn" onclick="togglePersonalEventEdit('${id}',event)">Annuleren</button>
-            <button class="add-event-save-btn" id="editSaveBtn-${id}" onclick="savePersonalEventEdit('${id}')">Opslaan</button>
+            <button class="add-event-save-btn" id="editSaveBtn-${id}" onclick="savePersonalEventEdit('${id}',this)">Opslaan</button>
           </div>
         </div>`;
     }
 
     function togglePersonalEventEdit(eventId, e) {
       if (e) { e.stopPropagation(); e.preventDefault(); }
-      const panel = document.getElementById('personal-edit-' + eventId);
+      const card = e && e.target && e.target.closest('[data-event-id]');
+      const panel = card ? card.querySelector('.personal-edit-panel')
+                         : document.querySelector(`[data-event-id="${eventId}"] .personal-edit-panel`);
       if (!panel) return;
       const opening = panel.style.display === 'none';
       panel.style.display = opening ? 'block' : 'none';
@@ -2705,30 +2707,33 @@
     }
 
     function handleEditTitleChange(sel, eventId) {
-      const customRow = document.getElementById('editCustomRow-' + eventId);
+      const card = sel.closest('[data-event-id]');
+      const customRow = card ? card.querySelector(`#editCustomRow-${eventId}`) : document.getElementById('editCustomRow-' + eventId);
       if (customRow) customRow.style.display = sel.value === 'Anders' ? 'flex' : 'none';
-      const routeRow = document.getElementById('editRouteRow-' + eventId);
+      const routeRow = card ? card.querySelector(`#editRouteRow-${eventId}`) : document.getElementById('editRouteRow-' + eventId);
       if (routeRow) routeRow.style.display = sel.value === 'Mountainbiken' ? 'flex' : 'none';
     }
 
-    async function savePersonalEventEdit(eventId) {
+    async function savePersonalEventEdit(eventId, btn) {
       const token = document.getElementById('githubToken').value.trim();
-      const statusEl = document.getElementById('editStatus-' + eventId);
-      const saveBtn  = document.getElementById('editSaveBtn-' + eventId);
+      const card = btn && btn.closest('[data-event-id]');
+      const q = id => card ? card.querySelector('#' + id) : document.getElementById(id);
+      const statusEl = q('editStatus-'  + eventId);
+      const saveBtn  = btn || q('editSaveBtn-' + eventId);
 
       if (!token) {
         if (statusEl) { statusEl.textContent = '⚠ Token nodig'; statusEl.className = 'add-event-status err'; }
         return;
       }
 
-      const titleSel = document.getElementById('editTitle-' + eventId);
+      const titleSel = q('editTitle-' + eventId);
       let title = titleSel ? titleSel.value : '';
-      if (title === 'Anders') title = (document.getElementById('editTitleCustom-' + eventId)?.value || '').trim();
-      const date     = (document.getElementById('editDate-'     + eventId)?.value || '').trim();
-      const time     = (document.getElementById('editTime-'     + eventId)?.value || '').trim();
-      const route    = (document.getElementById('editRoute-'    + eventId)?.value || '').trim();
-      const location = (document.getElementById('editLocation-' + eventId)?.value || '').trim();
-      const notes    = (document.getElementById('editNotes-'    + eventId)?.value || '').trim();
+      if (title === 'Anders') title = (q('editTitleCustom-' + eventId)?.value || '').trim();
+      const date     = (q('editDate-'     + eventId)?.value || '').trim();
+      const time     = (q('editTime-'     + eventId)?.value || '').trim();
+      const route    = (q('editRoute-'    + eventId)?.value || '').trim();
+      const location = (q('editLocation-' + eventId)?.value || '').trim();
+      const notes    = (q('editNotes-'    + eventId)?.value || '').trim();
 
       if (!title) {
         if (statusEl) { statusEl.textContent = '⚠ Kies een activiteit'; statusEl.className = 'add-event-status err'; }
