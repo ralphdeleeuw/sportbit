@@ -40,6 +40,7 @@ from generate_running_workout import (
     _parse_json,
     _push_to_intervals,
     _save_to_gist,
+    _signed_up_cf_dates,
     _strip_html,
 )
 
@@ -52,6 +53,7 @@ _REVIEW_SYSTEM_PROMPT = """You are a professional running coach reviewing upcomi
 Your task: evaluate the planned workout(s) and decide if any need adjustment based on:
 - Recovery: HRV, resting HR, sleep, TSB (Training Stress Balance)
 - CrossFit load same day or day before (especially heavy metcon or strength)
+- Other planned physical activities nearby (mountain biking, etc.) — check "Other planned activities" section
 - Nutrition: energy availability from MFP data
 - Subjective health notes
 
@@ -119,19 +121,60 @@ def _load_review_context(gist_id: str, token: str) -> dict:
     health_input = _parse_json(files.get("health_input.json", ""), "health_input.json") or {}
     mfp_data = _parse_json(files.get("myfitnesspal_nutrition.json", ""), "myfitnesspal_nutrition.json") or {}
 
+    personal_events_raw = files.get("personal_events.json", "")
+    personal_events_data = _parse_json(personal_events_raw, "personal_events.json") or {}
+    personal_events: list[dict] = (
+        personal_events_data.get("events", [])
+        if isinstance(personal_events_data, dict)
+        else []
+    )
+
     intervals_data = wod_data.get("intervals_data") or {}
     all_wods: list[dict] = wod_data.get("workouts") or []
+    activities_by_date: dict = intervals_data.get("activities", {}).get("by_date", {})
     today_str = date.today().isoformat()
+    cutoff_upcoming = (date.today() + timedelta(days=10)).isoformat()
+
+    # Upcoming personal events binnen planningshorizon
+    upcoming_personal_events = [
+        e for e in personal_events
+        if today_str <= e.get("date", "") <= cutoff_upcoming
+    ]
+
+    # Recent CrossFit: gebruik intervals.icu activiteiten (daadwerkelijk bijgewoond)
+    cf_activity_types = {"crossfit", "weight", "strength", "hiit", "weighttraining"}
+    cutoff_recent = (date.today() - timedelta(days=14)).isoformat()
+    wods_by_date: dict[str, dict] = {w.get("date", ""): w for w in all_wods if w.get("date")}
+    recent_cf_from_intervals: dict[str, dict] = {}
+    for d, acts in activities_by_date.items():
+        if not (cutoff_recent <= d < today_str):
+            continue
+        cf_acts = [a for a in acts if any(t in (a.get("type") or "").lower() for t in cf_activity_types)]
+        if not cf_acts:
+            continue
+        entry = dict(wods_by_date.get(d, {"date": d}))
+        act = cf_acts[0]
+        if act.get("duration_min"):
+            entry["duration_min"] = act["duration_min"]
+        if act.get("avg_hr"):
+            entry["avg_hr"] = act["avg_hr"]
+        tl = act.get("training_load") or act.get("trimp")
+        if tl is not None:
+            entry["training_load"] = tl
+        recent_cf_from_intervals[d] = entry
 
     return {
         "running_plan": plan,
         "wellness": intervals_data.get("wellness", {}).get("by_date", {}),
-        "activities": intervals_data.get("activities", {}).get("by_date", {}),
+        "activities": activities_by_date,
         "health_input": health_input,
         "all_wods": all_wods,
+        "recent_cf_by_date": recent_cf_from_intervals,
         "cancelled_cf_dates": _cancelled_cf_dates(files),
+        "signed_up_cf_dates": _signed_up_cf_dates(files),
         "mfp_by_date": (mfp_data.get("diary") or {}).get("by_date") or {},
         "today_str": today_str,
+        "personal_events": upcoming_personal_events,
     }
 
 
@@ -217,6 +260,9 @@ def _build_review_context(
     health_input: dict,
     activities_by_date: dict | None = None,
     cancelled_cf_dates: set[str] = frozenset(),
+    signed_up_cf_dates: set[str] = frozenset(),
+    recent_cf_by_date: dict | None = None,
+    personal_events: list[dict] | None = None,
 ) -> str:
     now_ams = datetime.now(AMS)
     today_str = date.today().isoformat()
@@ -318,34 +364,67 @@ def _build_review_context(
     if run_lines:
         sections.append("Recent running activities (last 14 days):\n" + "\n".join(run_lines))
 
-    # CrossFit sessions relevant voor de run(s)
+    # CrossFit sessions relevant voor de run(s) — gebruik ingeschreven sessies
     run_dates = {w.get("date", "") for w in target_workouts}
     cf_dates = run_dates | {
         (date.fromisoformat(d) - timedelta(days=1)).isoformat()
         for d in run_dates if d
     }
-    relevant_cf = [
-        wod for wod in all_wods
-        if wod.get("date", "") in cf_dates
-        and wod.get("date", "") not in cancelled_cf_dates
+    wods_by_date = {w.get("date", ""): w for w in all_wods if w.get("date")}
+    relevant_cf_dates = [
+        d for d in cf_dates
+        if d not in cancelled_cf_dates
+        and (d in signed_up_cf_dates or d in wods_by_date)
     ]
-    if relevant_cf:
+    if relevant_cf_dates:
         cf_lines = []
-        for wod in sorted(relevant_cf, key=lambda x: x.get("date", "")):
-            d = wod.get("date", "")
-            title = wod.get("title") or wod.get("name") or "WOD"
+        for d in sorted(relevant_cf_dates):
+            wod = wods_by_date.get(d, {"date": d})
+            title = wod.get("title") or wod.get("name") or "CrossFit"
             desc = _strip_html(wod.get("description") or "")[:120]
             notes = wod.get("athlete_notes") or ""
             label = "same day as run" if d in run_dates else "day before run"
-            line = f"  {d} ({label}) — {title}"
+            signed = " [signed up]" if d in signed_up_cf_dates else ""
+            # Voeg interval.icu data toe als beschikbaar (dag van/voor de run)
+            cf_act = (recent_cf_by_date or {}).get(d, {})
+            line = f"  {d} ({label}){signed} — {title}"
             if desc:
                 line += f"\n    {desc}"
+            if cf_act.get("avg_hr"):
+                line += f"\n    Actual: avg HR {cf_act['avg_hr']}bpm"
+                if cf_act.get("duration_min"):
+                    line += f", {cf_act['duration_min']}min"
+                tl = cf_act.get("training_load")
+                if tl is not None:
+                    line += f", TL {round(tl)}"
             if notes:
                 line += f"\n    Your notes: {notes[:80]}"
             cf_lines.append(line)
         sections.append("CrossFit sessions (same day or day before run):\n" + "\n".join(cf_lines))
     else:
         sections.append("CrossFit on run day / day before: none scheduled")
+
+    # Upcoming personal events (mountainbike, etc.)
+    if personal_events:
+        dag_nl = ["ma", "di", "wo", "do", "vr", "za", "zo"]
+        pe_lines = []
+        for e in sorted(personal_events, key=lambda x: x.get("date", "")):
+            d = e.get("date", "")
+            try:
+                dag = dag_nl[date.fromisoformat(d).weekday()]
+            except ValueError:
+                dag = ""
+            title = e.get("title", "Activiteit")
+            line = f"  {d} ({dag}) — {title}"
+            if e.get("time"):
+                line += f" om {e['time']}"
+            if e.get("notes"):
+                line += f" — {e['notes'][:80]}"
+            pe_lines.append(line)
+        sections.append(
+            "Other planned activities (consider recovery — avoid hard run the day before):\n"
+            + "\n".join(pe_lines)
+        )
 
     # MFP voeding (laatste 3 dagen)
     mfp_lines = []
@@ -568,6 +647,9 @@ def main() -> None:
         health_input=ctx["health_input"],
         activities_by_date=ctx.get("activities"),
         cancelled_cf_dates=ctx.get("cancelled_cf_dates", frozenset()),
+        signed_up_cf_dates=ctx.get("signed_up_cf_dates", frozenset()),
+        recent_cf_by_date=ctx.get("recent_cf_by_date"),
+        personal_events=ctx.get("personal_events"),
     )
     log.info("Review context:\n%s", context_text)
 
