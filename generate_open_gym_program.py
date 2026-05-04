@@ -408,7 +408,6 @@ def _load_fitness_data(files: dict[str, str]) -> dict:
     wod_data = _parse_json(files.get("sugarwod_wod.json", ""), "sugarwod_wod.json") or {}
     health_input_raw = _parse_json(files.get("health_input.json", ""), "health_input.json") or {}
     workout_log_raw = _parse_json(files.get("workout_log.json", ""), "workout_log.json") or {}
-    mfp_raw = _parse_json(files.get("myfitnesspal_nutrition.json", ""), "myfitnesspal_nutrition.json") or {}
     running_plan_raw = _parse_json(files.get("running_plan.json", ""), "running_plan.json") or {}
     state_raw = _parse_json(files.get("sportbit_state.json", ""), "sportbit_state.json") or {}
 
@@ -439,7 +438,6 @@ def _load_fitness_data(files: dict[str, str]) -> dict:
         "health_input": health_input_raw,
         "health_history": health_input_raw.get("history", []),
         "workout_log": workout_log,
-        "mfp": (mfp_raw.get("diary") or {}).get("by_date") or {},
         "running_plan_workouts": running_plan_raw.get("workouts") or [],
         "signed_up_dates": signed_up_dates,
     }
@@ -665,22 +663,6 @@ def _build_context(data: dict, open_gym_event: dict) -> str:
         lift_lines.append(f"  {lift_name}: {', '.join(rm_parts)}")
     if lift_lines:
         sections.append("Barbell maxima:\n" + "\n".join(lift_lines))
-
-    # ── Voeding ────────────────────────────────────────────────────────────────
-    mfp: dict = data["mfp"]
-    mfp_recent = sorted(mfp.keys(), reverse=True)[:3]
-    if mfp_recent:
-        mfp_lines = []
-        for d_str in mfp_recent:
-            m = mfp[d_str]
-            if not m.get("calories"):
-                continue
-            prot = round(m.get("protein_g") or 0)
-            carbs = round(m.get("carbs_g") or 0)
-            fat = round(m.get("fat_g") or 0)
-            mfp_lines.append(f"  {d_str}: {m['calories']} kcal, {prot}g eiwit, {carbs}g KH, {fat}g vet")
-        if mfp_lines:
-            sections.append("Voeding (MyFitnessPal, laatste 3 dagen):\n" + "\n".join(mfp_lines))
 
     return "\n\n".join(sections)
 

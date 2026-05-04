@@ -54,7 +54,6 @@ Your task: evaluate the planned workout(s) and decide if any need adjustment bas
 - Recovery: HRV, resting HR, sleep, TSB (Training Stress Balance)
 - CrossFit load same day or day before (especially heavy metcon or strength)
 - Other planned physical activities nearby (mountain biking, etc.) — check "Other planned activities" section
-- Nutrition: energy availability from MFP data
 - Subjective health notes
 
 Adjust DOWN when:
@@ -119,8 +118,6 @@ def _load_review_context(gist_id: str, token: str) -> dict:
     plan = _parse_json(files.get("running_plan.json", ""), "running_plan.json") or {}
     wod_data = _parse_json(files.get("sugarwod_wod.json", ""), "sugarwod_wod.json") or {}
     health_input = _parse_json(files.get("health_input.json", ""), "health_input.json") or {}
-    mfp_data = _parse_json(files.get("myfitnesspal_nutrition.json", ""), "myfitnesspal_nutrition.json") or {}
-
     personal_events_raw = files.get("personal_events.json", "")
     personal_events_data = _parse_json(personal_events_raw, "personal_events.json") or {}
     personal_events: list[dict] = (
@@ -172,7 +169,6 @@ def _load_review_context(gist_id: str, token: str) -> dict:
         "recent_cf_by_date": recent_cf_from_intervals,
         "cancelled_cf_dates": _cancelled_cf_dates(files),
         "signed_up_cf_dates": _signed_up_cf_dates(files),
-        "mfp_by_date": (mfp_data.get("diary") or {}).get("by_date") or {},
         "today_str": today_str,
         "personal_events": upcoming_personal_events,
     }
@@ -256,7 +252,6 @@ def _build_review_context(
     target_workouts: list[dict],
     wellness_by_date: dict,
     all_wods: list[dict],
-    mfp_by_date: dict,
     health_input: dict,
     activities_by_date: dict | None = None,
     cancelled_cf_dates: set[str] = frozenset(),
@@ -425,20 +420,6 @@ def _build_review_context(
             "Other planned activities (consider recovery — avoid hard run the day before):\n"
             + "\n".join(pe_lines)
         )
-
-    # MFP voeding (laatste 3 dagen)
-    mfp_lines = []
-    for d in sorted(mfp_by_date.keys(), reverse=True)[:3]:
-        m = mfp_by_date[d]
-        cal = m.get("calories", 0)
-        if not cal:
-            continue
-        prot = round(m.get("protein_g") or 0)
-        carbs = round(m.get("carbs_g") or 0)
-        fat = round(m.get("fat_g") or 0)
-        mfp_lines.append(f"  {d}: {cal} kcal, {prot}g protein, {carbs}g carbs, {fat}g fat")
-    if mfp_lines:
-        sections.append("Nutrition last 3 days (MyFitnessPal):\n" + "\n".join(mfp_lines))
 
     # Subjectieve notities
     health_lines = [
@@ -643,7 +624,6 @@ def main() -> None:
         target_workouts=target_workouts,
         wellness_by_date=ctx["wellness"],
         all_wods=ctx["all_wods"],
-        mfp_by_date=ctx["mfp_by_date"],
         health_input=ctx["health_input"],
         activities_by_date=ctx.get("activities"),
         cancelled_cf_dates=ctx.get("cancelled_cf_dates", frozenset()),
