@@ -1948,88 +1948,12 @@ def _compute_barbell_trends(history: list[dict], current: dict) -> dict[str, flo
     return trends
 
 
-# ──────────────────────────────────────────────────────────────
-# Keukenbaas meal data
-# ──────────────────────────────────────────────────────────────
-
-def fetch_keukenbaas_meals() -> list[dict]:
-    """
-    Fetch meal plan data from Keukenbaas (Supabase) for the past 14 days
-    and the next 7 days.  Returns a list of dicts:
-        {date, meal_name, category, description}
-    Returns an empty list if credentials are missing or the request fails.
-    """
-    url = os.environ.get("SUPABASE_URL", "").strip().rstrip("/")
-    key = os.environ.get("SUPABASE_KEY", "").strip()
-    if not url or not key:
-        log.warning("SUPABASE_URL or SUPABASE_KEY not set — skipping Keukenbaas fetch")
-        return []
-
-    today = datetime.now(timezone.utc).date()
-    start = (today - timedelta(days=14)).isoformat()
-    end = (today + timedelta(days=7)).isoformat()
-
-    headers = {
-        "apikey": key,
-        "Authorization": f"Bearer {key}",
-        "Accept": "application/json",
-    }
-
-    try:
-        resp = requests.get(
-            f"{url}/rest/v1/meal_plans",
-            headers=headers,
-            params=[
-                ("select", "date,custom_text,notes,recipes(title,description,category,energy_kcal,proteins_g,carbohydrates_g,fat_g,fiber_g,recipe_ingredients(name,quantity,unit,order_index))"),
-                ("date", f"gte.{start}"),
-                ("date", f"lte.{end}"),
-                ("order", "date.asc"),
-            ],
-            timeout=15,
-        )
-        resp.raise_for_status()
-    except requests.RequestException as exc:
-        log.warning("Keukenbaas fetch failed: %s", exc)
-        return []
-
-    meals: list[dict] = []
-    for row in resp.json():
-        recipe = row.get("recipes") or {}
-        meal_name = recipe.get("title") or row.get("custom_text") or "Maaltijd"
-        raw_ingredients = recipe.get("recipe_ingredients") or []
-        raw_ingredients.sort(key=lambda i: i.get("order_index") or 0)
-        ingredients = [
-            {
-                "name": i.get("name", ""),
-                "quantity": i.get("quantity"),
-                "unit": i.get("unit") or "",
-            }
-            for i in raw_ingredients
-        ]
-        meals.append({
-            "date": row.get("date", ""),
-            "meal_name": meal_name,
-            "category": recipe.get("category") or "",
-            "description": recipe.get("description") or "",
-            "energy_kcal": recipe.get("energy_kcal"),
-            "proteins_g": recipe.get("proteins_g"),
-            "carbohydrates_g": recipe.get("carbohydrates_g"),
-            "fat_g": recipe.get("fat_g"),
-            "fiber_g": recipe.get("fiber_g"),
-            "ingredients": ingredients,
-        })
-
-    log.info("Keukenbaas: %d meals fetched (%s → %s)", len(meals), start, end)
-    return meals
-
-
 def generate_recovery_advice(
     past_workouts: list[dict],
     upcoming_workout: dict | None,
     barbell_lifts: dict,
     athlete_profile: dict,
     today: "date_cls | None" = None,
-    meals: list[dict] | None = None,
     strava_data: "dict | None" = None,
     health_input: "dict | None" = None,
     signed_up_times: dict[str, str] | None = None,
@@ -2198,39 +2122,6 @@ def generate_recovery_advice(
     skill_focus_text = "\n".join(f"- {s}" for s in athlete_profile.get("skill_focus", []))
 
     today_str = _nl_date(today.isoformat()) if today else "unknown"
-
-    # Build meal context: recent dinners + upcoming dinner on next workout day
-    meals_text = ""
-    if meals:
-        today_iso = today.isoformat() if today else ""
-        upcoming_date = upcoming_workout.get("date", "") if upcoming_workout else ""
-        recent = [m for m in meals if m["date"] < today_iso][-5:]
-        upcoming_meal = next((m for m in meals if m["date"] == upcoming_date), None)
-        if recent or upcoming_meal:
-            meals_text = "\n\nMeal information (evening meals from Keukenbaas):\n"
-            if recent:
-                meals_text += "Recent meals:\n"
-                for m in recent:
-                    meals_text += f"- {m['date']}: {m['meal_name']}"
-                    if m['category']:
-                        meals_text += f" ({m['category']})"
-                    meals_text += "\n"
-            if upcoming_meal:
-                meals_text += f"Evening meal on the day of the next workout ({upcoming_date}): {upcoming_meal['meal_name']}"
-                if upcoming_meal['category']:
-                    meals_text += f" ({upcoming_meal['category']})"
-                meals_text += "\n"
-                nutrition_parts = []
-                for label, key in [("kcal", "energy_kcal"), ("protein", "proteins_g"), ("carbs", "carbohydrates_g"), ("fat", "fat_g"), ("fiber", "fiber_g")]:
-                    val = upcoming_meal.get(key)
-                    if val is not None:
-                        nutrition_parts.append(f"{label}: {val}")
-                if nutrition_parts:
-                    meals_text += f"  Nutritional values: {', '.join(nutrition_parts)}\n"
-                if upcoming_meal.get("ingredients"):
-                    for ing in upcoming_meal["ingredients"]:
-                        qty = f"{ing['quantity']} {ing['unit']}".strip() if ing.get("quantity") else ""
-                        meals_text += f"  • {ing['name']}{': ' + qty if qty else ''}\n"
 
     # Build health input block (subjectieve hersteldata van atleet)
     # Sleep quality is intentionally excluded here — use the automatic Garmin sleep
@@ -2597,7 +2488,7 @@ Use this to assess the actual intensity, NOT just the WOD description:
 {past_text if past_text.strip() else "No recent workouts known."}
 {past_personal_text}
 {upcoming_workout_label}:
-{upcoming_text}{upcoming_timing_context}{upcoming_personal_text}{running_plan_text}{meals_text}{env_block}
+{upcoming_text}{upcoming_timing_context}{upcoming_personal_text}{running_plan_text}{env_block}
 {pr_text}{prev_advice_text}{deload_block}
 Provide advice on:
 1. **Recovery level** — are there muscle groups that need extra rest based on recent workouts?{"  Use the subjective recovery data (sleep, energy, muscle soreness) as the primary physiological recovery indicator. Use the Strava workout data (heart rate, duration) to assess the actual training load per session. If a subjective metric (e.g. sleep) is consistently at the same level over multiple weeks, treat it as the athlete's personal baseline — do not flag it as a persistent problem unless it has clearly worsened." if health_input else ""}{"  The ACWR ratio indicates training load: check if there is a pattern with the previous advice." if acwr else ""}
@@ -2627,7 +2518,6 @@ def generate_workout_plans(
     upcoming_workouts: list[dict],
     barbell_lifts: dict,
     athlete_profile: dict,
-    meals: list[dict] | None = None,
     signed_up_times: dict[str, str] | None = None,
     health_input: dict | None = None,
     health_history: list[dict] | None = None,
@@ -2809,16 +2699,6 @@ def generate_workout_plans(
             if accessory_titles else ""
         )
 
-        # Meal context for this workout day
-        meal_context = ""
-        if meals:
-            day_meal = next((m for m in meals if m["date"] == date), None)
-            if day_meal:
-                meal_context = (
-                    f"\nEvening meal on this day (Keukenbaas): {day_meal['meal_name']}"
-                    + (f" ({day_meal['category']})" if day_meal.get("category") else "")
-                )
-
         skill_focus_text = "\n".join(
             f"- {s}" for s in athlete_profile.get("skill_focus", [])
         )
@@ -2890,7 +2770,7 @@ Barbell maxima (kg):
 Weight notation: If weights are noted as "X/Y lbs" or "X/Y kg", always use the first number (X) — that is the men's weight.
 
 Main workout ({date} — {title}):
-{description}{notes_context}{accessory_context}{meal_context}
+{description}{notes_context}{accessory_context}
 {team_context}{timing_context}{env_context}
 The execution plan must ONLY cover the main workout above. Do not address accessory work.
 
@@ -3089,9 +2969,8 @@ def _load_previous_coach_context(gist_id: str, token: str) -> dict:
       - barbell_lifts_history: list of daily barbell snapshots
       - recovery_advice_history: list of {date, advice} entries (last 3 days)
       - _full: full contents of sugarwod_wod.json (used for HEALTH_ONLY / SugarWOD-only caching)
-      - _keukenbaas: cached meals from keukenbaas_meals.json
     """
-    empty = {"barbell_lifts_history": [], "recovery_advice_history": [], "_full": {}, "_keukenbaas": [], "_mfp": None, "_personal_events": [], "_running_plan": {}}
+    empty = {"barbell_lifts_history": [], "recovery_advice_history": [], "_full": {}, "_personal_events": [], "_running_plan": {}}
     try:
         resp = requests.get(
             f"https://api.github.com/gists/{gist_id}",
@@ -3104,10 +2983,6 @@ def _load_previous_coach_context(gist_id: str, token: str) -> dict:
         if not raw:
             return empty
         existing = json.loads(raw)
-        meals_raw = files.get("keukenbaas_meals.json", {}).get("content", "")
-        cached_meals = json.loads(meals_raw).get("meals", []) if meals_raw else []
-        mfp_raw = files.get("myfitnesspal_nutrition.json", {}).get("content", "")
-        cached_mfp = json.loads(mfp_raw) if mfp_raw else None
         personal_events_raw = files.get("personal_events.json", {}).get("content", "")
         personal_events = json.loads(personal_events_raw).get("events", []) if personal_events_raw else []
         running_plan_raw = files.get("running_plan.json", {}).get("content", "")
@@ -3116,8 +2991,6 @@ def _load_previous_coach_context(gist_id: str, token: str) -> dict:
             "barbell_lifts_history": existing.get("barbell_lifts_history", []),
             "recovery_advice_history": existing.get("recovery_advice_history", []),
             "_full": existing,
-            "_keukenbaas": cached_meals,
-            "_mfp": cached_mfp,
             "_personal_events": personal_events,
             "_running_plan": running_plan,
         }
@@ -3126,7 +2999,7 @@ def _load_previous_coach_context(gist_id: str, token: str) -> dict:
         return empty
 
 
-def save_to_gist(gist_id: str, token: str, wod_data: dict, meals: list[dict] | None = None, mfp_data: dict | None = None) -> None:
+def save_to_gist(gist_id: str, token: str, wod_data: dict) -> None:
     today_str = datetime.now(AMS).date().isoformat()
 
     # Accumulate barbell lifts history (passed via wod_data to avoid extra gist read)
@@ -3158,18 +3031,6 @@ def save_to_gist(gist_id: str, token: str, wod_data: dict, meals: list[dict] | N
             "content": json.dumps(wod_data, ensure_ascii=False, indent=2)
         }
     }
-    if meals is not None:
-        files["keukenbaas_meals.json"] = {
-            "content": json.dumps(
-                {"meals": meals, "fetched_at": datetime.now(timezone.utc).isoformat()},
-                ensure_ascii=False,
-                indent=2,
-            )
-        }
-    if mfp_data is not None:
-        files["myfitnesspal_nutrition.json"] = {
-            "content": json.dumps(mfp_data, ensure_ascii=False, indent=2)
-        }
     payload = {"files": files}
     resp = requests.patch(
         f"https://api.github.com/gists/{gist_id}",
@@ -3221,15 +3082,11 @@ def main() -> int:
     # Load Gist cache once — used by both modes to avoid duplicate API calls.
     prev_coach_ctx: dict = {"barbell_lifts_history": [], "recovery_advice_history": []}
     cached_gist: dict = {}
-    cached_keukenbaas: list = []
-    cached_mfp_data: dict | None = None
     personal_events: list[dict] = []
     running_plan: dict = {}
     if gist_id and token:
         full_ctx = _load_previous_coach_context(gist_id, token)
         cached_gist = full_ctx.pop("_full", {})
-        cached_keukenbaas = full_ctx.pop("_keukenbaas", [])
-        cached_mfp_data = full_ctx.pop("_mfp", None)
         personal_events = full_ctx.pop("_personal_events", [])
         running_plan = full_ctx.pop("_running_plan", {})
         prev_coach_ctx = full_ctx
@@ -3288,9 +3145,6 @@ def main() -> int:
             log.error("No workouts fetched")
             return 1
 
-        # Fetch Keukenbaas meal data (past 14 days + next 7 days)
-        keukenbaas_meals = fetch_keukenbaas_meals()
-
     else:
         # ── HEALTH_ONLY MODE: Use cached SugarWOD data from Gist ────────────
         log.info("HEALTH_ONLY modus: gecachte SugarWOD data geladen uit Gist")
@@ -3300,7 +3154,6 @@ def main() -> int:
         personal_records = cached_gist.get("personal_records", [])
         benchmark_workouts = cached_gist.get("benchmark_workouts", [])
         athlete_logbook = []
-        keukenbaas_meals = cached_keukenbaas
         if not workouts:
             log.warning("HEALTH_ONLY: geen gecachte workouts in Gist — coach context beperkt")
 
@@ -3385,33 +3238,12 @@ def main() -> int:
             except Exception as exc:
                 log.warning("Withings fetch mislukt: %s", exc)
 
-        # MyFitnessPal (via python-myfitnesspal library, geen Playwright nodig)
-        skip_mfp = os.environ.get("SKIP_MYFITNESSPAL", "false").lower() in ("true", "1", "yes")
-        mfp_data: dict | None = None
-        if skip_mfp:
-            log.info("MyFitnessPal fetch overgeslagen (SKIP_MYFITNESSPAL=true)")
-            mfp_data = cached_mfp_data
-        else:
-            try:
-                from fetch_myfitnesspal import fetch_myfitnesspal_data  # noqa: PLC0415
-                mfp_data = fetch_myfitnesspal_data(days=7)
-                if mfp_data:
-                    n_days = len((mfp_data.get("diary") or {}).get("by_date") or {})
-                    log.info("MyFitnessPal data opgehaald: %d dagen", n_days)
-                else:
-                    log.info("Geen MyFitnessPal data beschikbaar (secrets ontbreken of geen data)")
-                    mfp_data = cached_mfp_data
-            except Exception as exc:
-                log.warning("MyFitnessPal fetch mislukt: %s", exc)
-                mfp_data = cached_mfp_data
-
     else:
         # ── SUGARWOD MODE: Use cached health data from Gist ─────────────────
         strava_data = cached_gist.get("strava_data")
         intervals_data = cached_gist.get("intervals_data")
         withings_data = cached_gist.get("withings_data")
-        mfp_data = cached_mfp_data
-        log.info("SugarWOD modus: gecachte health data (Strava/Intervals/Withings/MFP) geladen uit Gist")
+        log.info("SugarWOD modus: gecachte health data (Strava/Intervals/Withings) geladen uit Gist")
 
     # Subjectieve hersteldata (sliders) is verwijderd uit de UI — niet meer gebruiken.
     health_input: dict | None = None
@@ -3465,7 +3297,6 @@ def main() -> int:
     else:
         workout_plans = generate_workout_plans(
             upcoming_workouts, barbell_lifts, ATHLETE_PROFILE,
-            meals=keukenbaas_meals,
             signed_up_times=signed_up_times,
             health_input=health_input,
             health_history=health_history,
@@ -3543,7 +3374,6 @@ def main() -> int:
                  len(past_sportbit_dates), len([w for w in attended_workouts if w.get("description")]))
         recovery_advice = generate_recovery_advice(
             attended_workouts[:10], next_workout, barbell_lifts, ATHLETE_PROFILE, today,
-            meals=keukenbaas_meals,
             strava_data=strava_data,
             health_input=health_input,
             signed_up_times=signed_up_times,
@@ -3582,7 +3412,6 @@ def main() -> int:
         log.info("Coach advice: %d SugarWOD logbook entries", len(attended_workouts))
         recovery_advice = generate_recovery_advice(
             attended_workouts[:5], next_workout, barbell_lifts, ATHLETE_PROFILE, today,
-            meals=keukenbaas_meals,
             strava_data=strava_data,
             health_input=health_input,
             signed_up_times=signed_up_times,
@@ -3609,7 +3438,6 @@ def main() -> int:
         log.info("Coach advice fallback: %d programmed past workouts", len(past_workouts_sorted))
         recovery_advice = generate_recovery_advice(
             past_workouts_sorted[:3], next_workout, barbell_lifts, ATHLETE_PROFILE,
-            meals=keukenbaas_meals,
             strava_data=strava_data,
             health_input=health_input,
             signed_up_times=signed_up_times,
@@ -3643,7 +3471,6 @@ def main() -> int:
         "intervals_data": intervals_data,
         "withings_data": withings_data,
         "environmental_data": env_data,
-        "myfitnesspal_data": mfp_data,
         "fetched_at": datetime.now(timezone.utc).isoformat(),
         # Internal keys consumed by save_to_gist() — removed before saving
         "_barbell_lifts_history_prev": prev_coach_ctx["barbell_lifts_history"],
@@ -3652,7 +3479,7 @@ def main() -> int:
 
     if gist_id and token:
         try:
-            save_to_gist(gist_id, token, wod_data, meals=keukenbaas_meals, mfp_data=mfp_data)
+            save_to_gist(gist_id, token, wod_data)
         except requests.HTTPError as exc:
             log.error("Failed to save WOD to Gist: %s", exc)
             return 1

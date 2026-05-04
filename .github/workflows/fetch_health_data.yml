@@ -21,11 +21,6 @@ on:
         required: false
         default: 'false'
         type: boolean
-      skip_myfitnesspal:
-        description: 'MyFitnessPal data overslaan'
-        required: false
-        default: 'false'
-        type: boolean
 
 jobs:
   refresh-health:
@@ -56,12 +51,7 @@ jobs:
           WITHINGS_REFRESH_TOKEN: ${{ secrets.WITHINGS_REFRESH_TOKEN }}
           WAQI_API_TOKEN: ${{ secrets.WAQI_API_TOKEN }}
           HEALTH_ONLY: 'true'
-          MFP_USERNAME: ${{ secrets.MFP_USERNAME }}
-          MFP_SESSION_TOKEN: ${{ secrets.MFP_SESSION_TOKEN }}
-          MFP_CF_CLEARANCE: ${{ secrets.MFP_CF_CLEARANCE }}
-          MFP_REMEMBER_ME: ${{ secrets.MFP_REMEMBER_ME }}
           SKIP_STRAVA: ${{ inputs.skip_strava || 'false' }}
           SKIP_WITHINGS: ${{ inputs.skip_withings || 'false' }}
           SKIP_INTERVALS: ${{ inputs.skip_intervals || 'false' }}
-          SKIP_MYFITNESSPAL: ${{ inputs.skip_myfitnesspal || 'false' }}
         run: python3 fetch_sugarwod.py
