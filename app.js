@@ -244,8 +244,6 @@
     let healthInput = {}; // Subjectieve hersteldata {slaap, energie, spierpijn, stress}
     let healthHistory = []; // [{date, slaap, energie, spierpijn, stress}]
     let classCapacity = {}; // {"YYYY-MM-DD_HH:MM": {current, max, checked_at}}
-    let keukenbaasData = null; // {meals: [...], fetched_at}
-    let mfpData = null;        // {diary: {by_date: {...}}, fetched_at}
     let personalEvents = []; // [{id, title, date, time?, location?, notes?, created_at}]
     let intervalsData = null;   // {wellness: {by_date: {...}}, activities: {by_date: {...}}, fetched_at}
     let withingsData = null;    // {measurements: [...], fetched_at}
@@ -467,18 +465,6 @@
           const st = JSON.parse(stateFile.content);
           classCapacity = st.class_capacity || {};
         } catch(e) {}
-      }
-
-      // keukenbaas_meals.json
-      const mealsFile = files['keukenbaas_meals.json'];
-      if (mealsFile) {
-        try { keukenbaasData = JSON.parse(mealsFile.content); } catch(e) {}
-      }
-
-      // myfitnesspal_nutrition.json
-      const mfpFile = files['myfitnesspal_nutrition.json'];
-      if (mfpFile) {
-        try { mfpData = JSON.parse(mfpFile.content); } catch(e) {}
       }
 
       // personal_events.json
@@ -1359,10 +1345,6 @@
       const est5k = (rawEst && rawEst <= 32*60) ? rawEst : null;
       const fiveK = est5k ? `${Math.floor(est5k/60)}:${String(est5k%60).padStart(2,'0')}` : '—';
 
-      // Nutrition
-      const mealsHtml = renderMealsBlock(); if (mealsHtml) h += mealsHtml;
-      const mfpHtml = renderMfpBlock(); if (mfpHtml) h += mfpHtml;
-
       // Running progress
       if (est5k) {
         const goal=26*60, start=32*60;
@@ -1497,8 +1479,8 @@
         { btnId:'signupBtn', statusId:'signupStatus', lastRunId:'signupLastRun', workflowFile:'autosignup.yml', icon:'⚡', title:'Inschrijven', desc:'CrossFit auto-inschrijving & Google Calendar sync', fn:'triggerSignup()', cls:'' },
         { btnId:'syncBtn', statusId:'syncStatus', lastRunId:'syncLastRun', workflowFile:'fetch_sugarwod.yml', icon:'↻', title:'SugarWOD Sync', desc:'WOD, kracht, persoonlijke records, AI coaching', fn:'triggerSync()', cls:'info',
           extras:[{id:'skipAISync',label:'AI coaching overslaan'}] },
-        { btnId:'healthBtn', statusId:'healthStatus', lastRunId:'healthLastRun', workflowFile:'fetch_health_data.yml', icon:'♥', title:'Health Refresh', desc:'Strava, Intervals.icu, Withings, MyFitnessPal, omgevingsdata', fn:'triggerHealthRefresh()', cls:'purple',
-          extras:[{id:'skipStravaHealth',label:'Strava overslaan'},{id:'skipIntervalsHealth',label:'Intervals.icu overslaan'},{id:'skipWithingsHealth',label:'Withings overslaan'},{id:'skipMFPHealth',label:'MyFitnessPal overslaan'}] },
+        { btnId:'healthBtn', statusId:'healthStatus', lastRunId:'healthLastRun', workflowFile:'fetch_health_data.yml', icon:'♥', title:'Health Refresh', desc:'Strava, Intervals.icu, Withings, omgevingsdata', fn:'triggerHealthRefresh()', cls:'purple',
+          extras:[{id:'skipStravaHealth',label:'Strava overslaan'},{id:'skipIntervalsHealth',label:'Intervals.icu overslaan'},{id:'skipWithingsHealth',label:'Withings overslaan'}] },
         { btnId:'runningPlanBtn', statusId:'runningPlanStatus', lastRunId:'runningLastRun', workflowFile:'generate_running_workout.yml', icon:'🏃', title:'Hardloopplan', desc:'Nieuw hardloopschema genereren via Claude', fn:'triggerRunningPlan()', cls:'success' },
         { btnId:'repushBtn', statusId:'repushStatus', lastRunId:'repushLastRun', workflowFile:'repush_workouts.yml', icon:'↑', title:'Sync naar Garmin', desc:'Bestaande workouts opnieuw pushen naar intervals.icu / Garmin', fn:'triggerRepush()', cls:'success' },
         { btnId:'openGymBtn', statusId:'openGymStatus', lastRunId:'openGymLastRun', workflowFile:'generate_open_gym_program.yml', icon:'🏋️', title:'Open Gym Programma', desc:'Genereer een persoonlijk programma voor je eerstvolgende Open Gym sessie', fn:'triggerOpenGymProgram()', cls:'info' },
@@ -1627,7 +1609,6 @@
       const skipStrava = document.getElementById('skipStravaHealth').checked;
       const skipIntervals = document.getElementById('skipIntervalsHealth').checked;
       const skipWithings = document.getElementById('skipWithingsHealth').checked;
-      const skipMFP = document.getElementById('skipMFPHealth').checked;
 
       if (!token) {
         statusEl.textContent = 'Vul eerst je GitHub Token in (nodig om workflow te starten)';
@@ -1647,7 +1628,6 @@
         if (skipStrava) inputs.skip_strava = true;
         if (skipIntervals) inputs.skip_intervals = true;
         if (skipWithings) inputs.skip_withings = true;
-        if (skipMFP) inputs.skip_myfitnesspal = true;
 
         const resp = await fetch(
           'https://api.github.com/repos/ralphdeleeuw/sportbit/actions/workflows/fetch_health_data.yml/dispatches',
@@ -2359,112 +2339,6 @@
     }
 
     // ── end Oura/Withings/Environmental helpers ──────────────────────────
-
-    // ── Keukenbaas meals ─────────────────────────────────────────────────
-
-    function renderMealsBlock() {
-      if (!keukenbaasData || !keukenbaasData.meals || keukenbaasData.meals.length === 0) return '';
-      const today = new Date().toISOString().slice(0, 10);
-      // Show meals for the next 7 days starting today
-      const meals = keukenbaasData.meals
-        .filter(m => m.date >= today)
-        .slice(0, 7);
-      if (meals.length === 0) return '';
-
-      const rows = meals.map(m => {
-        const d = new Date(m.date + 'T00:00:00');
-        const label = `${DAY_NL[d.getDay()]} ${d.getDate()}`;
-        const kcal = m.energy_kcal ? `${Math.round(m.energy_kcal)} kcal` : '';
-        return `<div class="meal-row">
-          <div class="meal-date">${label}</div>
-          <div class="meal-name">${escapeHtml(m.meal_name)}</div>
-          ${kcal ? `<div class="meal-kcal">${kcal}</div>` : ''}
-        </div>`;
-      }).join('');
-
-      return `<div class="meals-block">
-        <div class="meals-block-label">Maaltijden komende week</div>
-        ${rows}
-      </div>`;
-    }
-
-    function renderMfpBlock() {
-      const byDate = mfpData?.diary?.by_date;
-      if (!byDate) return '';
-      const entries = Object.entries(byDate)
-        .filter(([, d]) => d.calories > 0)
-        .sort(([a], [b]) => b.localeCompare(a))
-        .slice(0, 7);
-      if (entries.length === 0) return '';
-
-      const pct = (val, goal) => goal ? Math.round(val / goal * 100) : null;
-      const pctSpan = (p) => {
-        if (p == null) return '';
-        // Spieropbouw: meer eten is positief — rood alleen bij te weinig
-        const c = p >= 90 ? '#2ecc71' : p >= 70 ? '#f39c12' : '#e74c3c';
-        return ` <span style="color:${c};font-size:0.8em">${p}%</span>`;
-      };
-      const statStr = (label, val, goalVal, unit) => {
-        const p = pct(val, goalVal);
-        const goalPart = goalVal ? `<span style="color:#999">/${Math.round(goalVal)}</span>` : '';
-        return `<span class="mfp-stat"><span style="color:#aaa;font-size:0.8em">${label}</span> <strong>${Math.round(val)}</strong>${goalPart}${unit}${pctSpan(p)}</span>`;
-      };
-
-      const rows = entries.map(([dateStr, d]) => {
-        const dt = new Date(dateStr + 'T00:00:00');
-        const label = `${DAY_NL[dt.getDay()]} ${dt.getDate()}`;
-        const g = d.goal;
-        return `<div class="mfp-day-row">
-          <div class="meal-date">${label}</div>
-          <div class="mfp-stats">
-            ${statStr('kcal', d.calories, g?.calories, '')}
-            ${statStr('E', d.protein_g, g?.protein_g, 'g')}
-            ${statStr('KH', d.carbs_g, g?.carbs_g, 'g')}
-            ${statStr('V', d.fat_g, g?.fat_g, 'g')}
-            ${d.fiber_g > 0 ? statStr('vezel', d.fiber_g, g?.fiber_g, 'g') : ''}
-            ${d.sugar_g > 0 ? statStr('suiker', d.sugar_g, g?.sugar_g, 'g') : ''}
-            ${d.water_cups != null ? `<span class="mfp-stat">💧 <strong>${d.water_cups}</strong> cups</span>` : ''}
-          </div>
-        </div>`;
-      }).join('');
-
-      // Gemiddelde over beschikbare dagen
-      const n = entries.length;
-      const avg = (key) => entries.reduce((s, [, d]) => s + (d[key] || 0), 0) / n;
-      const g0 = entries[0][1].goal || {};
-      const avgRow = `<div class="mfp-day-row" style="border-top:1px solid #2a5020;margin-top:0.3rem;padding-top:0.6rem">
-        <div class="meal-date" style="color:#aaa">∅ ${n}d</div>
-        <div class="mfp-stats">
-          ${statStr('kcal', avg('calories'), g0.calories, '')}
-          ${statStr('E', avg('protein_g'), g0.protein_g, 'g')}
-          ${statStr('KH', avg('carbs_g'), g0.carbs_g, 'g')}
-          ${statStr('V', avg('fat_g'), g0.fat_g, 'g')}
-          ${entries.some(([,d]) => d.fiber_g > 0) ? statStr('vezel', avg('fiber_g'), g0.fiber_g, 'g') : ''}
-          ${entries.some(([,d]) => d.sugar_g > 0) ? statStr('suiker', avg('sugar_g'), g0.sugar_g, 'g') : ''}
-        </div>
-      </div>`;
-
-      const fetchedAt = mfpData?.fetched_at
-        ? (() => {
-            const d = new Date(mfpData.fetched_at);
-            const now = new Date();
-            const diffMin = Math.round((now - d) / 60000);
-            const timeStr = d.toLocaleTimeString('nl-NL', { hour: '2-digit', minute: '2-digit' });
-            const age = diffMin < 60
-              ? `${diffMin}m geleden`
-              : diffMin < 1440
-                ? `${Math.round(diffMin / 60)}u geleden`
-                : `${Math.round(diffMin / 1440)}d geleden`;
-            return `<span style="color:#666;font-size:0.75em;float:right">${timeStr} (${age})</span>`;
-          })()
-        : '';
-
-      return `<div class="meals-block">
-        <div class="meals-block-label">MyFitnessPal — gegeten (laatste dagen)${fetchedAt}</div>
-        ${rows}
-        ${avgRow}
-      </div>`;
-    }
 
     // ── Barbell progressie (chart + table) ────────────────────────────────
 
