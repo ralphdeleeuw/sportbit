@@ -1,7 +1,7 @@
 {
-  "name": "CrossFit Hilversum — Mijn Lessen",
-  "short_name": "CrossFit",
-  "description": "Bekijk je CrossFit Hilversum inschrijvingen, automatisch bijgehouden.",
+  "name": "RalphFit — Mijn Lessen",
+  "short_name": "RalphFit",
+  "description": "Bekijk je RalphFit trainingen en inschrijvingen, automatisch bijgehouden.",
   "start_url": "/sportbit/",
   "scope": "/sportbit/",
   "display": "standalone",
