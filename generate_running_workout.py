@@ -353,9 +353,12 @@ def _build_claude_context(ctx: dict) -> str:
                 run_lines.append(" ".join(lap_parts))
 
     running_plan = ctx["running_plan"]
-    # Weeknummer op basis van startdatum plan; anders ophogen vanuit vorig plan
+    health_input = ctx.get("health_input") or {}
+
+    # Weeknummer: health_input.program_start_date heeft prioriteit (override voor correctie),
+    # daarna de opgeslagen plan_start_date, anders week 1.
     week_number = 1
-    plan_start_str = running_plan.get("plan_start_date")
+    plan_start_str = health_input.get("program_start_date") or running_plan.get("plan_start_date")
     if plan_start_str:
         try:
             start_date = date.fromisoformat(plan_start_str)
@@ -364,8 +367,6 @@ def _build_claude_context(ctx: dict) -> str:
             week_number = running_plan.get("week_number", 1)
     else:
         week_number = running_plan.get("week_number", 1)
-
-    health_input = ctx.get("health_input") or {}
 
     # Optionele datumoverschrijvingen via health_input.json ("run_1", "run_2")
     # Formaat: "YYYY-MM-DDTHH:MM" of "YYYY-MM-DD" (tijd valt terug op default)
@@ -1406,8 +1407,10 @@ def main() -> None:
 
     # Annoteer week_number in specs voor beschrijvingstekst
     running_plan = ctx.get("running_plan", {})
+    health_input = ctx.get("health_input") or {}
     today = date.today()
-    plan_start_str = running_plan.get("plan_start_date")
+    # health_input.program_start_date heeft prioriteit (voor handmatige correctie)
+    plan_start_str = health_input.get("program_start_date") or running_plan.get("plan_start_date")
     if plan_start_str:
         try:
             start = date.fromisoformat(plan_start_str)
@@ -1420,7 +1423,6 @@ def main() -> None:
         s.setdefault("week_number", week_number)
 
     # Annoteer de werkelijke starttijden vanuit de context (zodat _build_intervals_event ze kan gebruiken)
-    health_input = ctx.get("health_input") or {}
     _run1_raw = health_input.get("run_1", "")
     _run2_raw = health_input.get("run_2", "")
     _run1_time = (datetime.fromisoformat(_run1_raw).strftime("%H:%M") if "T" in _run1_raw else "20:00") if _run1_raw else "20:00"
