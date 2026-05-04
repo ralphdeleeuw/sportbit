@@ -1,13 +1,7 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
   <rect width="512" height="512" rx="80" fill="#0d0d0d"/>
-  <!-- Barbell -->
-  <rect x="96" y="236" width="320" height="40" rx="8" fill="#e8ff3c"/>
-  <!-- Left weight outer -->
-  <rect x="80" y="176" width="40" height="160" rx="12" fill="#e8ff3c"/>
-  <!-- Right weight outer -->
-  <rect x="392" y="176" width="40" height="160" rx="12" fill="#e8ff3c"/>
-  <!-- Left weight inner -->
-  <rect x="136" y="200" width="32" height="112" rx="8" fill="#e8ff3c"/>
-  <!-- Right weight inner -->
-  <rect x="344" y="200" width="32" height="112" rx="8" fill="#e8ff3c"/>
+  <!-- Lightning bolt -->
+  <path d="M185 48 L82 270 L152 270 L102 464 L210 244 L142 244 Z" fill="#e8ff3c"/>
+  <!-- Bold R merging with bolt -->
+  <text x="175" y="398" font-family="Arial Black, Impact, sans-serif" font-weight="900" font-size="272" fill="#e8ff3c">R</text>
 </svg>

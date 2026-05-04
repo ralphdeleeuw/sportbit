@@ -28,7 +28,7 @@ self.addEventListener('activate', e => {
 self.addEventListener('push', e => {
   const data = e.data?.json() ?? {};
   e.waitUntil(
-    self.registration.showNotification(data.title ?? 'Sportbit', {
+    self.registration.showNotification(data.title ?? 'RalphFit', {
       body: data.body ?? '',
       icon: '/sportbit/icon.svg',
       badge: '/sportbit/icon-maskable.svg',
