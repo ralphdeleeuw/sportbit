@@ -180,9 +180,6 @@ def _load_fitness_context(gist_id: str, token: str) -> dict:
     plan_raw = files.get("running_plan.json", "")
     running_plan = _parse_json(plan_raw, "running_plan.json") or {}
 
-    mfp_raw = files.get("myfitnesspal_nutrition.json", "")
-    mfp_data = _parse_json(mfp_raw, "myfitnesspal_nutrition.json") or {}
-
     personal_events_raw = files.get("personal_events.json", "")
     personal_events_data = _parse_json(personal_events_raw, "personal_events.json") or {}
     personal_events: list[dict] = personal_events_data.get("events", []) if isinstance(personal_events_data, dict) else []
@@ -261,7 +258,6 @@ def _load_fitness_context(gist_id: str, token: str) -> dict:
         "running_plan": running_plan,
         "upcoming_crossfit": upcoming_crossfit,
         "recent_crossfit": recent_crossfit,
-        "mfp_by_date": (mfp_data.get("diary") or {}).get("by_date") or {},
         "personal_events": upcoming_personal_events,
     }
 
@@ -478,23 +474,6 @@ def _build_claude_context(ctx: dict) -> str:
             "Other planned activities (consider recovery — avoid hard runs the day before):\n"
             + "\n".join(pe_lines)
         )
-
-    # MFP nutrition
-    mfp_by_date = ctx.get("mfp_by_date") or {}
-    mfp_dates = sorted(mfp_by_date.keys(), reverse=True)[:5]
-    if mfp_dates:
-        mfp_lines = []
-        for d in mfp_dates:
-            m = mfp_by_date[d]
-            cal = m.get("calories", 0)
-            if not cal:
-                continue
-            prot = round(m.get("protein_g") or 0)
-            carbs = round(m.get("carbs_g") or 0)
-            fat = round(m.get("fat_g") or 0)
-            mfp_lines.append(f"  {d}: {cal} kcal, {prot}g protein, {carbs}g carbs, {fat}g fat")
-        if mfp_lines:
-            sections.append("Nutrition last 5 days (MyFitnessPal):\n" + "\n".join(mfp_lines))
 
     if health_lines:
         sections.append("Subjective health scores:\n" + "\n".join(health_lines))

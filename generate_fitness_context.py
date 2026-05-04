@@ -433,74 +433,12 @@ def section_wods(wod_data: dict | None, workout_log: dict | None) -> str:
     return "\n".join(lines)
 
 
-def section_nutrition(mfp_data: dict | None = None) -> str:
+def section_nutrition() -> str:
     lines = [_section("Voeding")]
     lines.append(f"**Ontbijt ({BREAKFAST['time']}):** {BREAKFAST['description']}\n")
     lines.append(f"**Diner:** rondom {DINNER_TIME}")
-
-    diary_by_date: dict = {}
-    if mfp_data:
-        diary_by_date = (mfp_data.get("diary") or {}).get("by_date") or {}
-
-    if diary_by_date:
-        logged = {d: v for d, v in diary_by_date.items() if v.get("calories", 0) > 0}
-        if logged:
-            lines.append("\n**MyFitnessPal dagboek (laatste 7 dagen):**\n")
-            n = len(logged)
-
-            def avg(key):
-                return sum(v.get(key, 0) for v in logged.values()) / n
-
-            recent_goal = next(
-                (v.get("goal") for v in (logged[d] for d in sorted(logged, reverse=True)) if v.get("goal")),
-                None,
-            )
-
-            def pct_str(val, goal_val):
-                if not goal_val:
-                    return ""
-                p = round(val / goal_val * 100)
-                flag = "✅" if p >= 90 else "⚠️" if p >= 70 else "❌"
-                return f" ({p}% van doel {flag})"
-
-            g = recent_goal or {}
-            avg_fiber = avg("fiber_g")
-            lines.append(
-                f"Gemiddeld per dag ({n} gelogde dag{'en' if n != 1 else ''}): "
-                f"**{round(avg('calories'))} kcal**{pct_str(avg('calories'), g.get('calories'))} | "
-                f"{round(avg('protein_g'))}g eiwit{pct_str(avg('protein_g'), g.get('protein_g'))} | "
-                f"{round(avg('carbs_g'))}g KH{pct_str(avg('carbs_g'), g.get('carbs_g'))} | "
-                f"{round(avg('fat_g'))}g vet{pct_str(avg('fat_g'), g.get('fat_g'))}"
-                + (f" | {round(avg_fiber)}g vezel{pct_str(avg_fiber, g.get('fiber_g'))}" if avg_fiber > 0 else "")
-                + "\n"
-            )
-
-            for date_str in sorted(logged.keys(), reverse=True):
-                day = logged[date_str]
-                dg = day.get("goal") or {}
-                kcal = day["calories"]
-                prot = round(day.get("protein_g", 0))
-                carbs = round(day.get("carbs_g", 0))
-                fat = round(day.get("fat_g", 0))
-                fiber = round(day.get("fiber_g", 0))
-                sugar = round(day.get("sugar_g", 0))
-                parts = [
-                    f"{kcal} kcal{pct_str(kcal, dg.get('calories'))}",
-                    f"{prot}g eiwit{pct_str(prot, dg.get('protein_g'))}",
-                    f"{carbs}g KH{pct_str(carbs, dg.get('carbs_g'))}",
-                    f"{fat}g vet{pct_str(fat, dg.get('fat_g'))}",
-                ]
-                if fiber > 0:
-                    parts.append(f"{fiber}g vezel{pct_str(fiber, dg.get('fiber_g'))}")
-                if sugar > 0:
-                    parts.append(f"{sugar}g suiker")
-                lines.append(f"- **{date_str}**: " + " | ".join(parts))
-        else:
-            lines.append("\n*MyFitnessPal: geen gelogde voeding in de afgelopen 7 dagen.*")
-
     lines.append(
-        "\n*Gebruik bovenstaande tijden en voedingsinfo bij het plannen van pre/post-workout "
-        "voeding in het fitnessplan.*"
+        "\n*Gebruik bovenstaande tijden bij het plannen van pre/post-workout voeding in het fitnessplan.*"
     )
     return "\n".join(lines)
 
@@ -517,8 +455,6 @@ def generate(output_file: str = "fitness_context.md") -> None:
     health_input: dict | None = None
     hi_history: list[dict] = []
     workout_log: dict | None = None
-    mfp_data: dict | None = None
-
     if gist_id and token:
         print("[info] Gist-data ophalen...", file=sys.stderr)
         try:
@@ -538,9 +474,6 @@ def generate(output_file: str = "fitness_context.md") -> None:
             wl_raw = _parse_json(files.get("workout_log.json", ""), "workout_log.json")
             if isinstance(wl_raw, dict):
                 workout_log = {e["date"]: e for e in wl_raw.get("entries", []) if "date" in e}
-            mfp_raw = _parse_json(files.get("myfitnesspal_nutrition.json", ""), "myfitnesspal_nutrition.json")
-            if isinstance(mfp_raw, dict):
-                mfp_data = mfp_raw
             print("[info] Gist-data geladen.", file=sys.stderr)
         except Exception as exc:
             print(f"[waarschuwing] Gist ophalen mislukt: {exc}. Fallback naar hardcoded data.", file=sys.stderr)
@@ -562,7 +495,7 @@ def generate(output_file: str = "fitness_context.md") -> None:
         section_health_metrics(wod_data, health_input, hi_history),
         section_activities(wod_data),
         section_wods(wod_data, workout_log),
-        section_nutrition(mfp_data),
+        section_nutrition(),
         "\n---",
         "\n*Dit document is automatisch gegenereerd door `generate_fitness_context.py`. "
         "Gebruik het als context bij het vragen aan Claude om een persoonlijk fitnessplan.*",
