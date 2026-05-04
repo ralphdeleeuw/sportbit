@@ -150,6 +150,24 @@ def _cancelled_cf_dates(files: dict[str, str]) -> set[str]:
     }
 
 
+def _signed_up_cf_dates(files: dict[str, str]) -> set[str]:
+    """Return dates where the athlete has an active CrossFit sign-up."""
+    raw = files.get("sportbit_state.json", "")
+    if not raw:
+        return set()
+    try:
+        state = json.loads(raw)
+    except json.JSONDecodeError:
+        return set()
+    signed_up: dict = state.get("signed_up", {})
+    cancelled: dict = state.get("cancelled", {})
+    return {
+        info.get("date", "")
+        for event_id, info in signed_up.items()
+        if event_id not in cancelled and info.get("date")
+    }
+
+
 def _load_fitness_context(gist_id: str, token: str) -> dict:
     files = _load_gist(gist_id, token)
 
@@ -165,6 +183,10 @@ def _load_fitness_context(gist_id: str, token: str) -> dict:
     mfp_raw = files.get("myfitnesspal_nutrition.json", "")
     mfp_data = _parse_json(mfp_raw, "myfitnesspal_nutrition.json") or {}
 
+    personal_events_raw = files.get("personal_events.json", "")
+    personal_events_data = _parse_json(personal_events_raw, "personal_events.json") or {}
+    personal_events: list[dict] = personal_events_data.get("events", []) if isinstance(personal_events_data, dict) else []
+
     intervals_data = wod_data.get("intervals_data") or {}
 
     all_wods: list[dict] = wod_data.get("workouts") or []
@@ -173,23 +195,74 @@ def _load_fitness_context(gist_id: str, token: str) -> dict:
     cutoff_recent = (date.today() - timedelta(days=14)).isoformat()
 
     cancelled = _cancelled_cf_dates(files)
+    signed_up_dates = _signed_up_cf_dates(files)
 
-    return {
-        "wellness": intervals_data.get("wellness", {}).get("by_date", {}),
-        "activities": intervals_data.get("activities", {}).get("by_date", {}),
-        "health_input": health_input or {},
-        "running_plan": running_plan,
-        "upcoming_crossfit": [
-            w for w in all_wods
-            if today_str <= w.get("date", "") <= cutoff_upcoming
-            and w.get("date", "") not in cancelled
-        ],
-        "recent_crossfit": [
+    # Upcoming CrossFit: gebruik ingeschreven sessies als die beschikbaar zijn,
+    # anders val terug op alle geplande WODs (user nog niet ingeschreven).
+    upcoming_all = [
+        w for w in all_wods
+        if today_str <= w.get("date", "") <= cutoff_upcoming
+        and w.get("date", "") not in cancelled
+    ]
+    upcoming_signed_up = [w for w in upcoming_all if w.get("date", "") in signed_up_dates]
+    upcoming_crossfit = upcoming_signed_up if upcoming_signed_up else upcoming_all
+
+    # Recent CrossFit: gebruik intervals.icu activiteiten om alleen daadwerkelijk
+    # bijgewoonde sessies te tonen, aangevuld met WOD-beschrijvingen.
+    activities_by_date: dict = intervals_data.get("activities", {}).get("by_date", {})
+    cf_activity_types = {"crossfit", "weight", "strength", "hiit", "weighttraining"}
+    cf_activity_dates: set[str] = {
+        d for d, acts in activities_by_date.items()
+        if any(
+            any(t in (a.get("type") or "").lower() for t in cf_activity_types)
+            for a in acts
+        )
+    }
+    # WOD-data voor recente sessies: alleen op dagen met een echte CF-activiteit
+    wods_by_date: dict[str, dict] = {w.get("date", ""): w for w in all_wods if w.get("date")}
+    recent_crossfit: list[dict] = []
+    for d in sorted(cf_activity_dates):
+        if not (cutoff_recent <= d < today_str):
+            continue
+        cf_acts = [
+            a for a in activities_by_date.get(d, [])
+            if any(t in (a.get("type") or "").lower() for t in cf_activity_types)
+        ]
+        entry: dict = wods_by_date.get(d, {"date": d})
+        entry = dict(entry)  # kopie
+        if cf_acts:
+            act = cf_acts[0]
+            if act.get("duration_min"):
+                entry["duration_min"] = act["duration_min"]
+            if act.get("avg_hr"):
+                entry["avg_hr"] = act["avg_hr"]
+            tl = act.get("training_load") or act.get("trimp")
+            if tl is not None:
+                entry["training_load"] = tl
+        recent_crossfit.append(entry)
+    # Fallback als intervals.icu geen CF-activiteiten heeft: gebruik WOD-schema
+    if not recent_crossfit:
+        recent_crossfit = [
             w for w in all_wods
             if cutoff_recent <= w.get("date", "") < today_str
             and w.get("date", "") not in cancelled
-        ],
+        ]
+
+    # Upcoming personal events (mountainbike, etc.) binnen de planningshorizon
+    upcoming_personal_events = [
+        e for e in personal_events
+        if today_str <= e.get("date", "") <= cutoff_upcoming
+    ]
+
+    return {
+        "wellness": intervals_data.get("wellness", {}).get("by_date", {}),
+        "activities": activities_by_date,
+        "health_input": health_input or {},
+        "running_plan": running_plan,
+        "upcoming_crossfit": upcoming_crossfit,
+        "recent_crossfit": recent_crossfit,
         "mfp_by_date": (mfp_data.get("diary") or {}).get("by_date") or {},
+        "personal_events": upcoming_personal_events,
     }
 
 
@@ -364,16 +437,46 @@ def _build_claude_context(ctx: dict) -> str:
         rcf_lines = []
         for w in sorted(recent_7, key=lambda x: x.get("date", ""), reverse=True):
             d = w.get("date", "")
-            title = w.get("title") or w.get("name") or "WOD"
+            title = w.get("title") or w.get("name") or "CrossFit"
             desc = _strip_html(w.get("description") or "")[:100]
             notes = w.get("athlete_notes") or ""
             line = f"  {d} — {title}"
             if desc:
                 line += f" | {desc}"
+            if w.get("avg_hr"):
+                line += f" | avg HR {w['avg_hr']}bpm"
+            if w.get("duration_min"):
+                line += f" | {w['duration_min']}min"
+            tl = w.get("training_load")
+            if tl is not None:
+                line += f" | TL {round(tl)}"
             if notes:
                 line += f"\n    Your notes: {notes[:100]}"
             rcf_lines.append(line)
-        sections.append("Recent CrossFit sessions (last 7 days):\n" + "\n".join(rcf_lines))
+        sections.append("Recent CrossFit sessions (last 7 days, actual attended):\n" + "\n".join(rcf_lines))
+
+    # Upcoming personal events (mountainbike, etc.)
+    personal_events = ctx.get("personal_events") or []
+    if personal_events:
+        pe_lines = []
+        dag_nl = ["ma", "di", "wo", "do", "vr", "za", "zo"]
+        for e in sorted(personal_events, key=lambda x: x.get("date", "")):
+            d = e.get("date", "")
+            try:
+                dag = dag_nl[date.fromisoformat(d).weekday()]
+            except ValueError:
+                dag = ""
+            title = e.get("title", "Activiteit")
+            line = f"  {d} ({dag}) — {title}"
+            if e.get("time"):
+                line += f" om {e['time']}"
+            if e.get("notes"):
+                line += f" — {e['notes'][:80]}"
+            pe_lines.append(line)
+        sections.append(
+            "Other planned activities (consider recovery — avoid hard runs the day before):\n"
+            + "\n".join(pe_lines)
+        )
 
     # MFP nutrition
     mfp_by_date = ctx.get("mfp_by_date") or {}
@@ -406,6 +509,7 @@ _SYSTEM_PROMPT = """You are a professional running coach. You create training sc
 - Default: Tuesday 20:00 = speed work | Saturday 09:00 = long run
 - The exact dates and times are provided in the context — always use them exactly
 - Use the upcoming CrossFit schedule in the context to avoid scheduling hard speed sessions on days with heavy CrossFit (same day or day after)
+- Also check "Other planned activities" (e.g. mountain biking) — avoid hard speed sessions the day before a physically demanding activity
 
 Pace zones (always calibrate to recovery status via HRV/TSB):
 - Conversational (max):  6:40/km — "no faster than 6:40/km"
@@ -1194,8 +1298,12 @@ def _estimate_5k_seconds(specs: list[dict]) -> int | None:
     return round(race_pace_spm * 5)  # 5 km
 
 
-def _save_plan_to_gist(gist_id: str, token: str, specs: list[dict], week_number: int) -> None:
-    plan_start = specs[0]["date"] if specs else date.today().isoformat()
+def _save_plan_to_gist(
+    gist_id: str, token: str, specs: list[dict], week_number: int, program_start_date: str | None = None
+) -> None:
+    # Bewaar de originele programma-startdatum zodat het weeknummer correct blijft accumuleren.
+    # Gebruik alleen de eerste workoutdatum als er nog geen programma-startdatum is.
+    plan_start = program_start_date or (specs[0]["date"] if specs else date.today().isoformat())
     estimated_5k = _estimate_5k_seconds(specs)
     plan = {
         "generated_at": datetime.now(timezone.utc).isoformat(),
@@ -1350,7 +1458,7 @@ def main() -> None:
     else:
         log.info("GOOGLE_CREDENTIALS / CALENDAR_ID niet ingesteld — Google Agenda sync overgeslagen")
 
-    _save_plan_to_gist(gist_id, github_token, specs, week_number)
+    _save_plan_to_gist(gist_id, github_token, specs, week_number, program_start_date=plan_start_str or None)
 
     ical = _generate_ical(specs)
     _save_ical_to_gist(gist_id, github_token, ical)
