@@ -601,11 +601,12 @@ def run(username: str, password: str, dry_run: bool, days_ahead: int, sync_calen
     if state and capacity_updates:
         state.batch_update_capacity(capacity_updates)
 
-    # Scan ALL upcoming days for manual enrollments, including scheduled days.
+    # Scan ALL upcoming days for manual enrollments, including today and scheduled days.
     # On scheduled days the main loop only handles the one targeted slot; any
     # other manually enrolled class (e.g. Open Gym at a different time, or at
-    # the same time as CrossFit) is detected here.
-    for offset in range(1, days_ahead + 1):
+    # the same time as CrossFit) is detected here. Starting at 0 ensures that
+    # same-day enrollments are picked up when the workflow is triggered manually.
+    for offset in range(0, days_ahead + 1):
         d = today + timedelta(days=offset)
         date_str = d.strftime("%Y-%m-%d")
         if date_str not in events_cache:
