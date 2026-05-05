@@ -53,7 +53,7 @@ import requests
 log = logging.getLogger(__name__)
 
 
-def fetch_strava_data(days: int = 14) -> dict | None:
+def fetch_strava_data(days: int = 28) -> dict | None:
     """
     Haal Strava-activiteiten op voor de afgelopen `days` dagen.
 

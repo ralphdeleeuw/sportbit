@@ -66,7 +66,7 @@ log = logging.getLogger(__name__)
 
 BASE_URL = "https://intervals.icu/api/v1/athlete"
 DAYS_BACK = 30  # ophalen laatste 30 dagen wellness (nodig voor stabiele HRV basislijn)
-ACTIVITY_DAYS_BACK = 21  # ophalen laatste 21 dagen activiteiten
+ACTIVITY_DAYS_BACK = 28  # ophalen laatste 28 dagen activiteiten (nodig voor 7:28 ACWR)
 
 
 def _auth(api_key: str) -> tuple[str, str]:
