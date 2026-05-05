@@ -527,6 +527,19 @@ def _step_to_doc(step: dict) -> dict | None:
         pace_str = s.get("pace_target") or pace_max or pace_min
         return _pace_to_sec_per_km(pace_str) if pace_str else None
 
+    def pace_doc(s: dict) -> dict | None:
+        """Build pace dict for workout_doc: range (value+value2) or single value."""
+        pace_min = s.get("pace_min")
+        pace_max = s.get("pace_max")
+        if pace_min and pace_max:
+            fast = _pace_to_sec_per_km(pace_min)  # lower secs/km = faster
+            slow = _pace_to_sec_per_km(pace_max)  # higher secs/km = slower
+            return {"units": "secs/km", "value": fast, "value2": slow}
+        pace_str = s.get("pace_target") or pace_max or pace_min
+        if pace_str:
+            return {"units": "secs/km", "value": _pace_to_sec_per_km(pace_str)}
+        return None
+
     def pace_range_str(s: dict) -> str:
         """Return 'M:SS-M:SS' range string for ICU text / labels."""
         pace_min = s.get("pace_min")
@@ -561,9 +574,9 @@ def _step_to_doc(step: dict) -> dict | None:
             doc["distance"] = dist_m
         if dur:
             doc["duration"] = dur
-        ps = pace_secs(step)
-        if ps:
-            doc["pace"] = {"units": "secs/km", "value": ps}
+        pd = pace_doc(step)
+        if pd:
+            doc["pace"] = pd
         doc["hr"] = hr_zone
         return doc
 
@@ -581,9 +594,9 @@ def _step_to_doc(step: dict) -> dict | None:
             doc["distance"] = dist_m
         if dur:
             doc["duration"] = dur
-        ps = pace_secs(step)
-        if ps:
-            doc["pace"] = {"units": "secs/km", "value": ps}
+        pd = pace_doc(step)
+        if pd:
+            doc["pace"] = pd
         doc["hr"] = hr_zone
         return doc
 
@@ -605,9 +618,9 @@ def _step_to_doc(step: dict) -> dict | None:
             text = f"Easy run{(' @ ' + pr + '/km') if pr else ''}{hr_str}"
             doc = {"duration": dur}
         doc["text"] = text
-        ps = pace_secs(step)
-        if ps:
-            doc["pace"] = {"units": "secs/km", "value": ps}
+        pd = pace_doc(step)
+        if pd:
+            doc["pace"] = pd
         if hr_zone:
             doc["hr"] = hr_zone
         return doc
@@ -742,19 +755,20 @@ def _build_icu_workout_text(spec: dict) -> str:
         if stype == "warmup":
             dist = step.get("distance_m")
             pr = _pace_range(step)
-            pace_part = f" {pr}" if pr else ""
+            # "pace" keyword after range tells intervals.icu to render needle gauge
+            pace_part = f" {pr} pace" if pr else ""
             if dist:
                 result.append(f"{dist}m{pace_part}{hr_str} Warmup")
         elif stype == "cooldown":
             dist = step.get("distance_m")
             pr = _pace_range(step)
-            pace_part = f" {pr}" if pr else ""
+            pace_part = f" {pr} pace" if pr else ""
             if dist:
                 result.append(f"{dist}m{pace_part}{hr_str} Cooldown")
         elif stype == "run":
             dist = step.get("distance_m")
             pr = _pace_range(step)
-            pace_part = f" {pr}" if pr else ""
+            pace_part = f" {pr} pace" if pr else ""
             if dist:
                 result.append(f"{dist}m{pace_part}{hr_str}")
         elif stype == "rest":
