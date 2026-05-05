@@ -40,6 +40,16 @@
       return days === 1 ? 'gisteren' : `${days} dagen geleden`;
     }
 
+    async function hardRefresh() {
+      const btn = document.querySelector('.refresh-btn');
+      if (btn) { btn.style.opacity = '0.4'; btn.style.pointerEvents = 'none'; }
+      if ('caches' in window) {
+        const keys = await caches.keys();
+        await Promise.all(keys.map(k => caches.delete(k)));
+      }
+      location.reload(true);
+    }
+
     function formatDate(dateStr) {
       const d = new Date(dateStr + 'T00:00:00');
       return `${DAY_NL[d.getDay()]} ${d.getDate()} ${MONTH_NL[d.getMonth()]}`;
@@ -1271,6 +1281,7 @@
       let h = `<div class="today-header">
         <div class="today-date">${dateLabel}</div>
         <div class="today-greeting">${(() => { const h = now.getHours(); return h < 12 ? 'Goedemorgen' : h < 18 ? 'Goedemiddag' : 'Goedenavond'; })()}, Ralph</div>
+        <button class="refresh-btn" onclick="hardRefresh()" title="Ververs pagina">↻</button>
       </div>`;
 
       h += renderHomeWorkoutCard();
