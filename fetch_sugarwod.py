@@ -1882,28 +1882,51 @@ def _nl_date(date_str: str) -> str:
         return date_str
 
 
-def _compute_acwr(strava_data: dict | None) -> dict | None:
-    """Compute a 7:14 Acute:Chronic Workload Ratio from Strava suffer scores.
+def _compute_acwr(
+    strava_data: dict | None,
+    intervals_data: dict | None = None,
+) -> dict | None:
+    """Compute a 7:28 Acute:Chronic Workload Ratio.
 
-    Uses the 14-day Strava window: acute = last 7 days, chronic = last 14 days.
+    Primary source: intervals.icu training_load (covers all Garmin activities incl. CrossFit).
+    Fallback: Strava suffer_score (only activities synced to Strava).
+    Acute window = last 7 days, chronic window = last 28 days (sports science standard).
     Returns None if insufficient data.
     """
-    if not strava_data:
-        return None
-    activities_by_date = strava_data.get("activities_by_date") or {}
-    if len(activities_by_date) < 4:
-        return None
     today = date_cls.today()
+
+    # Build per-day load from intervals.icu (all Garmin activities, most comprehensive)
+    intervals_by_date: dict = {}
+    if intervals_data:
+        for day, acts in (intervals_data.get("activities") or {}).get("by_date", {}).items():
+            total_tl = sum((a.get("training_load") or 0) for a in (acts if isinstance(acts, list) else [acts]))
+            if total_tl > 0:
+                intervals_by_date[day] = total_tl
+
+    # Strava suffer_score as fallback for days not in intervals.icu
+    strava_by_date: dict = {}
+    if strava_data:
+        for day, acts in (strava_data.get("activities_by_date") or {}).items():
+            total_ss = sum((a.get("suffer_score") or 0) for a in acts)
+            if total_ss > 0:
+                strava_by_date[day] = total_ss
+
+    # Prefer intervals.icu; fall back to Strava for missing days
+    combined_by_date = {**strava_by_date, **intervals_by_date}
+    if len(combined_by_date) < 4:
+        return None
+
     acute_total = 0.0
     chronic_total = 0.0
-    for i in range(14):
+    for i in range(28):
         d = (today - timedelta(days=i)).isoformat()
-        day_score = sum((a.get("suffer_score") or 0) for a in activities_by_date.get(d, []))
+        day_score = combined_by_date.get(d, 0.0)
         chronic_total += day_score
         if i < 7:
             acute_total += day_score
+
     acute_avg = acute_total / 7
-    chronic_avg = chronic_total / 14
+    chronic_avg = chronic_total / 28
     if chronic_avg == 0:
         return None
     ratio = round(acute_avg / chronic_avg, 2)
@@ -1915,11 +1938,15 @@ def _compute_acwr(strava_data: dict | None) -> dict | None:
         status = "hoge belasting — extra herstel gewenst"
     else:
         status = "overbelasting — blessurerisico verhoogd"
+    source = "intervals.icu+Strava" if intervals_by_date and strava_by_date else (
+        "intervals.icu" if intervals_by_date else "Strava"
+    )
     return {
         "acute_7d": round(acute_avg, 1),
-        "chronic_14d": round(chronic_avg, 1),
+        "chronic_28d": round(chronic_avg, 1),
         "ratio": ratio,
         "status": status,
+        "source": source,
     }
 
 
@@ -2309,11 +2336,11 @@ def generate_recovery_advice(
         hr_zones_text = ""
 
     # ACWR trainingsbelasting
-    acwr = _compute_acwr(strava_data)
+    acwr = _compute_acwr(strava_data, intervals_data)
     if acwr:
         acwr_text = (
-            f"\nTraining load (ACWR 7:14 days): ratio={acwr['ratio']} — {acwr['status']}"
-            f" (acute avg RE/day: {acwr['acute_7d']}, chronic: {acwr['chronic_14d']})\n"
+            f"\nTraining load (ACWR 7:28 days, source: {acwr['source']}): ratio={acwr['ratio']} — {acwr['status']}"
+            f" (acute avg/day: {acwr['acute_7d']}, chronic: {acwr['chronic_28d']})\n"
         )
     else:
         acwr_text = ""
@@ -2621,11 +2648,11 @@ def generate_workout_plans(
                     _gp.append(f"{_label} {_ge[_field]}{_scale}")
             if _gp:
                 recovery_status_text += "Garmin: " + ", ".join(_gp) + "\n"
-    acwr = _compute_acwr(strava_data)
+    acwr = _compute_acwr(strava_data, intervals_data)
     if acwr:
         recovery_status_text += (
-            f"Training load (ACWR 7:14d): ratio={acwr['ratio']} — {acwr['status']}"
-            f" (acute: {acwr['acute_7d']} RE/day, chronic: {acwr['chronic_14d']} RE/day)\n"
+            f"Training load (ACWR 7:28d, source: {acwr['source']}): ratio={acwr['ratio']} — {acwr['status']}"
+            f" (acute: {acwr['acute_7d']}/day, chronic: {acwr['chronic_28d']}/day)\n"
         )
 
     # Recente workout-lognotities (wat de atleet daadwerkelijk deed + gewichten)
