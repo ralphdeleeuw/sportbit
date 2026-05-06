@@ -3,10 +3,10 @@
 generate_running_workout.py — Genereert een gepersonaliseerd 2x/week
 hardloopschema via Claude en pusht dit naar intervals.icu.
 
-Standaard schema: dinsdag 20:00 (snelheidswerk) + zaterdag 09:00 (lange duurloop).
+Standaard schema: dinsdag 19:00 (snelheidswerk) + vrijdag 07:15 (lange duurloop).
 De loopdag kan worden verschoven via health_input.json in de Gist:
-  "run_1": "2026-04-22T20:00"   — overschrijft dinsdag-sessie (datum+tijd)
-  "run_2": "2026-04-26T09:00"   — overschrijft zaterdag-sessie (datum+tijd)
+  "run_1": "2026-04-22T19:00"   — overschrijft dinsdag-sessie (datum+tijd)
+  "run_2": "2026-04-24T07:15"   — overschrijft vrijdag-sessie (datum+tijd)
 
 Doel: 5K verbeteren van 28 min naar 26 min. Geen einddatum — continu programma.
 Workouts hebben Runna-stijl: specifieke pacedoelen per stap, gestructureerde
@@ -59,10 +59,10 @@ ATHLETE_PROFILE = {
     "target_5k_pace": "5:12",
     "running_base": "enige basis — kan 5-10km lopen maar niet regelmatig geweest",
     "run_sessions": [
-        {"day": "Tuesday",  "time": "20:00", "role": "speed"},
-        {"day": "Saturday", "time": "09:00", "role": "long_run"},
+        {"day": "Tuesday", "time": "19:00", "role": "speed"},
+        {"day": "Friday",  "time": "07:15", "role": "long_run"},
     ],
-    "schedule_note": "Hardloopdagen zijn standaard dinsdag en zaterdag, maar kunnen via health_input.json worden verplaatst.",
+    "schedule_note": "Hardloopdagen zijn standaard dinsdag en vrijdag, maar kunnen via health_input.json worden verplaatst.",
     "max_hr_estimate": 173,  # 220 - 47 jaar
     "hr_zones": {
         "Z1": "recovery (<104 bpm, <60% max)",
@@ -378,8 +378,8 @@ def _build_claude_context(ctx: dict) -> str:
         except ValueError:
             return default_date, default_time
 
-    run1_date, run1_time = _parse_run_override("run_1", _next_weekday(1), "20:00")
-    run2_date, run2_time = _parse_run_override("run_2", _next_weekday(5), "09:00")
+    run1_date, run1_time = _parse_run_override("run_1", _next_weekday(1), "19:00")
+    run2_date, run2_time = _parse_run_override("run_2", _next_weekday(4), "07:15")
 
     health_lines = [
         f"  - {k}: {v}"
@@ -486,7 +486,7 @@ def _build_claude_context(ctx: dict) -> str:
 _SYSTEM_PROMPT = """You are a professional running coach. You create training schedules for Ralph de Leeuw:
 - 47 years old, 77kg, CrossFit 5x/week (actual schedule provided in context), runs 2x/week
 - Current 5K: ~28 min (5:36/km) | Goal: 26 min (5:12/km)
-- Default: Tuesday 20:00 = speed work | Saturday 09:00 = long run
+- Default: Tuesday 19:00 = speed work | Friday 07:15 = long run
 - The exact dates and times are provided in the context — always use them exactly
 - Use the upcoming CrossFit schedule in the context to avoid scheduling hard speed sessions on days with heavy CrossFit (same day or day after)
 - Also check "Other planned activities" (e.g. mountain biking) — avoid hard speed sessions the day before a physically demanding activity
