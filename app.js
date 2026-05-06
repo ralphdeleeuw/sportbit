@@ -1063,11 +1063,53 @@
         cardsHtml += sep + pastAllSessions.map((s, i) => renderRunEventCard(s, i * 0.05, 'plan')).join('');
       }
 
+      const phaseOverviewHtml = renderRunningPhaseOverview(runningPlanData.week_number);
+
       return `<div class="run-plan-header">
           <span class="run-plan-label">Hardloopplan</span>${weekBadge}
         </div>
         ${progressHtml}
+        ${phaseOverviewHtml}
         <div class="cards">${cardsHtml}</div>`;
+    }
+
+    function getRunPhaseInfo(w) {
+      if (w <= 4)  return { label: 'Basisopbouw', color: '#4caf50', di: 'Lichte fartlek', vr: 'Easy long run (max 6km)' };
+      if (w <= 8)  return { label: 'Opbouw',      color: '#2196f3', di: 'Rolling repeats (300/400m)', vr: 'Progressieve long run' };
+      if (w <= 12) return { label: 'Intensiteit', color: '#ff9800', di: 'Fast 8-4-2s / threshold',    vr: 'Langere long run' };
+      if (w % 4 === 0) return { label: 'Herstelweek', color: '#9c27b0', di: 'Lichte easy run', vr: 'Korte run (−30%)' };
+      return { label: 'Consolidatie', color: '#f44336', di: 'Gevarieerd intensiteitswerk', vr: 'Race prep long run' };
+    }
+
+    function renderRunningPhaseOverview(currentWeek) {
+      if (!currentWeek) return '';
+      const stored = localStorage.getItem('runPlanExpanded') === 'true';
+      let rows = '';
+      for (let i = 0; i < 10; i++) {
+        const w = currentWeek + i;
+        const p = getRunPhaseInfo(w);
+        const isCurrent = i === 0;
+        rows += `<div class="run-phase-row${isCurrent ? ' current-week' : ''}">
+          <div class="run-phase-week-num">W${w}${isCurrent ? ' ←' : ''}</div>
+          <div class="run-phase-label" style="background:${p.color}">${p.label}</div>
+          <div class="run-phase-sessions">
+            <span>Di</span> ${p.di}<br>
+            <span>Vr</span> ${p.vr}
+          </div>
+        </div>`;
+      }
+      return `<button class="run-phase-toggle${stored ? ' expanded' : ''}" onclick="
+        const el=this.nextElementSibling;
+        const open=el.classList.toggle('open');
+        this.classList.toggle('expanded',open);
+        localStorage.setItem('runPlanExpanded',open);
+      ">
+        <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
+          <path d="M4 2l4 4-4 4" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
+        </svg>
+        10-weken plan
+      </button>
+      <div class="run-phase-overview${stored ? ' open' : ''}">${rows}</div>`;
     }
 
     function renderActivityCard(date, delay, runOnly) {

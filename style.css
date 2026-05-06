@@ -843,6 +843,62 @@
       margin-top: 0.3rem;
     }
 
+    /* 10-weken fase-overzicht */
+    .run-phase-toggle {
+      display: flex; align-items: center; gap: 6px;
+      background: none; border: none; cursor: pointer;
+      color: var(--muted); font-size: 0.72rem; font-weight: 600;
+      letter-spacing: 0.08em; text-transform: uppercase;
+      padding: 4px 0; margin: 10px 0 4px;
+    }
+    .run-phase-toggle:hover { color: var(--text); }
+    .run-phase-toggle svg { transition: transform 0.2s; }
+    .run-phase-toggle.expanded svg { transform: rotate(90deg); }
+
+    .run-phase-overview {
+      display: none;
+      margin-bottom: 12px;
+    }
+    .run-phase-overview.open { display: block; }
+
+    .run-phase-row {
+      display: flex; align-items: flex-start; gap: 10px;
+      padding: 7px 0;
+      border-bottom: 1px solid #111;
+    }
+    .run-phase-row:last-child { border-bottom: none; }
+    .run-phase-row.current-week {
+      background: rgba(232, 255, 60, 0.04);
+      border-radius: 6px;
+      padding: 7px 8px;
+      margin: 0 -8px;
+      border-bottom: none;
+    }
+    .run-phase-row.current-week + .run-phase-row { border-top: 1px solid #111; }
+
+    .run-phase-week-num {
+      flex: 0 0 42px;
+      font-size: 0.68rem; font-weight: 700;
+      color: var(--muted);
+      padding-top: 1px;
+    }
+    .run-phase-row.current-week .run-phase-week-num { color: #e8ff3c; }
+
+    .run-phase-label {
+      display: inline-block;
+      font-size: 0.62rem; font-weight: 700;
+      letter-spacing: 0.05em; text-transform: uppercase;
+      padding: 1px 6px; border-radius: 3px;
+      color: #000; flex: 0 0 auto;
+      margin-top: 1px;
+    }
+
+    .run-phase-sessions {
+      flex: 1;
+      font-size: 0.72rem; color: #7a9080; line-height: 1.45;
+    }
+    .run-phase-sessions span { color: #4a6055; font-size: 0.65rem; font-weight: 600; }
+
     .run-reschedule-btn {
       background: none;
       border: 1px solid rgba(0,200,83,0.3);
