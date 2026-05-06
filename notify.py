@@ -46,5 +46,19 @@ def send_notification(title: str, body: str, url: str = "/sportbit/") -> bool:
         log.info("Web Push notificatie verstuurd: %s", title)
         return True
     except WebPushException as e:
-        log.error("Web Push mislukt: %s", e)
+        response = getattr(e, "response", None)
+        status = getattr(response, "status_code", None)
+        if status == 410:
+            log.warning("Push subscription verlopen (410 Gone) — abonnement verwijderd uit Gist.")
+            try:
+                requests.patch(
+                    f"https://api.github.com/gists/{gist_id}",
+                    headers={"Authorization": f"token {token}"},
+                    json={"files": {"push_subscription.json": None}},
+                    timeout=10,
+                )
+            except Exception as patch_err:
+                log.warning("Kon verlopen subscription niet verwijderen uit Gist: %s", patch_err)
+        else:
+            log.error("Web Push mislukt: %s", e)
         return False
