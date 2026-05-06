@@ -155,7 +155,7 @@ def main() -> None:
 
         new_date = new_datetime[:10]
         new_time = new_datetime[11:16] if len(new_datetime) >= 16 else (
-            "20:00" if key == "run_1" else "09:00"
+            "19:00" if key == "run_1" else "07:15"
         )
 
         log.info(
