@@ -866,20 +866,6 @@
       }
     }
 
-    async function skipWeekend(keys, btn) {
-      btn.disabled = true; btn.textContent = 'Opslaan…';
-      try {
-        const now = new Date().toISOString();
-        for (const k of keys) exclusions[k] = { excluded_at: now };
-        await _patchExclusions(exclusions);
-        btn.textContent = '✓ Weekend overgeslagen';
-        loadData();
-      } catch(e) {
-        for (const k of keys) delete exclusions[k];
-        btn.disabled = false; btn.textContent = `❌ ${e.message}`;
-      }
-    }
-
     const KNOWN_LIFTS = [
       'back squat','front squat','overhead squat',
       'deadlift','sumo deadlift',
@@ -1537,15 +1523,7 @@
         h += `</div>`;
       }
       if (pendingSlots.length > 0) {
-        const weekendKeys = pendingSlots
-          .filter(s => { const day = new Date(s.date + 'T00:00:00').getDay(); return day === 0 || day === 6; })
-          .map(s => s.key);
-        const allWeekendExcluded = weekendKeys.length > 0 && weekendKeys.every(k => exclusions[k]);
-        h += `<div class="section-title">Nog niet ingeschreven</div>`;
-        if (weekendKeys.length > 0 && !allWeekendExcluded) {
-          h += `<button class="add-event-btn" style="margin:0 0 0.75rem 0" onclick="skipWeekend(${JSON.stringify(weekendKeys)}, this)">Weekend overslaan</button>`;
-        }
-        h += `<div class="cards">`;
+        h += `<div class="section-title">Nog niet ingeschreven</div><div class="cards">`;
         const dayNlFull = ['Zondag','Maandag','Dinsdag','Woensdag','Donderdag','Vrijdag','Zaterdag'];
         pendingSlots.forEach((slot, i) => {
           const isExcl = !!exclusions[slot.key];
@@ -1557,7 +1535,7 @@
             <div class="card-info">
               <div class="card-title">CrossFit WOD</div>
               <div class="card-meta"><span class="card-time">${slot.time}</span>&nbsp;·&nbsp;${isExcl ? '<span style="color:#ff6b6b">Overgeslagen</span>' : '<span style="color:var(--text-muted)">Nog niet ingeschreven</span>'}</div>
-              <div class="cancelled-undo">
+              <div style="margin-top:0.5rem">
                 ${isExcl
                   ? `<button class="niet-gedaan-btn" onclick="removeExclusion('${slot.key}', this)">Toch inschrijven</button>`
                   : `<button class="niet-gedaan-btn" onclick="addExclusion('${slot.key}', this)">Overslaan</button>`
