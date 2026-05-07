@@ -1522,6 +1522,16 @@
         recentCancelled.forEach((e,i) => h += renderCard(e,'cancelled',i*0.05));
         h += `</div>`;
       }
+      if (pastItems.length > 0) {
+        h += `<div class="section-title">Geweest</div><div class="cards">`;
+        pastItems.forEach((entry,i) => {
+          if (entry.type==='class') h += renderPastCard(entry.item,i*0.05);
+          else if (entry.type==='run') h += renderRunEventCard(entry.item,i*0.05,'schema');
+          else if (entry.type==='personal') h += renderPersonalEventCard(entry.item,i*0.05);
+          else h += renderActivityCard(entry.date,i*0.05,entry.runOnly);
+        });
+        h += `</div>`;
+      }
       if (pendingSlots.length > 0) {
         h += `<div class="section-title">Nog niet ingeschreven</div><div class="cards">`;
         const dayNlFull = ['Zondag','Maandag','Dinsdag','Woensdag','Donderdag','Vrijdag','Zaterdag'];
@@ -1547,16 +1557,6 @@
               <div class="card-relative-day">${dayName}</div>
             </div>
           </div>`;
-        });
-        h += `</div>`;
-      }
-      if (pastItems.length > 0) {
-        h += `<div class="section-title">Geweest</div><div class="cards">`;
-        pastItems.forEach((entry,i) => {
-          if (entry.type==='class') h += renderPastCard(entry.item,i*0.05);
-          else if (entry.type==='run') h += renderRunEventCard(entry.item,i*0.05,'schema');
-          else if (entry.type==='personal') h += renderPersonalEventCard(entry.item,i*0.05);
-          else h += renderActivityCard(entry.date,i*0.05,entry.runOnly);
         });
         h += `</div>`;
       }
