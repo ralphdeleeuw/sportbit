@@ -138,10 +138,18 @@ class GistStateManager:
                 self.state = json.loads(content)
                 self.state.setdefault("signed_up", {})
                 self.state.setdefault("cancelled", {})
+                self.state.setdefault("exclusions", {})
+                # Prune stale exclusions (past dates)
+                today_str = datetime.now(AMS).date().isoformat()
+                self.state["exclusions"] = {
+                    k: v for k, v in self.state["exclusions"].items()
+                    if k[:10] >= today_str
+                }
                 log.info(
-                    "Loaded state: %d signed up, %d cancelled.",
+                    "Loaded state: %d signed up, %d cancelled, %d exclusions.",
                     len(self.state["signed_up"]),
                     len(self.state["cancelled"]),
+                    len(self.state["exclusions"]),
                 )
             else:
                 log.info("No existing state found in Gist; starting fresh.")
@@ -161,6 +169,9 @@ class GistStateManager:
             log.info("State saved to Gist.")
         except Exception as e:
             log.error("Failed to save state to Gist: %s", e)
+
+    def is_excluded(self, date: str, time: str) -> bool:
+        return f"{date}_{time}" in self.state.get("exclusions", {})
 
     def is_cancelled(self, event_id: int) -> bool:
         return str(event_id) in self.state["cancelled"]
@@ -532,6 +543,11 @@ def run(username: str, password: str, dry_run: bool, days_ahead: int, sync_calen
         day_name = DAY_NAMES[date.weekday()]
         label = f"{day_name} {date_str} {target_time}"
         log.info("--- %s ---", label)
+
+        if state and state.is_excluded(date_str, target_time):
+            log.info("Skipping %s — excluded by user.", label)
+            results["skipped"].append(f"{label} (excluded)")
+            continue
 
         if date_str not in events_cache:
             events_cache[date_str] = client.get_events(date_str)

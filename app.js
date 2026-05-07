@@ -1,5 +1,7 @@
     const DAY_NL = ['Zo', 'Ma', 'Di', 'Wo', 'Do', 'Vr', 'Za'];
     const MONTH_NL = ['jan', 'feb', 'mrt', 'apr', 'mei', 'jun', 'jul', 'aug', 'sep', 'okt', 'nov', 'dec'];
+    // Vaste CrossFit rooster — spiegelt SCHEDULE in autosignup.py (JS getDay: 0=Zo, 6=Za)
+    const CROSSFIT_SCHEDULE = [[1,"20:00"],[3,"08:00"],[4,"20:00"],[6,"09:00"],[0,"09:00"]];
     // Vervang dit door je eigen VAPID public key (gegenereerd met: vapid --gen && vapid --applicationServerKey)
     const VAPID_PUBLIC_KEY = 'BEHjNc5ry_se3HeXSfl2QIWOtkZIT69L5rVDNHxqNzZrL0hZ0az8InWjZw8g2IZhLT9_B28XaSWdrL64TcQKnHM';
     let currentGistId = '';
@@ -254,6 +256,7 @@
     let healthInput = {}; // Subjectieve hersteldata {slaap, energie, spierpijn, stress}
     let healthHistory = []; // [{date, slaap, energie, spierpijn, stress}]
     let classCapacity = {}; // {"YYYY-MM-DD_HH:MM": {current, max, checked_at}}
+    let exclusions = {};   // {"YYYY-MM-DD_HH:MM": {excluded_at}}
     let personalEvents = []; // [{id, title, date, time?, location?, notes?, created_at}]
     let intervalsData = null;   // {wellness: {by_date: {...}}, activities: {by_date: {...}}, fetched_at}
     let withingsData = null;    // {measurements: [...], fetched_at}
@@ -474,6 +477,7 @@
         try {
           const st = JSON.parse(stateFile.content);
           classCapacity = st.class_capacity || {};
+          exclusions = st.exclusions || {};
         } catch(e) {}
       }
 
@@ -802,6 +806,77 @@
       } catch(e) {
         btn.disabled = false;
         btn.textContent = `❌ ${e.message}`;
+      }
+    }
+
+    async function _patchExclusions(updatedExclusions) {
+      const token = document.getElementById('githubToken').value.trim();
+      if (!token) throw new Error('Token nodig');
+      const resp = await fetch(`https://api.github.com/gists/${currentGistId}`,
+        { headers: { Authorization: `token ${token}` } });
+      if (!resp.ok) throw new Error(`GitHub API ${resp.status}`);
+      const gist = await resp.json();
+      const state = JSON.parse(gist.files['sportbit_state.json']?.content || '{}');
+      state.exclusions = updatedExclusions;
+      const patch = await fetch(`https://api.github.com/gists/${currentGistId}`, {
+        method: 'PATCH',
+        headers: { Authorization: `token ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ files: { 'sportbit_state.json': { content: JSON.stringify(state, null, 2) } } }),
+      });
+      if (!patch.ok) throw new Error(`Opslaan mislukt ${patch.status}`);
+    }
+
+    async function addExclusion(key, btn) {
+      btn.disabled = true; btn.textContent = 'Opslaan…';
+      try {
+        exclusions[key] = { excluded_at: new Date().toISOString() };
+        await _patchExclusions(exclusions);
+        const card = btn.closest('.card');
+        card.classList.add('cancelled');
+        card.style.opacity = '0.55';
+        card.querySelector('.card-dot').style.background = '#ff6b6b';
+        card.querySelector('.card-dot').style.opacity = '0.7';
+        card.querySelector('.card-meta span').outerHTML = '<span style="color:#ff6b6b">Overgeslagen</span>';
+        btn.textContent = 'Toch inschrijven';
+        btn.disabled = false;
+        btn.onclick = () => removeExclusion(key, btn);
+      } catch(e) {
+        delete exclusions[key];
+        btn.disabled = false; btn.textContent = `❌ ${e.message}`;
+      }
+    }
+
+    async function removeExclusion(key, btn) {
+      btn.disabled = true; btn.textContent = 'Opslaan…';
+      try {
+        delete exclusions[key];
+        await _patchExclusions(exclusions);
+        const card = btn.closest('.card');
+        card.classList.remove('cancelled');
+        card.style.opacity = '1';
+        card.querySelector('.card-dot').style.background = 'var(--accent)';
+        card.querySelector('.card-dot').style.opacity = '0.35';
+        card.querySelector('.card-meta span').outerHTML = '<span style="color:var(--text-muted)">Nog niet ingeschreven</span>';
+        btn.textContent = 'Overslaan';
+        btn.disabled = false;
+        btn.onclick = () => addExclusion(key, btn);
+      } catch(e) {
+        exclusions[key] = { excluded_at: new Date().toISOString() };
+        btn.disabled = false; btn.textContent = `❌ ${e.message}`;
+      }
+    }
+
+    async function skipWeekend(keys, btn) {
+      btn.disabled = true; btn.textContent = 'Opslaan…';
+      try {
+        const now = new Date().toISOString();
+        for (const k of keys) exclusions[k] = { excluded_at: now };
+        await _patchExclusions(exclusions);
+        btn.textContent = '✓ Weekend overgeslagen';
+        loadData();
+      } catch(e) {
+        for (const k of keys) delete exclusions[k];
+        btn.disabled = false; btn.textContent = `❌ ${e.message}`;
       }
     }
 
@@ -1297,9 +1372,23 @@
           ...personalEvents.filter(e => !isUpcoming(e.date, e.time || null) && e.date >= cutoffStr).map(e => ({ type: 'personal', date: e.date, item: e })),
         ].sort((a, b) => b.date.localeCompare(a.date)).slice(0, 8);
 
+        // Bereken geplande slots die nog niet ingeschreven zijn (komende 14 dagen)
+        const signedUpKeys = new Set(signedUp.map(e => `${e.date}_${e.time}`));
+        const pendingSlots = [];
+        for (let i = 1; i <= 14; i++) {
+          const d = new Date(); d.setDate(d.getDate() + i);
+          const dateStr = d.toISOString().slice(0, 10);
+          for (const [jsDay, time] of CROSSFIT_SCHEDULE) {
+            if (d.getDay() === jsDay && !signedUpKeys.has(`${dateStr}_${time}`)) {
+              pendingSlots.push({ date: dateStr, time, key: `${dateStr}_${time}` });
+            }
+          }
+        }
+        pendingSlots.sort((a, b) => a.date.localeCompare(b.date) || a.time.localeCompare(b.time));
+
         // Render each tab
         renderTodayTab(upcoming, past, allUpcoming);
-        renderSchemaTab(allUpcoming, recentCancelled, pastItems);
+        renderSchemaTab(allUpcoming, recentCancelled, pastItems, pendingSlots);
         renderStatsTab();
         renderPlanTab();
         renderActiesTab(gist.updated_at);
@@ -1423,7 +1512,7 @@
       el.innerHTML = h;
     }
 
-    function renderSchemaTab(allUpcoming, recentCancelled, pastItems) {
+    function renderSchemaTab(allUpcoming, recentCancelled, pastItems, pendingSlots = []) {
       const el = document.getElementById('schema-content');
       if (!el) return;
       let h = `<div class="tab-page-header">
@@ -1445,6 +1534,42 @@
       if (recentCancelled.length > 0) {
         h += `<div class="section-title">Uitgeschreven</div><div class="cards">`;
         recentCancelled.forEach((e,i) => h += renderCard(e,'cancelled',i*0.05));
+        h += `</div>`;
+      }
+      if (pendingSlots.length > 0) {
+        const weekendKeys = pendingSlots
+          .filter(s => { const day = new Date(s.date + 'T00:00:00').getDay(); return day === 0 || day === 6; })
+          .map(s => s.key);
+        const allWeekendExcluded = weekendKeys.length > 0 && weekendKeys.every(k => exclusions[k]);
+        h += `<div class="section-title">Nog niet ingeschreven</div>`;
+        if (weekendKeys.length > 0 && !allWeekendExcluded) {
+          h += `<button class="add-event-btn" style="margin:0 0 0.75rem 0" onclick="skipWeekend(${JSON.stringify(weekendKeys)}, this)">Weekend overslaan</button>`;
+        }
+        h += `<div class="cards">`;
+        const dayNlFull = ['Zondag','Maandag','Dinsdag','Woensdag','Donderdag','Vrijdag','Zaterdag'];
+        pendingSlots.forEach((slot, i) => {
+          const isExcl = !!exclusions[slot.key];
+          const d = new Date(slot.date + 'T00:00:00');
+          const dayName = dayNlFull[d.getDay()];
+          const dateLabel = `${d.getDate()} ${MONTH_NL[d.getMonth()]}`;
+          h += `<div class="card${isExcl ? ' cancelled' : ''}" style="animation-delay:${i*0.05}s;opacity:${isExcl?'0.55':'1'}">
+            <div class="card-dot" style="background:${isExcl?'#ff6b6b':'var(--accent)'};opacity:${isExcl?'0.7':'0.35'}"></div>
+            <div class="card-info">
+              <div class="card-title">CrossFit WOD</div>
+              <div class="card-meta"><span class="card-time">${slot.time}</span>&nbsp;·&nbsp;${isExcl ? '<span style="color:#ff6b6b">Overgeslagen</span>' : '<span style="color:var(--text-muted)">Nog niet ingeschreven</span>'}</div>
+              <div class="cancelled-undo">
+                ${isExcl
+                  ? `<button class="niet-gedaan-btn" onclick="removeExclusion('${slot.key}', this)">Toch inschrijven</button>`
+                  : `<button class="niet-gedaan-btn" onclick="addExclusion('${slot.key}', this)">Overslaan</button>`
+                }
+              </div>
+            </div>
+            <div class="card-right">
+              <div class="card-date${isExcl?' cancelled-date':''}">${dateLabel}</div>
+              <div class="card-relative-day">${dayName}</div>
+            </div>
+          </div>`;
+        });
         h += `</div>`;
       }
       if (pastItems.length > 0) {
