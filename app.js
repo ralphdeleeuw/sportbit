@@ -898,7 +898,7 @@
         const lifts = barbellLifts[key];
         const oneRM = lifts['1RM'];
         if (!oneRM) return null;
-        const pcts = [65, 70, 75, 80, 85, 90, 100, 105];
+        const pcts = [70, 75, 80, 85, 90, 100, 105];
         const cols = pcts.map(p => {
           const kg = Math.round(oneRM * p / 100 / 2.5) * 2.5;
           const is1rm = p === 100;
@@ -911,7 +911,7 @@
       }).filter(Boolean);
 
       if (!rows.length) return '';
-      const pctHeaders = [65, 70, 75, 80, 85, 90, 100, 105].map(p => {
+      const pctHeaders = [70, 75, 80, 85, 90, 100, 105].map(p => {
         const style = p === 100
           ? `text-align:center;padding:3px 6px;color:#e8ff3c;font-size:0.75rem;font-weight:700`
           : `text-align:center;padding:3px 6px;color:#888;font-size:0.75rem`;
