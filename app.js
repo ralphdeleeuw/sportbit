@@ -344,34 +344,166 @@
       return wods.map(w => [w.title, w.description, w.scaling].filter(Boolean).join(' ')).join(' ').toLowerCase();
     }
 
+    // Returns combined text from ALL activity sources: CrossFit, running plan, personal events, completed workouts
+    function getAllActivityText(dayOffset) {
+      const dt = new Date();
+      dt.setDate(dt.getDate() + dayOffset);
+      const dateStr = dt.toISOString().slice(0, 10);
+      const parts = [];
+
+      // CrossFit WOD (only if signed up)
+      const isCFSignedUp = dayOffset >= 0
+        ? _upcomingCrossfit.some(e => e.date === dateStr)
+        : _pastCrossfit.some(e => e.date === dateStr);
+      if (isCFSignedUp) {
+        const wods = wodByDate[dateStr] || [];
+        parts.push(wods.map(w => [w.title, w.description, w.scaling].filter(Boolean).join(' ')).join(' ').toLowerCase());
+      }
+
+      // Running plan workouts (planned or completed)
+      (runningPlanData?.workouts || []).filter(w => w.date === dateStr).forEach(w => {
+        parts.push([w.type, w.session, w.name, w.description].filter(Boolean).join(' ').toLowerCase());
+        parts.push('run'); // ensure run-related mobility keywords match
+      });
+
+      // Personal events
+      personalEvents.filter(e => e.date === dateStr).forEach(e => {
+        parts.push([e.title, e.notes].filter(Boolean).join(' ').toLowerCase());
+      });
+
+      // Completed activities from Intervals / Strava
+      const intervalsActs = ((intervalsData?.activities || {}).by_date || {})[dateStr] || [];
+      const stravaActs = (stravaData?.activities_by_date || {})[dateStr] || [];
+      [...intervalsActs, ...stravaActs].forEach(a => {
+        parts.push([a.name, a.type].filter(Boolean).join(' ').toLowerCase());
+      });
+
+      return parts.join(' ');
+    }
+
+    // Returns load summary for a completed day (from Intervals / Strava)
+    function getCompletedLoadForDay(dayOffset) {
+      const dt = new Date();
+      dt.setDate(dt.getDate() + dayOffset);
+      const dateStr = dt.toISOString().slice(0, 10);
+      const runTypes = ['run', 'running', 'trailrun', 'treadmill', 'jog'];
+      const intervalsActs = ((intervalsData?.activities || {}).by_date || {})[dateStr] || [];
+      const stravaActs = (stravaData?.activities_by_date || {})[dateStr] || [];
+      let maxLoad = 0, totalDuration = 0, hasRun = false, hasCrossfit = false, hasLongRun = false;
+      [...intervalsActs, ...stravaActs].forEach(a => {
+        const tl = a.training_load || a.trimp || 0;
+        if (tl > maxLoad) maxLoad = tl;
+        totalDuration += a.duration_min || 0;
+        const isRun = runTypes.some(rt => (a.type || '').toLowerCase().includes(rt));
+        if (isRun) { hasRun = true; if ((a.duration_min || 0) > 45) hasLongRun = true; }
+        else hasCrossfit = true;
+      });
+      return { maxLoad, totalDuration, hasRun, hasCrossfit, hasLongRun };
+    }
+
     function getWorkoutModifications() {
-      const upcomingText = getWodText(0) + ' ' + getWodText(1);
+      const todayText    = getAllActivityText(0);
+      const tomorrowText = getAllActivityText(1);
+      const upcomingText = todayText + ' ' + tomorrowText;
       const exercises    = HOME_WORKOUT.exercises.map(e => ({ ...e }));
       const squat        = getCurrentSquatVariant();
       let squatReps      = squat.reps;
-      const notes        = [];
+      const notes        = [];         // adjustment notes (shown in orange banner)
+      const recommendations = [];      // AI insights (shown in blue banner)
 
+      // Reduce overlapping muscle groups based on upcoming CrossFit / running
       if (/squat|thruster|wall.?ball|lunge/.test(upcomingText)) {
         squatReps = Math.max(5, Math.round(squat.reps * 0.6));
-        notes.push('Squats teruggeschroefd — CrossFit heeft squatwerk vandaag/morgen');
+        notes.push('Squats teruggeschroefd — squatwerk vandaag/morgen in schema');
       }
       if (/push.?up|push.?press|push.?jerk|bench press|handstand push|dip/.test(upcomingText)) {
         exercises.filter(e => e.id.startsWith('pushup')).forEach(e => {
           e.reps = Math.max(8, Math.round(e.reps * 0.6));
           e.adjusted = true;
         });
-        notes.push('Pushups teruggeschroefd — CrossFit heeft pushwerk vandaag/morgen');
+        notes.push('Pushups teruggeschroefd — duwwerk vandaag/morgen in schema');
       }
-      return { exercises, notes, squatReps, squatSets: squat.sets };
+
+      // Recommendations: upcoming running workouts
+      const todayStr    = new Date().toISOString().slice(0, 10);
+      const tomorrowStr = new Date(Date.now() + 86400000).toISOString().slice(0, 10);
+      const day2Str     = new Date(Date.now() + 2 * 86400000).toISOString().slice(0, 10);
+      const day3Str     = new Date(Date.now() + 3 * 86400000).toISOString().slice(0, 10);
+
+      const upcomingRuns = (runningPlanData?.workouts || []).filter(w =>
+        w.date === todayStr || w.date === tomorrowStr
+      );
+      const soonRuns = (runningPlanData?.workouts || []).filter(w =>
+        w.date === day2Str || w.date === day3Str
+      );
+
+      if (upcomingRuns.length > 0) {
+        const isLong = upcomingRuns.some(w =>
+          /long|lang|duur/.test([w.session, w.name, w.description].join(' ').toLowerCase())
+        );
+        const when = upcomingRuns[0].date === todayStr ? 'vandaag' : 'morgen';
+        const label = upcomingRuns[0].name || upcomingRuns[0].session || 'hardlooptraining';
+        if (isLong) {
+          recommendations.push(`Lange duurloop ${when} — spaar de benen, doe squats op gevoel of sla ze over`);
+        } else {
+          recommendations.push(`Hardlooptraining ${when} (${label}) — houd energie over voor de run`);
+        }
+      } else if (soonRuns.length > 0) {
+        const isLong = soonRuns.some(w =>
+          /long|lang|duur/.test([w.session, w.name, w.description].join(' ').toLowerCase())
+        );
+        if (isLong) {
+          const when = soonRuns[0].date === day2Str ? 'overmorgen' : 'over 3 dagen';
+          recommendations.push(`Lange duurloop ${when} — train comfortabel, niet tot uitputting`);
+        }
+      }
+
+      // Recommendations: recent completed workouts
+      const yesterday  = getCompletedLoadForDay(-1);
+      const dayBefore  = getCompletedLoadForDay(-2);
+      if (yesterday.hasLongRun) {
+        recommendations.push('Lange duurloop gisteren — prioriteit vandaag: herstel en mobiliteit');
+      } else if (yesterday.hasCrossfit && yesterday.maxLoad > 80) {
+        recommendations.push('Intensieve CrossFit gisteren — doe dit op 70–80% als je moe bent');
+      } else if (yesterday.hasRun && yesterday.totalDuration > 40) {
+        recommendations.push('Flinke hardloopsessie gisteren — geef de benen wat ruimte');
+      }
+      if (dayBefore.hasLongRun && !yesterday.hasLongRun) {
+        recommendations.push('Lange duurloop eergisteren — squats op gevoel, herstel gaat voor');
+      }
+
+      // Recommendations: upcoming sport events
+      [todayStr, tomorrowStr, day2Str, day3Str].forEach(d => {
+        personalEvents.filter(e => e.date === d && /race|wedstrijd|hardloop|run|loop|triathlon|event/i.test(
+          (e.title || '') + ' ' + (e.notes || '')
+        )).forEach(e => {
+          const when = d === todayStr ? 'vandaag' : d === tomorrowStr ? 'morgen' : 'binnenkort';
+          recommendations.push(`${e.title} ${when} — bewaar energie voor het event`);
+        });
+      });
+
+      return { exercises, notes, squatReps, squatSets: squat.sets, recommendations };
     }
 
     function getRelevantMobility() {
-      const allText = [getWodText(-2), getWodText(-1), getWodText(0), getWodText(1), getWodText(2)].join(' ');
+      const allText = [
+        getAllActivityText(-2), getAllActivityText(-1), getAllActivityText(0),
+        getAllActivityText(1),  getAllActivityText(2),
+      ].join(' ');
       const defaults = ['mob_hip_flexor', 'mob_chest', 'mob_cat_cow'];
-      const matched  = MOBILITY_CATALOG.filter(m =>
-        defaults.includes(m.id) || m.keywords.some(kw => allText.includes(kw))
-      );
-      return matched.length > 0 ? matched.slice(0, 6) : MOBILITY_CATALOG.filter(m => defaults.includes(m.id));
+
+      const scored = MOBILITY_CATALOG.map(m => {
+        const matchCount = m.keywords.filter(kw => allText.includes(kw)).length;
+        let priority = 0;
+        if (matchCount >= 2) priority = 2;
+        else if (matchCount === 1) priority = 1;
+        return { ...m, priority, matchCount };
+      });
+
+      const relevant = scored.filter(m => m.matchCount > 0 || defaults.includes(m.id));
+      const result   = relevant.length > 0 ? relevant : scored.filter(m => defaults.includes(m.id));
+      result.sort((a, b) => b.priority - a.priority || b.matchCount - a.matchCount);
+      return result.slice(0, 6);
     }
 
     // Load saved token
@@ -3502,7 +3634,7 @@
       const existingNotes   = entry ? (entry.notes || '') : '';
       const doneMobility    = entry ? (entry.mobility_done || []) : [];
 
-      const { exercises, notes: adjNotes, squatReps, squatSets } = getWorkoutModifications();
+      const { exercises, notes: adjNotes, squatReps, squatSets, recommendations } = getWorkoutModifications();
 
       const exerciseRows = exercises.map(ex => {
         const isSquat   = !!ex.variant_key;
@@ -3532,15 +3664,26 @@
         ? `<div class="hw-adj-banner">${adjNotes.map(n => `<span>↓ ${escapeHtml(n)}</span>`).join('')}</div>`
         : '';
 
+      const recBanner = recommendations.length
+        ? `<div class="hw-recommendations">${recommendations.map(r => `<span>💡 ${escapeHtml(r)}</span>`).join('')}</div>`
+        : '';
+
       const mobilityItems = getRelevantMobility();
       const mobilityRows  = mobilityItems.map(m => {
         const isChecked = doneMobility.includes(m.id);
-        return `<label class="hw-exercise-row hw-mob-row${isChecked ? ' checked' : ''}">
+        const priorityClass = m.priority === 2 ? ' hw-mob-priority-2' : m.priority === 1 ? ' hw-mob-priority-1' : '';
+        const badge = m.priority === 2
+          ? `<span class="hw-mob-badge hw-mob-badge-2">★★ Aanbevolen</span>`
+          : m.priority === 1
+          ? `<span class="hw-mob-badge hw-mob-badge-1">★ Aanbevolen</span>`
+          : '';
+        return `<label class="hw-exercise-row hw-mob-row${priorityClass}${isChecked ? ' checked' : ''}">
           <input type="checkbox" id="hwmob-${m.id}" value="${m.id}"${isChecked ? ' checked' : ''}
                  onchange="this.closest('.hw-exercise-row').classList.toggle('checked', this.checked)">
           <div class="hw-exercise-info">
             <div class="hw-exercise-left">
               <span class="hw-exercise-name">${escapeHtml(m.name)}</span>
+              ${badge}
             </div>
             <div class="hw-reps-block">
               <span class="hw-reps-num">${escapeHtml(m.duration)}</span>
@@ -3565,6 +3708,7 @@
             </div>
             <div class="card-wod" onclick="event.stopPropagation()">
               ${adjBanner}
+              ${recBanner}
               <div class="hw-exercises" id="hw-exercises-${todayStr}">${exerciseRows}</div>
               <div class="hw-section-label">Stretch &amp; Mobiliteit <span class="hw-optional">(optioneel)</span></div>
               <div class="hw-exercises" id="hw-mob-${todayStr}">${mobilityRows}</div>
