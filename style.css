@@ -2009,6 +2009,18 @@
     .hw-optional { font-weight: 400; text-transform: none; letter-spacing: 0; }
     .hw-mob-row { opacity: 0.8; }
     .hw-mob-row.checked { opacity: 1; }
+    .hw-mob-priority-1 { opacity: 1; border-color: rgba(240, 180, 41, 0.3); }
+    .hw-mob-priority-2 { opacity: 1; border-color: rgba(240, 180, 41, 0.5); background: rgba(240, 180, 41, 0.04); }
+    .hw-mob-badge {
+      font-size: 0.58rem;
+      font-weight: 600;
+      padding: 1px 5px;
+      border-radius: 4px;
+      margin-top: 2px;
+      display: inline-block;
+    }
+    .hw-mob-badge-1 { background: rgba(240, 180, 41, 0.15); color: var(--neutral); }
+    .hw-mob-badge-2 { background: rgba(240, 180, 41, 0.28); color: var(--neutral); }
     .hw-adj-banner {
       display: flex;
       flex-direction: column;
@@ -2020,6 +2032,17 @@
       border-radius: 8px;
     }
     .hw-adj-banner span { font-size: 0.72rem; color: var(--neutral); }
+    .hw-recommendations {
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+      margin-bottom: 10px;
+      padding: 8px 10px;
+      background: rgba(77, 184, 255, 0.07);
+      border: 1px solid rgba(77, 184, 255, 0.22);
+      border-radius: 8px;
+    }
+    .hw-recommendations span { font-size: 0.72rem; color: var(--info); line-height: 1.4; }
     .hw-card .card-wod { display: none; margin-top: 12px; }
     .hw-card.open .card-wod { display: block; }
     .hw-card.open .wod-chevron { transform: rotate(180deg); }
