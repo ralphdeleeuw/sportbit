@@ -2035,7 +2035,7 @@ def generate_recovery_advice(
         date = w.get("date", "?")
         title = w.get("title", "WOD")
         desc = _strip_html(w.get("description", ""))[:400]
-        past_text += f"\n**{date} — {title}**\n{desc}\n"
+        past_text += f"\n**{_nl_date(date)} — {title}**\n{desc}\n"
 
         # Strava activiteiten voor deze datum
         if date in strava_by_date:
@@ -2130,7 +2130,7 @@ def generate_recovery_advice(
         date = upcoming_workout.get("date", "?")
         title = upcoming_workout.get("title", "WOD")
         desc = _strip_html(upcoming_workout.get("description", ""))[:400]
-        upcoming_text = f"**{date} — {title}**\n{desc}"
+        upcoming_text = f"**{_nl_date(date)} — {title}**\n{desc}"
         upcoming_timing_context = _training_time_context(date, signed_up_times)
         if today and date == today.isoformat():
             upcoming_workout_label = "Today's workout (this is today — apply intensity advice accordingly)"
@@ -2670,7 +2670,7 @@ def generate_workout_plans(
                 wods_done = entry.get("workouts_done") or []
                 if notes or wods_done:
                     wod_str = ", ".join(wods_done) if wods_done else ""
-                    log_lines.append(f"  {d}: {wod_str}" + (f" — {notes}" if notes else ""))
+                    log_lines.append(f"  {_nl_date(d)}: {wod_str}" + (f" — {notes}" if notes else ""))
             if log_lines:
                 recent_log_text = "\nRecent workout log (actually done + weights/notes):\n" + "\n".join(log_lines) + "\n"
 
@@ -2771,7 +2771,7 @@ def generate_workout_plans(
                 for e in nearby:
                     diff = (date_cls.fromisoformat(e["date"]) - date_cls.fromisoformat(date)).days
                     when = f"{abs(diff)} day{'s' if abs(diff) != 1 else ''} {'after' if diff > 0 else 'before'} this training"
-                    line = f"  {e['date']} ({when}): {e['title']}"
+                    line = f"  {_nl_date(e['date'])} ({when}): {e['title']}"
                     if e.get("time"):
                         line += f" at {e['time']}"
                     if e.get("notes"):
@@ -2796,7 +2796,7 @@ Barbell maxima (kg):
 {pr_text}{recent_log_text}{personal_event_context}
 Weight notation: If weights are noted as "X/Y lbs" or "X/Y kg", always use the first number (X) — that is the men's weight.
 
-Main workout ({date} — {title}):
+Main workout ({_nl_date(date)} — {title}):
 {description}{notes_context}{accessory_context}
 {team_context}{timing_context}{env_context}
 The execution plan must ONLY cover the main workout above. Do not address accessory work.
