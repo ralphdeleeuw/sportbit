@@ -140,7 +140,7 @@
         const sections = renderWodSections(wods, item.date);
         const envBadge = !cancelled ? renderEnvBadge(item.date) : '';
         return `
-          <div class="card has-wod" style="animation-delay:${delay}s" onclick="toggleWod(this, event)">
+          <div class="card has-wod" data-wod-date="${item.date}" style="animation-delay:${delay}s" onclick="toggleWod(this, event)">
             <div class="card-dot dot-active"></div>
             <div class="card-info">
               <div class="card-header">
@@ -266,6 +266,7 @@
     let openGymProgram = null; // {generated_at, for_date, for_time, event_title, program_markdown}
     let openGymProgramsByEventId = {}; // event_id → {program_markdown, focus_summary, generated_at}
     let homeWorkoutLog = {}; // {date: entry} from home_workout_log.json
+    let workoutOverrides = {}; // {date: {title: {original_description, original_athlete_notes, description, athlete_notes, deleted, modified_at}}}
     let activeChartLift = null;
     let liftChart = null;
 
@@ -512,6 +513,14 @@
           homeWorkoutLog = {};
           for (const entry of (hwData.entries || [])) homeWorkoutLog[entry.date] = entry;
         } catch(e) {}
+      }
+
+      // workout_overrides.json
+      const overridesFile = files['workout_overrides.json'];
+      if (overridesFile) {
+        try { workoutOverrides = JSON.parse(overridesFile.content) || {}; } catch(e) { workoutOverrides = {}; }
+      } else {
+        workoutOverrides = {};
       }
     }
 
@@ -917,8 +926,31 @@
       </div>`;
     }
 
+    function getEffectiveWorkouts(date, wods) {
+      const dayOverrides = workoutOverrides[date] || {};
+      return wods.map(w => {
+        const ov = dayOverrides[w.title];
+        if (!ov) return { ...w, _overridden: false, _deleted: false, _overrideStale: false };
+        const stale = ov.original_description !== (w.description || '') ||
+                      ov.original_athlete_notes !== (w.athlete_notes || '');
+        if (stale) return { ...w, _overridden: false, _deleted: false, _overrideStale: true };
+        return {
+          ...w,
+          description: ov.description,
+          athlete_notes: ov.athlete_notes,
+          _overridden: true,
+          _deleted: ov.deleted || false,
+          _overrideStale: false,
+        };
+      });
+    }
+
     function renderWodSections(wods, date) {
-      const sections = wods.map(w => {
+      const effective = getEffectiveWorkouts(date, wods);
+      const visible = effective.filter(w => !w._deleted);
+      const deleted = effective.filter(w => w._deleted);
+
+      const sections = visible.map(w => {
         const desc = stripHtml(w.description || '').trim();
         const notes = (w.athlete_notes || '').trim();
         const notesHtml = notes ? `
@@ -926,14 +958,39 @@
             <div class="athlete-notes-label">Athlete Notes</div>
             <div class="athlete-notes-body">${escapeHtml(notes)}</div>
           </div>` : '';
+        const staleWarning = w._overrideStale
+          ? `<div class="wod-override-badge stale">SugarWOD gewijzigd — aanpassing genegeerd</div>` : '';
+        const overrideBadge = w._overridden && !w._overrideStale
+          ? `<div class="wod-override-badge">aangepast</div>` : '';
+        const editPanel = date ? buildWodEditPanel(date, w.title, w) : '';
         return `<div class="wod-section">
-          <div class="wod-section-title">${w.title}</div>
+          <div class="wod-section-header">
+            <div class="wod-section-title">${escapeHtml(w.title)}</div>
+            ${date ? `<button class="wod-edit-btn" onclick="toggleWodEdit('${escapeHtml(date)}','${escapeHtml(w.title)}',event)" title="Bewerken">✎</button>` : ''}
+          </div>
+          ${staleWarning}${overrideBadge}
           ${desc ? `<div class="wod-section-body">${desc}</div>` : ''}
           ${notesHtml}
+          ${editPanel}
         </div>`;
       }).join('');
 
-      const weightHtml = renderWeightSuggestions(wods);
+      const deletedHtml = deleted.length > 0 ? (() => {
+        const id = `wod-deleted-${date}`;
+        const items = deleted.map(w => `
+          <div class="wod-deleted-item">
+            <span class="wod-deleted-title">${escapeHtml(w.title)}</span>
+            <button class="wod-restore-btn" onclick="restoreWodSection('${escapeHtml(date)}','${escapeHtml(w.title)}',this)">Terugzetten</button>
+          </div>`).join('');
+        return `<div class="wod-deleted-toggle" onclick="document.getElementById('${id}').classList.toggle('open')">
+          ${deleted.length} onderdeel${deleted.length > 1 ? 'en' : ''} verborgen ▾
+        </div>
+        <div id="${id}" class="wod-deleted-list">
+          ${items}
+        </div>`;
+      })() : '';
+
+      const weightHtml = renderWeightSuggestions(visible.length > 0 ? visible : wods);
 
       const plan = date && workoutPlans[date];
       const planTsStr = plan ? formatAdviceTimestamp(workoutPlansGeneratedAt) : '';
@@ -945,7 +1002,175 @@
           <div class="coach-plan-body">${marked.parse(plan)}</div>
         </div>` : '';
 
-      return sections + weightHtml + planHtml;
+      return sections + deletedHtml + weightHtml + planHtml;
+    }
+
+    function _wodSafeKey(title) {
+      return title.replace(/[^a-zA-Z0-9]/g, '_');
+    }
+
+    function buildWodEditPanel(date, title, workout) {
+      const key = `${date}_${_wodSafeKey(title)}`;
+      const desc = stripHtml(workout.description || '').trim();
+      const notes = (workout.athlete_notes || '').trim();
+      return `
+        <div id="wod-edit-${key}" class="wod-edit-panel" onclick="event.stopPropagation()" style="display:none">
+          <div class="add-event-fields">
+            <div class="add-event-row">
+              <span class="add-event-label">Beschrijving</span>
+              <textarea class="add-event-input" id="wodDesc-${key}" rows="5" style="resize:vertical;font-family:monospace;font-size:0.78rem">${escapeHtml(desc)}</textarea>
+            </div>
+            <div class="add-event-row">
+              <span class="add-event-label">Athlete Notes</span>
+              <textarea class="add-event-input" id="wodNotes-${key}" rows="3" style="resize:vertical;font-size:0.78rem">${escapeHtml(notes)}</textarea>
+            </div>
+          </div>
+          <div class="add-event-actions">
+            <span class="add-event-status" id="wodStatus-${key}"></span>
+            <button class="wod-delete-btn" onclick="deleteWodSection('${escapeHtml(date)}','${escapeHtml(title)}',this)">Verbergen</button>
+            <button class="add-event-cancel-btn" onclick="toggleWodEdit('${escapeHtml(date)}','${escapeHtml(title)}',event)">Annuleren</button>
+            <button class="add-event-save-btn" id="wodSaveBtn-${key}" onclick="saveWodOverride('${escapeHtml(date)}','${escapeHtml(title)}',this)">Opslaan</button>
+          </div>
+        </div>`;
+    }
+
+    function toggleWodEdit(date, title, e) {
+      if (e) { e.stopPropagation(); e.preventDefault(); }
+      const key = `${date}_${_wodSafeKey(title)}`;
+      const panel = document.getElementById(`wod-edit-${key}`);
+      if (!panel) return;
+      const opening = panel.style.display === 'none';
+      panel.style.display = opening ? 'block' : 'none';
+      if (opening) requestAnimationFrame(() => panel.scrollIntoView({ behavior: 'smooth', block: 'nearest' }));
+    }
+
+    async function saveWodOverride(date, title, btn) {
+      const token = document.getElementById('githubToken').value.trim();
+      const key = `${date}_${_wodSafeKey(title)}`;
+      const statusEl = document.getElementById(`wodStatus-${key}`);
+      const saveBtn = btn || document.getElementById(`wodSaveBtn-${key}`);
+
+      if (!token) {
+        if (statusEl) { statusEl.textContent = '⚠ Token nodig'; statusEl.className = 'add-event-status err'; }
+        return;
+      }
+
+      const descEl = document.getElementById(`wodDesc-${key}`);
+      const notesEl = document.getElementById(`wodNotes-${key}`);
+      const newDesc = descEl ? descEl.value : '';
+      const newNotes = notesEl ? notesEl.value.trim() : '';
+
+      const originalWod = (wodByDate[date] || []).find(w => w.title === title);
+      if (!originalWod) {
+        if (statusEl) { statusEl.textContent = '⚠ Workout niet gevonden'; statusEl.className = 'add-event-status err'; }
+        return;
+      }
+
+      if (statusEl) { statusEl.textContent = 'Opslaan…'; statusEl.className = 'add-event-status'; }
+      if (saveBtn) saveBtn.disabled = true;
+
+      if (!workoutOverrides[date]) workoutOverrides[date] = {};
+      workoutOverrides[date][title] = {
+        original_description: originalWod.description || '',
+        original_athlete_notes: originalWod.athlete_notes || '',
+        description: newDesc,
+        athlete_notes: newNotes,
+        deleted: false,
+        modified_at: new Date().toISOString(),
+      };
+
+      try {
+        const patch = await fetch(`https://api.github.com/gists/${currentGistId}`, {
+          method: 'PATCH',
+          headers: { Authorization: `token ${token}`, 'Content-Type': 'application/json' },
+          body: JSON.stringify({ files: { 'workout_overrides.json': { content: JSON.stringify(workoutOverrides, null, 2) } } }),
+        });
+        if (!patch.ok) throw new Error(`Opslaan mislukt: ${patch.status}`);
+
+        if (statusEl) { statusEl.textContent = '✓ Opgeslagen'; statusEl.className = 'add-event-status ok'; }
+        setTimeout(() => {
+          const panel = document.getElementById(`wod-edit-${key}`);
+          if (panel) panel.style.display = 'none';
+          _rerenderCardWod(date);
+        }, 600);
+      } catch(err) {
+        delete workoutOverrides[date][title];
+        if (statusEl) { statusEl.textContent = `❌ ${err.message}`; statusEl.className = 'add-event-status err'; }
+        if (saveBtn) saveBtn.disabled = false;
+      }
+    }
+
+    async function deleteWodSection(date, title, btn) {
+      const token = document.getElementById('githubToken').value.trim();
+      const key = `${date}_${_wodSafeKey(title)}`;
+      const statusEl = document.getElementById(`wodStatus-${key}`);
+
+      if (!token) {
+        if (statusEl) { statusEl.textContent = '⚠ Token nodig'; statusEl.className = 'add-event-status err'; }
+        return;
+      }
+
+      const originalWod = (wodByDate[date] || []).find(w => w.title === title);
+      if (!originalWod) return;
+
+      if (btn) btn.disabled = true;
+
+      if (!workoutOverrides[date]) workoutOverrides[date] = {};
+      const existing = workoutOverrides[date][title] || {};
+      workoutOverrides[date][title] = {
+        original_description: originalWod.description || '',
+        original_athlete_notes: originalWod.athlete_notes || '',
+        description: existing.description || originalWod.description || '',
+        athlete_notes: existing.athlete_notes || originalWod.athlete_notes || '',
+        deleted: true,
+        modified_at: new Date().toISOString(),
+      };
+
+      try {
+        const patch = await fetch(`https://api.github.com/gists/${currentGistId}`, {
+          method: 'PATCH',
+          headers: { Authorization: `token ${token}`, 'Content-Type': 'application/json' },
+          body: JSON.stringify({ files: { 'workout_overrides.json': { content: JSON.stringify(workoutOverrides, null, 2) } } }),
+        });
+        if (!patch.ok) throw new Error(`Verbergen mislukt: ${patch.status}`);
+        _rerenderCardWod(date);
+      } catch(err) {
+        delete workoutOverrides[date][title];
+        if (statusEl) { statusEl.textContent = `❌ ${err.message}`; statusEl.className = 'add-event-status err'; }
+        if (btn) btn.disabled = false;
+      }
+    }
+
+    async function restoreWodSection(date, title, btn) {
+      const token = document.getElementById('githubToken').value.trim();
+      if (!token) return;
+
+      if (btn) btn.disabled = true;
+
+      if (workoutOverrides[date]) delete workoutOverrides[date][title];
+
+      try {
+        const patch = await fetch(`https://api.github.com/gists/${currentGistId}`, {
+          method: 'PATCH',
+          headers: { Authorization: `token ${token}`, 'Content-Type': 'application/json' },
+          body: JSON.stringify({ files: { 'workout_overrides.json': { content: JSON.stringify(workoutOverrides, null, 2) } } }),
+        });
+        if (!patch.ok) throw new Error(`Terugzetten mislukt: ${patch.status}`);
+        _rerenderCardWod(date);
+      } catch(err) {
+        if (btn) btn.disabled = false;
+      }
+    }
+
+    function _rerenderCardWod(date) {
+      const wods = wodByDate[date] || [];
+      if (wods.length === 0) return;
+      const newSections = renderWodSections(wods, date);
+      const envBadge = renderEnvBadge(date);
+      document.querySelectorAll(`.card.has-wod[data-wod-date="${date}"]`).forEach(card => {
+        const wod = card.querySelector('.card-wod');
+        if (wod) wod.innerHTML = envBadge + newSections;
+      });
     }
 
     function renderStravaBlock(date, typeFilter) {
@@ -1229,7 +1454,7 @@
     function toggleWod(card, e) {
       const evt = e || event;
       if (evt && evt.target && evt.target.closest &&
-          evt.target.closest('.run-reschedule-btn, .run-reschedule-form, .personal-edit-btn, .personal-edit-panel')) return;
+          evt.target.closest('.run-reschedule-btn, .run-reschedule-form, .personal-edit-btn, .personal-edit-panel, .wod-edit-btn, .wod-edit-panel, .wod-deleted-toggle, .wod-deleted-list, .wod-restore-btn, .wod-delete-btn')) return;
       card.classList.toggle('open');
     }
 

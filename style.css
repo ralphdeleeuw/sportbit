@@ -681,13 +681,22 @@
 
     .wod-section + .wod-section { margin-top: 0.9rem; }
 
+    .wod-section-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 0.35rem;
+    }
+
+    .wod-section-header .wod-section-title { margin-bottom: 0; }
+
     .wod-section-title {
       font-size: 0.67rem;
       letter-spacing: 0.16em;
       text-transform: uppercase;
       color: var(--accent);
       font-weight: 600;
-      margin-bottom: 0.35rem;
+      margin-bottom: 0;
     }
 
     .wod-section-body {
@@ -721,6 +730,108 @@
       white-space: pre-wrap;
       line-height: 1.55;
     }
+
+    .wod-edit-btn {
+      background: none;
+      border: none;
+      color: var(--muted);
+      font-size: 0.85rem;
+      cursor: pointer;
+      padding: 0.1rem 0.35rem;
+      border-radius: 4px;
+      opacity: 0.5;
+      line-height: 1;
+      flex-shrink: 0;
+    }
+    .wod-edit-btn:hover { opacity: 1; color: var(--accent); }
+
+    .wod-override-badge {
+      display: inline-block;
+      font-size: 0.6rem;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+      color: #4db8ff;
+      background: rgba(77,184,255,0.1);
+      border: 1px solid rgba(77,184,255,0.25);
+      border-radius: 4px;
+      padding: 0.05rem 0.4rem;
+      margin-bottom: 0.35rem;
+    }
+    .wod-override-badge.stale {
+      color: #e8b800;
+      background: rgba(232,184,0,0.08);
+      border-color: rgba(232,184,0,0.25);
+    }
+
+    .wod-edit-panel {
+      margin-top: 0.7rem;
+      padding: 0.8rem;
+      background: #111;
+      border: 1px solid #2a2a2a;
+      border-radius: 8px;
+    }
+
+    .wod-delete-btn {
+      background: none;
+      border: 1px solid #c0392b;
+      color: #e57373;
+      font-size: 0.75rem;
+      cursor: pointer;
+      padding: 0.35rem 0.7rem;
+      border-radius: 6px;
+      margin-right: auto;
+    }
+    .wod-delete-btn:hover { background: rgba(192,57,43,0.12); }
+    .wod-delete-btn:disabled { opacity: 0.5; cursor: default; }
+
+    .wod-deleted-toggle {
+      margin-top: 0.7rem;
+      font-size: 0.7rem;
+      color: var(--muted);
+      cursor: pointer;
+      user-select: none;
+      padding: 0.2rem 0;
+    }
+    .wod-deleted-toggle:hover { color: var(--text); }
+
+    .wod-deleted-list {
+      display: none;
+      margin-top: 0.4rem;
+      padding: 0.6rem 0.8rem;
+      background: #111;
+      border: 1px solid #222;
+      border-radius: 6px;
+    }
+    .wod-deleted-list.open { display: block; }
+
+    .wod-deleted-item {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 0.6rem;
+      padding: 0.25rem 0;
+    }
+    .wod-deleted-item + .wod-deleted-item { border-top: 1px solid #1e1e1e; }
+
+    .wod-deleted-title {
+      font-size: 0.75rem;
+      color: var(--muted);
+      text-transform: uppercase;
+      letter-spacing: 0.1em;
+    }
+
+    .wod-restore-btn {
+      background: none;
+      border: 1px solid #2a5c2a;
+      color: #6cba6c;
+      font-size: 0.7rem;
+      cursor: pointer;
+      padding: 0.2rem 0.55rem;
+      border-radius: 5px;
+      white-space: nowrap;
+    }
+    .wod-restore-btn:hover { background: rgba(108,186,108,0.1); }
+    .wod-restore-btn:disabled { opacity: 0.5; cursor: default; }
 
     /* Strava activiteit blok */
     .strava-block {
