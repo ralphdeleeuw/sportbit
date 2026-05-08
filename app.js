@@ -2901,7 +2901,7 @@
 
     function buildPersonalEditPanel(event) {
       const id = escapeHtml(event.id);
-      const knownTypes = ['Hardlopen','Hiken','SUPpen','Zwemmen','Fietsen','Mountainbiken','Yoga','Gym'];
+      const knownTypes = ['Hardlopen','Hiken','SUPpen','Zwemmen','Fietsen','Mountainbiken','Yoga','Gym','CrossFit'];
       const isCustom = !knownTypes.includes(event.title);
       const opts = [...knownTypes, 'Anders'].map(v => {
         const sel = (v === 'Anders' ? isCustom : event.title === v) ? ' selected' : '';
@@ -3310,6 +3310,7 @@
                 <option value="Mountainbiken">Mountainbiken</option>
                 <option value="Yoga">Yoga</option>
                 <option value="Gym">Gym</option>
+                <option value="CrossFit">CrossFit</option>
                 <option value="Anders">Anders…</option>
               </select>
             </div>
