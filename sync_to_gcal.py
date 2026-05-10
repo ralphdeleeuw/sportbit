@@ -82,7 +82,7 @@ def _personal_event_gcal_body(event: dict) -> dict:
         desc_parts.append(event["notes"])
 
     body: dict = {
-        "summary": f"{emoji} {title}",
+        "summary": f"{emoji} {title}" + (f" — {event['notes']}" if event.get("notes") else ""),
         "description": "\n".join(desc_parts),
     }
     if event.get("location"):
