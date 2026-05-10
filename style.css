@@ -1856,6 +1856,7 @@
     .workflow-btn.info { background: rgba(77,184,255,0.1); border-color: rgba(77,184,255,0.4); color: var(--info); }
     .workflow-btn.purple { background: rgba(154,112,255,0.1); border-color: rgba(154,112,255,0.4); color: var(--purple); }
     .workflow-btn.success { background: rgba(0,200,83,0.1); border-color: rgba(0,200,83,0.4); color: var(--success); }
+    .workflow-btn.danger { background: rgba(255,107,107,0.1); border-color: rgba(255,107,107,0.4); color: var(--accent2); }
     .workflow-btn:disabled { opacity: 0.5; cursor: default; }
     .workflow-status { font-size: 12px; color: var(--muted); }
     .barbell-status { font-size: 11px; color: var(--faint); margin-top: 4px; padding: 8px 12px; background: var(--surface-deep); border-radius: 6px; }
