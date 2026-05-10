@@ -62,6 +62,7 @@ Adjust DOWN when:
 - TSB < -20 combined with poor sleep (< 6h) or high subjective fatigue
 - Heavy CrossFit session same day AND run is later that day
 - Athlete notes indicating illness, injury, or extreme fatigue
+- Recent running workout was cancelled due to illness or injury (see "Cancelled running workouts") — reduce intensity and start lighter to rebuild
 
 Adjust UP when:
 - HRV above recent average AND TSB positive or near 0 AND good sleep
@@ -161,6 +162,12 @@ def _load_review_context(gist_id: str, token: str) -> dict:
             entry["training_load"] = tl
         recent_cf_from_intervals[d] = entry
 
+    cutoff_recent_runs = (date.today() - timedelta(days=14)).isoformat()
+    cancelled_runs = [
+        w for w in plan.get("workouts", [])
+        if w.get("cancelled") and w.get("date", "") >= cutoff_recent_runs
+    ]
+
     return {
         "running_plan": plan,
         "wellness": intervals_data.get("wellness", {}).get("by_date", {}),
@@ -172,6 +179,7 @@ def _load_review_context(gist_id: str, token: str) -> dict:
         "signed_up_cf_dates": _signed_up_cf_dates(files),
         "today_str": today_str,
         "personal_events": upcoming_personal_events,
+        "cancelled_runs": cancelled_runs,
     }
 
 
@@ -181,7 +189,7 @@ def _upcoming_workouts(plan: dict) -> list[dict]:
     today_str = date.today().isoformat()
     return [
         w for w in plan.get("workouts", [])
-        if w.get("date", "") >= today_str and not w.get("completed")
+        if w.get("date", "") >= today_str and not w.get("completed") and not w.get("cancelled")
     ]
 
 
@@ -259,6 +267,7 @@ def _build_review_context(
     signed_up_cf_dates: set[str] = frozenset(),
     recent_cf_by_date: dict | None = None,
     personal_events: list[dict] | None = None,
+    cancelled_runs: list[dict] | None = None,
 ) -> str:
     now_ams = datetime.now(AMS)
     today_str = date.today().isoformat()
@@ -420,6 +429,21 @@ def _build_review_context(
         sections.append(
             "Other planned activities (consider recovery — avoid hard run the day before):\n"
             + "\n".join(pe_lines)
+        )
+
+    # Geannuleerde hardloopworkouts (laatste 14 dagen)
+    if cancelled_runs:
+        cr_lines = []
+        for w in sorted(cancelled_runs, key=lambda x: x.get("date", ""), reverse=True):
+            line = f"  {w.get('date', '')} ({w.get('session', '')})"
+            if w.get("name"):
+                line += f" — {w['name']}"
+            if w.get("cancel_reason"):
+                line += f": {w['cancel_reason']}"
+            cr_lines.append(line)
+        sections.append(
+            "Cancelled running workouts (last 14 days — consider reducing intensity if illness/fatigue was the reason):\n"
+            + "\n".join(cr_lines)
         )
 
     # Subjectieve notities
@@ -631,6 +655,7 @@ def main() -> None:
         signed_up_cf_dates=ctx.get("signed_up_cf_dates", frozenset()),
         recent_cf_by_date=ctx.get("recent_cf_by_date"),
         personal_events=ctx.get("personal_events"),
+        cancelled_runs=ctx.get("cancelled_runs"),
     )
     log.info("Review context:\n%s", context_text)
 

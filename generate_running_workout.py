@@ -475,6 +475,25 @@ def _build_claude_context(ctx: dict) -> str:
             + "\n".join(pe_lines)
         )
 
+    # Geannuleerde hardloopworkouts (laatste 30 dagen)
+    cancelled_runs = [
+        w for w in running_plan.get("workouts", [])
+        if w.get("cancelled") and w.get("date", "") >= (today - timedelta(days=30)).isoformat()
+    ]
+    if cancelled_runs:
+        cr_lines = []
+        for w in sorted(cancelled_runs, key=lambda x: x.get("date", ""), reverse=True):
+            line = f"  {w.get('date', '')} ({w.get('session', '')})"
+            if w.get("name"):
+                line += f" — {w['name']}"
+            if w.get("cancel_reason"):
+                line += f": {w['cancel_reason']}"
+            cr_lines.append(line)
+        sections.append(
+            "Cancelled running workouts (adjust upcoming training load accordingly):\n"
+            + "\n".join(cr_lines)
+        )
+
     if health_lines:
         sections.append("Subjective health scores:\n" + "\n".join(health_lines))
 
@@ -491,6 +510,7 @@ _SYSTEM_PROMPT = """You are a professional running coach. You create training sc
 - Use the upcoming CrossFit schedule in the context to avoid scheduling hard speed sessions on days with heavy CrossFit (same day or day after)
 - Also check "Other planned activities" — avoid hard speed sessions the day before a physically demanding activity
 - CrossFit events (e.g. "The Murph", competitions, open workouts) in "Other planned activities" are extremely demanding: treat the day before AND the day after as recovery days — only easy runs (Z2) allowed
+- If recent running workouts were cancelled due to illness or injury (see "Cancelled running workouts"), account for lost training load: start lighter if illness/fatigue was the reason, maintain normal progression if it was a scheduling issue
 
 Pace zones (always calibrate to recovery status via HRV/TSB):
 - Conversational (max):  6:40/km — "no faster than 6:40/km"
