@@ -3470,9 +3470,9 @@
 
         setStatus('✓ Geannuleerd — agenda event verwijderen…', '#4caf50');
 
-        // Verwijder Google Agenda en intervals.icu events via workflow
+        // Verwijder Google Agenda en intervals.icu events via reschedule workflow (staat op main)
         fetch(
-          'https://api.github.com/repos/ralphdeleeuw/sportbit/actions/workflows/cancel_running_workout.yml/dispatches',
+          'https://api.github.com/repos/ralphdeleeuw/sportbit/actions/workflows/reschedule_running_workout.yml/dispatches',
           {
             method: 'POST',
             headers: { Authorization: `token ${token}`, Accept: 'application/vnd.github+json', 'Content-Type': 'application/json' },
