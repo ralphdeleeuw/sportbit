@@ -1305,13 +1305,14 @@
       });
     }
 
-    function renderStravaBlock(date, typeFilter) {
+    function renderStravaBlock(date, typeFilter, keywords) {
       if (!stravaData) return '';
       const _rtS = ['run', 'running', 'trailrun', 'treadmill', 'jog'];
       let acts = (stravaData.activities_by_date || {})[date];
       if (!acts || acts.length === 0) return '';
       if (typeFilter === 'run') acts = acts.filter(a => _rtS.some(rt => (a.type || '').toLowerCase().includes(rt)));
       else if (typeFilter === 'non-run') acts = acts.filter(a => !_rtS.some(rt => (a.type || '').toLowerCase().includes(rt)));
+      else if (keywords) acts = acts.filter(a => keywords.some(k => (a.type || '').toLowerCase().includes(k)));
       if (acts.length === 0) return '';
       return acts.map(act => {
         const dur     = act.duration_min ? `<span class="strava-stat"><strong>${act.duration_min}</strong> min</span>` : '';
@@ -1329,13 +1330,14 @@
       }).join('');
     }
 
-    function renderIntervalsBlock(date, typeFilter) {
+    function renderIntervalsBlock(date, typeFilter, keywords) {
       if (!intervalsData) return '';
       const runTypes = ['run', 'running', 'trailrun', 'treadmill', 'jog'];
       let acts = ((intervalsData.activities || {}).by_date || {})[date];
       if (!acts || acts.length === 0) return '';
       if (typeFilter === 'run') acts = acts.filter(a => runTypes.some(rt => (a.type || '').toLowerCase().includes(rt)));
       else if (typeFilter === 'non-run') acts = acts.filter(a => !runTypes.some(rt => (a.type || '').toLowerCase().includes(rt)));
+      else if (keywords) acts = acts.filter(a => keywords.some(k => (a.type || '').toLowerCase().includes(k)));
       if (acts.length === 0) return '';
       return acts.map(act => {
         const isRun = runTypes.some(rt => (act.type || '').toLowerCase().includes(rt));
@@ -3005,9 +3007,34 @@
       const notesHtml = event.notes
         ? `<div class="card-wod"><div style="font-size:0.82rem;color:#b0ccf0;white-space:pre-wrap;line-height:1.6">${escapeHtml(event.notes)}</div></div>`
         : '';
-      const hasWod = event.notes ? ' has-wod' : '';
-      const clickAttr = event.notes ? ' onclick="toggleWod(this, event)"' : '';
-      const chevron = event.notes ? `<div class="wod-chevron" style="color:#4db8ff">▾</div>` : '';
+
+      // Koppel workout data van intervals.icu/Strava als de datum vandaag of eerder is
+      const todayStr = new Date().toISOString().slice(0, 10);
+      const personalTypeKeywords = {
+        'Hiken':        ['hike', 'walk', 'hiking', 'walking'],
+        'Hardlopen':    ['run', 'running', 'trailrun', 'treadmill', 'jog'],
+        'Fietsen':      ['ride', 'cycling', 'virtualride', 'ebikeride'],
+        'Mountainbiken':['mountainbikeride', 'mtb', 'gravel', 'virtualride'],
+        'Zwemmen':      ['swim', 'openwaterswim'],
+        'SUPpen':       ['sup', 'stand', 'paddle', 'row', 'canoe'],
+        'Yoga':         ['yoga', 'flexibility', 'stretching'],
+        'Gym':          ['weighttraining', 'strength', 'weight', 'workout'],
+        'CrossFit':     ['crossfit', 'workout', 'weight'],
+      };
+      let activityBlockHtml = '';
+      if (event.date <= todayStr) {
+        const keywords = personalTypeKeywords[event.title] || null;
+        const intervalsHtml = renderIntervalsBlock(event.date, null, keywords);
+        activityBlockHtml = intervalsHtml || renderStravaBlock(event.date, null, keywords);
+      }
+
+      const hasContent = event.notes || activityBlockHtml;
+      const hasWod = hasContent ? ' has-wod' : '';
+      const clickAttr = hasContent ? ' onclick="toggleWod(this, event)"' : '';
+      const chevron = hasContent ? `<div class="wod-chevron" style="color:#4db8ff">▾</div>` : '';
+      const wodContent = hasContent
+        ? `<div class="card-wod">${event.notes ? `<div style="font-size:0.82rem;color:#b0ccf0;white-space:pre-wrap;line-height:1.6">${escapeHtml(event.notes)}</div>` : ''}${activityBlockHtml}</div>`
+        : '';
 
       return `
         <div class="card${hasWod}" data-event-id="${id}" style="animation-delay:${delay}s"${clickAttr}>
@@ -3025,7 +3052,7 @@
                 <div style="display:flex;gap:0.3rem;align-items:center">${editBtn}${deleteBtn}${chevron}</div>
               </div>
             </div>
-            ${notesHtml}
+            ${wodContent}
             ${buildPersonalEditPanel(event)}
           </div>
         </div>`;
