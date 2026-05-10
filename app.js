@@ -1998,6 +1998,7 @@
           extras:[{id:'skipStravaHealth',label:'Strava overslaan'},{id:'skipIntervalsHealth',label:'Intervals.icu overslaan'},{id:'skipWithingsHealth',label:'Withings overslaan'}] },
         { btnId:'runningPlanBtn', statusId:'runningPlanStatus', lastRunId:'runningLastRun', workflowFile:'generate_running_workout.yml', icon:'🏃', title:'Hardloopplan', desc:'Nieuw hardloopschema genereren via Claude', fn:'triggerRunningPlan()', cls:'success' },
         { btnId:'repushBtn', statusId:'repushStatus', lastRunId:'repushLastRun', workflowFile:'repush_workouts.yml', icon:'↑', title:'Sync naar Garmin', desc:'Bestaande workouts opnieuw pushen naar intervals.icu / Garmin', fn:'triggerRepush()', cls:'success' },
+        { btnId:'gcalSyncBtn', statusId:'gcalSyncStatus', lastRunId:'', workflowFile:'sync_to_gcal.yml', icon:'📅', title:'Sync naar Google Agenda', desc:'Hardloopworkouts en persoonlijke events toevoegen aan Google Agenda', fn:'triggerGcalSync()', cls:'info' },
         { btnId:'openGymBtn', statusId:'openGymStatus', lastRunId:'openGymLastRun', workflowFile:'generate_open_gym_program.yml', icon:'🏋️', title:'Open Gym Programma', desc:'Genereer een persoonlijk programma voor je eerstvolgende Open Gym sessie', fn:'triggerOpenGymProgram()', cls:'info' },
       ];
 
@@ -2343,6 +2344,59 @@
         statusEl.style.color = 'var(--accent2)';
         btn.disabled = false;
         btn.textContent = '🗑 Verwijder geannuleerde events';
+      }
+    }
+
+    async function triggerGcalSync() {
+      const token = document.getElementById('githubToken').value.trim();
+      const statusEl = document.getElementById('gcalSyncStatus');
+      const btn = document.getElementById('gcalSyncBtn');
+
+      if (!token) {
+        statusEl.textContent = 'Vul eerst je GitHub Token in';
+        statusEl.style.color = 'var(--accent2)';
+        return;
+      }
+
+      btn.disabled = true;
+      btn.textContent = '📅 Bezig…';
+      statusEl.textContent = 'Sync starten…';
+      statusEl.style.color = 'var(--muted)';
+
+      const triggerTime = new Date();
+
+      try {
+        const resp = await fetch(
+          'https://api.github.com/repos/ralphdeleeuw/sportbit/actions/workflows/sync_to_gcal.yml/dispatches',
+          {
+            method: 'POST',
+            headers: {
+              Authorization: `token ${token}`,
+              Accept: 'application/vnd.github+json',
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({ ref: 'main', inputs: {} }),
+          }
+        );
+
+        if (resp.status !== 204) {
+          const body = await resp.json().catch(() => ({}));
+          statusEl.textContent = `Fout ${resp.status}: ${body.message || 'onbekend'}`;
+          statusEl.style.color = 'var(--accent2)';
+          btn.disabled = false;
+          btn.textContent = '📅 Sync naar Google Agenda';
+          return;
+        }
+
+        statusEl.textContent = '⏳ In wachtrij…';
+        statusEl.style.color = 'var(--muted)';
+        await pollWorkflowRun(token, triggerTime, statusEl, btn, 'sync_to_gcal.yml', '📅 Sync naar Google Agenda');
+
+      } catch (e) {
+        statusEl.textContent = `Netwerkfout: ${e.message}`;
+        statusEl.style.color = 'var(--accent2)';
+        btn.disabled = false;
+        btn.textContent = '📅 Sync naar Google Agenda';
       }
     }
 
@@ -3793,7 +3847,20 @@
         if (!patch.ok) throw new Error(`Opslaan mislukt: ${patch.status}`);
 
         personalEvents = events;
-        if (statusEl) { statusEl.textContent = '✓ Toegevoegd'; statusEl.className = 'add-event-status ok'; }
+        if (statusEl) { statusEl.textContent = '✓ Toegevoegd — naar Google Agenda…'; statusEl.className = 'add-event-status ok'; }
+
+        // Sync naar Google Agenda via workflow
+        const gcalToken = document.getElementById('githubToken')?.value.trim();
+        if (gcalToken) {
+          fetch(
+            'https://api.github.com/repos/ralphdeleeuw/sportbit/actions/workflows/sync_to_gcal.yml/dispatches',
+            {
+              method: 'POST',
+              headers: { Authorization: `token ${gcalToken}`, Accept: 'application/vnd.github+json', 'Content-Type': 'application/json' },
+              body: JSON.stringify({ ref: 'main', inputs: {} }),
+            }
+          ).catch(() => {});
+        }
 
         setTimeout(() => {
           hideAddEventForm();
