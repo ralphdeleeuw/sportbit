@@ -1998,6 +1998,15 @@
         { btnId:'repushBtn', statusId:'repushStatus', lastRunId:'repushLastRun', workflowFile:'repush_workouts.yml', icon:'↑', title:'Sync naar Garmin', desc:'Bestaande workouts opnieuw pushen naar intervals.icu / Garmin', fn:'triggerRepush()', cls:'success' },
         { btnId:'openGymBtn', statusId:'openGymStatus', lastRunId:'openGymLastRun', workflowFile:'generate_open_gym_program.yml', icon:'🏋️', title:'Open Gym Programma', desc:'Genereer een persoonlijk programma voor je eerstvolgende Open Gym sessie', fn:'triggerOpenGymProgram()', cls:'info' },
       ];
+
+      // Toon cleanup knop alleen als er geannuleerde workouts met events zijn
+      const cancelledWithEvents = (runningPlanData?.workouts || []).filter(
+        w => w.cancelled && (w.event_id || w.gcal_event_id)
+      );
+      if (cancelledWithEvents.length > 0) {
+        wfs.push({ btnId:'cancelCleanupBtn', statusId:'cancelCleanupStatus', lastRunId:'', workflowFile:'reschedule_running_workout.yml', icon:'🗑', title:'Verwijder geannuleerde events', desc:`${cancelledWithEvents.length} geannuleerde workout${cancelledWithEvents.length > 1 ? 's' : ''} nog aanwezig in Google Agenda / intervals.icu`, fn:'triggerCancelCleanup()', cls:'danger' });
+      }
+
       wfs.forEach(w => {
         const extras = (w.extras||[]).map(ex => `<label class="workflow-check"><input type="checkbox" id="${ex.id}"> ${ex.label}</label>`).join('');
         h += `<div class="workflow-card">
@@ -2279,6 +2288,59 @@
         statusEl.style.color = 'var(--accent2)';
         btn.disabled = false;
         btn.textContent = '↑ Sync naar Garmin';
+      }
+    }
+
+    async function triggerCancelCleanup() {
+      const token = document.getElementById('githubToken').value.trim();
+      const statusEl = document.getElementById('cancelCleanupStatus');
+      const btn = document.getElementById('cancelCleanupBtn');
+
+      if (!token) {
+        statusEl.textContent = 'Vul eerst je GitHub Token in';
+        statusEl.style.color = 'var(--accent2)';
+        return;
+      }
+
+      btn.disabled = true;
+      btn.textContent = '🗑 Bezig…';
+      statusEl.textContent = 'Events verwijderen…';
+      statusEl.style.color = 'var(--muted)';
+
+      const triggerTime = new Date();
+
+      try {
+        const resp = await fetch(
+          'https://api.github.com/repos/ralphdeleeuw/sportbit/actions/workflows/reschedule_running_workout.yml/dispatches',
+          {
+            method: 'POST',
+            headers: {
+              Authorization: `token ${token}`,
+              Accept: 'application/vnd.github+json',
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({ ref: 'main', inputs: {} }),
+          }
+        );
+
+        if (resp.status !== 204) {
+          const body = await resp.json().catch(() => ({}));
+          statusEl.textContent = `Fout ${resp.status}: ${body.message || 'onbekend'}`;
+          statusEl.style.color = 'var(--accent2)';
+          btn.disabled = false;
+          btn.textContent = '🗑 Verwijder geannuleerde events';
+          return;
+        }
+
+        statusEl.textContent = '⏳ In wachtrij…';
+        statusEl.style.color = 'var(--muted)';
+        await pollWorkflowRun(token, triggerTime, statusEl, btn, 'reschedule_running_workout.yml', '🗑 Verwijder geannuleerde events');
+
+      } catch (e) {
+        statusEl.textContent = `Netwerkfout: ${e.message}`;
+        statusEl.style.color = 'var(--accent2)';
+        btn.disabled = false;
+        btn.textContent = '🗑 Verwijder geannuleerde events';
       }
     }
 
