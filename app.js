@@ -3215,6 +3215,7 @@
     function renderRunEventCard(session, delay, idPrefix) {
       const today = new Date().toISOString().slice(0, 10);
       const isUpcoming = session.date >= today;
+      const isCancelled = !!session.cancelled;
       const sessionKey = session.session === 'speed' ? 'run_1' : 'run_2';
       const sessionTime = session.time || (session.session === 'speed' ? '20:00' : '09:00');
       const cardId = (idPrefix || '') + 'run' + session.date.replace(/-/g, '');
@@ -3222,9 +3223,37 @@
       const distStr = session.total_distance_km ? `${session.total_distance_km} km` : '';
       const metaHtml = `<div class="card-meta"><span class="card-time">${sessionTime}${distStr ? ' · ' + distStr : ''}</span></div>`;
 
-      const actualRun = !isUpcoming ? _findActualRun(session.date) : null;
+      const actualRun = !isUpcoming && !isCancelled ? _findActualRun(session.date) : null;
       const actualHtml = actualRun ? _renderActualRunStats(actualRun) : '';
       const displayName = session.name || actualRun?.name || session.type || 'Run';
+
+      // Geannuleerde workout: toon grijze kaart met reden en ongedaan-knop
+      if (isCancelled) {
+        const reason = session.cancel_reason || '';
+        return `
+          <div class="card cancelled" style="animation-delay:${delay}s" onclick="this.classList.toggle('open')">
+            <div class="card-dot dot-cancelled"></div>
+            <div class="card-info">
+              <div class="card-header">
+                <div class="card-header-left">
+                  <div class="card-title">🏃 ${escapeHtml(displayName)}</div>
+                  ${metaHtml}
+                </div>
+                <div class="card-right">
+                  <div class="card-date cancelled-date">${formatDate(session.date)}</div>
+                  <div class="card-relative-day">${relativeDay(session.date)}</div>
+                  <div class="wod-chevron" style="color:var(--accent2)">▾</div>
+                </div>
+              </div>
+              <div class="cancelled-undo" onclick="event.stopPropagation()">
+                ${reason ? `<div style="font-size:0.75rem;color:#a0a0a0;margin-bottom:0.5rem">Reden: ${escapeHtml(reason)}</div>` : ''}
+                <button class="run-reschedule-btn" style="color:#4caf50;border-color:rgba(76,175,80,0.3)"
+                  onclick="undoCancelRun('${session.date}', '${cardId}')">↩ Ongedaan maken</button>
+                <div id="cancel-status-${cardId}" style="font-size:0.72rem;color:var(--muted);margin-top:0.4rem"></div>
+              </div>
+            </div>
+          </div>`;
+      }
 
       const descText = session.full_description || session.description || '';
       const wodContent = (descText ? `<div style="font-size:0.82rem;color:#a0e8b0;white-space:pre-wrap;line-height:1.6">${escapeHtml(descText)}</div>` : '')
@@ -3253,11 +3282,26 @@
           <div id="rsstatus-${cardId}" style="font-size:0.72rem;color:var(--muted);margin-top:0.4rem"></div>
         </div>` : '';
 
+      const cancelFormId = `cancelform-${cardId}`;
+      const cancelForm = isUpcoming ? `
+        <div id="${cancelFormId}" class="run-reschedule-form" onclick="event.stopPropagation()" style="display:none">
+          <div style="font-size:0.75rem;color:#a0a0a0;margin-bottom:0.5rem">Reden voor annulering (optioneel):</div>
+          <div style="display:flex;gap:0.5rem;align-items:center;flex-wrap:wrap">
+            <input type="text" id="cancelreason-${cardId}" placeholder="Bijv. Ziek, moe, blessure…"
+                   class="add-event-input" style="flex:1;min-width:180px">
+            <button class="run-reschedule-btn" style="color:#ff6b6b;border-color:rgba(255,107,107,0.3)"
+                    id="cancelsave-${cardId}"
+                    onclick="confirmCancelRun('${session.date}', '${cardId}')">✕ Bevestig annulering</button>
+          </div>
+          <div id="cancel-status-${cardId}" style="font-size:0.72rem;color:var(--muted);margin-top:0.4rem"></div>
+        </div>` : '';
+
       const rescheduleInWod = isUpcoming
-        ? `<button class="run-reschedule-btn" onclick="clickReschedule(event, '${cardId}')">📅 Datum/tijd</button>`
+        ? `<button class="run-reschedule-btn" onclick="clickReschedule(event, '${cardId}')">📅 Datum/tijd</button>
+           <button class="run-reschedule-btn" style="color:#ff9800;border-color:rgba(255,152,0,0.3)" onclick="showCancelRunForm(event, '${cancelFormId}')">✕ Annuleer workout</button>`
         : '';
       const descHtml = (wodContent || rescheduleInWod)
-        ? `<div class="card-wod">${rescheduleInWod}${rescheduleForm}${wodContent}</div>`
+        ? `<div class="card-wod">${rescheduleInWod}${rescheduleForm}${cancelForm}${wodContent}</div>`
         : '';
       const expandable = !!(wodContent || isUpcoming);
       const hasWod = expandable ? ' has-wod' : '';
@@ -3376,6 +3420,96 @@
         setStatus(`Fout: ${e.message}`, 'var(--accent2)');
         if (btn) { btn.disabled = false; btn.textContent = 'Opslaan & Sync Garmin'; }
         console.error(e);
+      }
+    }
+
+    function showCancelRunForm(e, formId) {
+      e.stopPropagation();
+      e.preventDefault();
+      const form = document.getElementById(formId);
+      if (!form) return;
+      const showing = form.style.display === 'block';
+      form.style.display = showing ? 'none' : 'block';
+      if (!showing) {
+        requestAnimationFrame(() => form.scrollIntoView({ behavior: 'smooth', block: 'nearest' }));
+      }
+    }
+
+    async function confirmCancelRun(workoutDate, cardId) {
+      const token = document.getElementById('githubToken').value.trim();
+      if (!token || !currentGistId) { alert('GitHub token vereist'); return; }
+      const reason = (document.getElementById('cancelreason-' + cardId)?.value || '').trim();
+      const btn = document.getElementById('cancelsave-' + cardId);
+      const statusEl = document.getElementById('cancel-status-' + cardId);
+      const setStatus = (msg, color) => { if (statusEl) { statusEl.textContent = msg; statusEl.style.color = color || 'var(--muted)'; } };
+
+      if (btn) { btn.disabled = true; btn.textContent = 'Opslaan…'; }
+      try {
+        const resp = await fetch(`https://api.github.com/gists/${currentGistId}`, {
+          headers: { Authorization: `token ${token}` }
+        });
+        const gist = await resp.json();
+        let plan = {};
+        try { plan = JSON.parse(gist.files['running_plan.json']?.content || '{}'); } catch(e) {}
+
+        if (plan.workouts) {
+          const w = plan.workouts.find(w => w.date === workoutDate);
+          if (w) {
+            w.cancelled = true;
+            if (reason) w.cancel_reason = reason;
+            w.cancelled_at = new Date().toISOString();
+          }
+        }
+
+        const patch = await fetch(`https://api.github.com/gists/${currentGistId}`, {
+          method: 'PATCH',
+          headers: { Authorization: `token ${token}`, 'Content-Type': 'application/json' },
+          body: JSON.stringify({ files: { 'running_plan.json': { content: JSON.stringify(plan, null, 2) } } })
+        });
+        if (!patch.ok) throw new Error(`Opslaan mislukt ${patch.status}`);
+
+        setStatus('✓ Workout geannuleerd', '#4caf50');
+        setTimeout(() => location.reload(), 600);
+      } catch(e) {
+        if (btn) { btn.disabled = false; btn.textContent = '✕ Bevestig annulering'; }
+        setStatus(`❌ ${e.message}`, '#ff6b6b');
+      }
+    }
+
+    async function undoCancelRun(workoutDate, cardId) {
+      const token = document.getElementById('githubToken').value.trim();
+      if (!token || !currentGistId) { alert('GitHub token vereist'); return; }
+      const statusEl = document.getElementById('cancel-status-' + cardId);
+      const setStatus = (msg, color) => { if (statusEl) { statusEl.textContent = msg; statusEl.style.color = color || 'var(--muted)'; } };
+
+      try {
+        const resp = await fetch(`https://api.github.com/gists/${currentGistId}`, {
+          headers: { Authorization: `token ${token}` }
+        });
+        const gist = await resp.json();
+        let plan = {};
+        try { plan = JSON.parse(gist.files['running_plan.json']?.content || '{}'); } catch(e) {}
+
+        if (plan.workouts) {
+          const w = plan.workouts.find(w => w.date === workoutDate);
+          if (w) {
+            delete w.cancelled;
+            delete w.cancel_reason;
+            delete w.cancelled_at;
+          }
+        }
+
+        const patch = await fetch(`https://api.github.com/gists/${currentGistId}`, {
+          method: 'PATCH',
+          headers: { Authorization: `token ${token}`, 'Content-Type': 'application/json' },
+          body: JSON.stringify({ files: { 'running_plan.json': { content: JSON.stringify(plan, null, 2) } } })
+        });
+        if (!patch.ok) throw new Error(`Opslaan mislukt ${patch.status}`);
+
+        setStatus('✓ Annulering ongedaan gemaakt', '#4caf50');
+        setTimeout(() => location.reload(), 600);
+      } catch(e) {
+        setStatus(`❌ ${e.message}`, '#ff6b6b');
       }
     }
 
