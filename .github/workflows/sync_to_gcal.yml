@@ -1,0 +1,19 @@
+name: Sync naar Google Agenda
+
+on:
+  workflow_dispatch:
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: {python-version: '3.12'}
+      - run: pip install requests google-auth google-auth-oauthlib google-api-python-client
+      - run: python3 sync_to_gcal.py
+        env:
+          GIST_ID: ${{ secrets.GIST_ID }}
+          GITHUB_TOKEN: ${{ secrets.GIST_TOKEN }}
+          GOOGLE_CREDENTIALS: ${{ secrets.GOOGLE_CREDENTIALS }}
+          CALENDAR_ID: ${{ secrets.CALENDAR_ID }}

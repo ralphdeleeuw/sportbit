@@ -1348,7 +1348,7 @@ def _notify(specs: list[dict]) -> None:
 # ── Main ───────────────────────────────────────────────────────────────────────
 
 def _repush_existing(athlete_id: str, api_key: str, gist_id: str, github_token: str) -> None:
-    """Laad bestaande workouts uit de Gist, herbouw workout_doc en push opnieuw naar intervals.icu."""
+    """Laad bestaande workouts uit de Gist, herbouw workout_doc en push opnieuw naar intervals.icu en Google Agenda."""
     log.info("Laden bestaand hardloopplan uit Gist...")
     gist_files = _load_gist(gist_id, github_token)
     plan_raw = gist_files.get("running_plan.json", "")
@@ -1371,6 +1371,15 @@ def _repush_existing(athlete_id: str, api_key: str, gist_id: str, github_token: 
             spec["event_id"] = result.get("id")
         if "workout_doc" in event:
             spec["workout_doc"] = event["workout_doc"]
+
+    # Google Agenda: push workouts zonder gcal_event_id
+    gcal_creds_json  = os.environ.get("GOOGLE_CREDENTIALS", "").strip()
+    gcal_calendar_id = os.environ.get("CALENDAR_ID", "").strip()
+    if gcal_creds_json and gcal_calendar_id:
+        log.info("Google Agenda sync...")
+        _gcal_push(specs, gcal_calendar_id, gcal_creds_json, plan)
+    else:
+        log.info("Google Agenda credentials ontbreken — overslaan")
 
     _save_to_gist(gist_id, github_token, "running_plan.json",
                   json.dumps(plan, indent=2, ensure_ascii=False))
