@@ -1458,16 +1458,16 @@
         .map(date => ({ date, session: 'long_run', name: null, _orphan: true }));
 
       const futureSessions = [
-        ...workouts.filter(s => s.date > today),
+        ...workouts.filter(s => s.date > today && !s.cancelled),
       ].sort((a, b) => a.date.localeCompare(b.date));
 
       const todaySessions = [
-        ...workouts.filter(s => s.date === today),
+        ...workouts.filter(s => s.date === today && !s.cancelled),
         ...orphanSessions.filter(s => s.date === today),
       ];
 
       const pastAllSessions = [
-        ...workouts.filter(s => s.date < today),
+        ...workouts.filter(s => s.date < today || s.cancelled),
         ...orphanSessions.filter(s => s.date < today),
       ].sort((a, b) => b.date.localeCompare(a.date));
 
@@ -3468,8 +3468,19 @@
         });
         if (!patch.ok) throw new Error(`Opslaan mislukt ${patch.status}`);
 
-        setStatus('✓ Workout geannuleerd', '#4caf50');
-        setTimeout(() => location.reload(), 600);
+        setStatus('✓ Geannuleerd — agenda event verwijderen…', '#4caf50');
+
+        // Verwijder Google Agenda en intervals.icu events via workflow
+        fetch(
+          'https://api.github.com/repos/ralphdeleeuw/sportbit/actions/workflows/cancel_running_workout.yml/dispatches',
+          {
+            method: 'POST',
+            headers: { Authorization: `token ${token}`, Accept: 'application/vnd.github+json', 'Content-Type': 'application/json' },
+            body: JSON.stringify({ ref: 'main', inputs: {} }),
+          }
+        ).catch(() => {});
+
+        setTimeout(() => location.reload(), 800);
       } catch(e) {
         if (btn) { btn.disabled = false; btn.textContent = '✕ Bevestig annulering'; }
         setStatus(`❌ ${e.message}`, '#ff6b6b');
