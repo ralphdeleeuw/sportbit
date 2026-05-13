@@ -76,13 +76,11 @@ log = logging.getLogger("sportbit")
 
 def is_after_midnight_amsterdam() -> bool:
     """
-    Returns True if the current Amsterdam time is between 00:00 and 00:59.
-    This ensures the script only runs once per day just after midnight,
-    regardless of summer/winter time (CET/CEST). The full hour window
-    accounts for GitHub Actions scheduling delays.
+    Returns True if the current Amsterdam time is between 01:00 and 02:59.
+    The cron fires at 00:01 UTC, which maps to 01:01 CET (winter) or 02:01 CEST (summer).
     """
     now = datetime.now(AMS)
-    return now.hour == 0
+    return now.hour in (1, 2)
 
 
 # ──────────────────────────────────────────────────────────────
@@ -697,7 +695,7 @@ def main():
         if not is_after_midnight_amsterdam():
             now = datetime.now(AMS)
             log.info(
-                "Huidige Amsterdam tijd is %s — niet na middernacht. Gebruik --force om dit over te slaan.",
+                "Huidige Amsterdam tijd is %s — buiten het verwachte uitvoervenster (01:00–02:59). Gebruik --force om dit over te slaan.",
                 now.strftime("%H:%M"),
             )
             sys.exit(0)
