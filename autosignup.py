@@ -10,7 +10,6 @@ Usage:
     python3 autosignup.py --live           # actually sign up
     python3 autosignup.py --days 8         # look ahead 8 days (default: 8)
     python3 autosignup.py --live --sync-calendar  # sign up and sync to Google Calendar
-    python3 autosignup.py --live --force   # skip timezone check (for manual runs)
 
 State management:
     A GitHub Gist is used to persist state between runs (signed up / manually cancelled events).
@@ -68,19 +67,6 @@ logging.basicConfig(
     datefmt="%Y-%m-%d %H:%M:%S",
 )
 log = logging.getLogger("sportbit")
-
-
-# ──────────────────────────────────────────────────────────────
-# Timezone check
-# ──────────────────────────────────────────────────────────────
-
-def is_after_midnight_amsterdam() -> bool:
-    """
-    Returns True if the current Amsterdam time is between 01:00 and 02:59.
-    The cron fires at 00:01 UTC, which maps to 01:01 CET (winter) or 02:01 CEST (summer).
-    """
-    now = datetime.now(AMS)
-    return now.hour in (1, 2)
 
 
 # ──────────────────────────────────────────────────────────────
@@ -671,7 +657,6 @@ def main():
     parser.add_argument("--username", "-u", help="SportBit username (or set SPORTBIT_USERNAME env var)")
     parser.add_argument("--password", "-p", help="SportBit password (or set SPORTBIT_PASSWORD env var)")
     parser.add_argument("--test-notification", action="store_true", help="Stuur een testnotificatie en stop")
-    parser.add_argument("--force", action="store_true", help="Sla tijdzone check over (voor handmatige runs)")
     parser.add_argument("--weekly-summary", action="store_true", help="Stuur een weekoverzicht via Pushover en stop")
     args = parser.parse_args()
 
@@ -689,18 +674,6 @@ def main():
         log.info("Sending test notification...")
         success = notify.send_notification("SportBit Test 🎉", "Dit is een testbericht van SportBit")
         sys.exit(0 if success else 1)
-
-    # Tijdzone check: alleen uitvoeren net na middernacht Amsterdam tijd
-    if not args.force:
-        if not is_after_midnight_amsterdam():
-            now = datetime.now(AMS)
-            log.info(
-                "Huidige Amsterdam tijd is %s — buiten het verwachte uitvoervenster (01:00–02:59). Gebruik --force om dit over te slaan.",
-                now.strftime("%H:%M"),
-            )
-            sys.exit(0)
-        else:
-            log.info("Amsterdam tijd check OK: %s", datetime.now(AMS).strftime("%H:%M"))
 
     username = args.username or os.environ.get("SPORTBIT_USERNAME")
     password = args.password or os.environ.get("SPORTBIT_PASSWORD")

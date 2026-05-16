@@ -34,7 +34,7 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GIST_TOKEN }}
           VAPID_PRIVATE_KEY: ${{ secrets.VAPID_PRIVATE_KEY }}
           VAPID_CLAIMS_EMAIL: ${{ secrets.VAPID_CLAIMS_EMAIL }}
-        run: python3 autosignup.py --live --sync-calendar ${{ github.event_name == 'workflow_dispatch' && '--force' || '' }}
+        run: python3 autosignup.py --live --sync-calendar
 
       - name: Stuur weekoverzicht
         if: github.event.schedule == '0 17 * * 0'
