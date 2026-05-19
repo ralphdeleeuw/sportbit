@@ -977,14 +977,21 @@ def _push_to_intervals(athlete_id: str, api_key: str, events: list[dict]) -> lis
                 continue
             result = resp.json()
             stored_doc = result.get("workout_doc")
+            stored_steps = (stored_doc or {}).get("steps") or []
             log.info(
                 "Event aangemaakt: '%s' op %s om %s (id: %s, stappen: %d)",
                 event["name"],
                 event["start_date_local"][:10],
                 event["start_date_local"][11:16],
                 result.get("id"),
-                len((stored_doc or {}).get("steps") or []),
+                len(stored_steps),
             )
+            # Log pace-veld van eerste stap zodat je kunt zien welk formaat
+            # intervals.icu opslaat — handig voor het diagnosticeren van de naald
+            for i, step in enumerate(stored_steps[:3]):
+                pace = step.get("pace")
+                if pace:
+                    log.info("  Stap %d pace (opgeslagen door intervals.icu): %s", i + 1, json.dumps(pace))
 
             # PUT-fallback als POST geen stappen opleverde
             event_id = result.get("id")
