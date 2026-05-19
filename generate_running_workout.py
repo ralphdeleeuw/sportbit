@@ -1288,11 +1288,39 @@ def main() -> None:
     logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
 
     repush = "--repush" in sys.argv
+    inspect_event_id = None
+    for i, arg in enumerate(sys.argv):
+        if arg == "--inspect-event" and i + 1 < len(sys.argv):
+            inspect_event_id = sys.argv[i + 1]
 
     athlete_id   = os.environ.get("INTERVALS_ATHLETE_ID", "").strip()
     api_key      = os.environ.get("INTERVALS_API_KEY", "").strip()
     gist_id      = os.environ.get("GIST_ID", "").strip()
     github_token = os.environ.get("GITHUB_TOKEN", "").strip()
+
+    if inspect_event_id:
+        # Fetch and print a single event's workout_doc — used to verify pace format
+        if not athlete_id or not api_key:
+            log.error("INTERVALS_ATHLETE_ID en INTERVALS_API_KEY zijn vereist voor --inspect-event")
+            sys.exit(1)
+        resp = requests.get(
+            f"{INTERVALS_BASE}/{athlete_id}/events/{inspect_event_id}",
+            auth=("API_KEY", api_key),
+            timeout=20,
+        )
+        if not resp.ok:
+            log.error("Fout bij ophalen event %s: %s — %s", inspect_event_id, resp.status_code, resp.text[:300])
+            sys.exit(1)
+        event = resp.json()
+        print(f"\n=== Event: {event.get('name')} ({event.get('start_date_local', '')[:10]}) ===\n")
+        workout_doc = event.get("workout_doc")
+        if not workout_doc:
+            print("Geen workout_doc aanwezig.")
+        else:
+            print("workout_doc.steps:")
+            for i, step in enumerate(workout_doc.get("steps", [])):
+                print(f"\n  Stap {i+1}: {json.dumps(step, indent=4)}")
+        return
 
     required = [
         ("INTERVALS_ATHLETE_ID", athlete_id),
