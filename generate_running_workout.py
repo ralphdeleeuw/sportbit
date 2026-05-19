@@ -588,7 +588,7 @@ def _generate_plan_claude(context_text: str) -> list[dict]:
 
     message = client.messages.create(
         model="claude-sonnet-4-6",
-        max_tokens=1500,
+        max_tokens=4096,
         system=_SYSTEM_PROMPT,
         messages=[{
             "role": "user",
@@ -597,11 +597,21 @@ def _generate_plan_claude(context_text: str) -> list[dict]:
     )
 
     raw = message.content[0].text.strip()
+    log.debug("Claude raw response (stop_reason=%s):\n%s", message.stop_reason, raw)
+
+    if message.stop_reason == "max_tokens":
+        log.error("Claude response was truncated by max_tokens — response so far: %s", raw[:500])
+        raise RuntimeError("Claude response truncated by max_tokens limit")
+
     if raw.startswith("```"):
         parts = raw.split("```")
         raw = parts[1] if len(parts) > 1 else raw
         if raw.startswith("json"):
             raw = raw[4:].lstrip()
+
+    if not raw:
+        log.error("Claude returned an empty response. Full message: %s", message)
+        raise ValueError("Claude returned an empty JSON response")
 
     return json.loads(raw)
 
