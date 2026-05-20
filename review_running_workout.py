@@ -20,6 +20,7 @@ import logging
 import os
 import re
 import sys
+import time
 from datetime import date, datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
 
@@ -660,8 +661,10 @@ def main() -> None:
     log.info("Review context:\n%s", context_text)
 
     log.info("Claude raadplegen voor review...")
+    t0 = time.monotonic()
     review = _review_with_claude(context_text)
-    log.info("Claude: adjusted=%s — %s", review.get("adjusted"), review.get("reason", ""))
+    review_duration_s = round(time.monotonic() - t0)
+    log.info("Claude: adjusted=%s — %s (AI: %ds)", review.get("adjusted"), review.get("reason", ""), review_duration_s)
 
     adjusted = bool(review.get("adjusted"))
     reason = review.get("reason", "")
@@ -677,16 +680,12 @@ def main() -> None:
             gist_id=gist_id,
             github_token=github_token,
         )
-    else:
-        # Markeer dagelijkse review als gedaan (ook als er geen aanpassing was)
+
+    if mode in ("daily", "prerun"):
         if mode == "daily":
             plan["last_daily_review"] = date.today().isoformat()
-            _save_to_gist(gist_id, github_token, "running_plan.json",
-                          json.dumps(plan, indent=2, ensure_ascii=False))
-
-    # last_daily_review bijwerken na succesvolle daily review
-    if mode == "daily" and adjusted:
-        plan["last_daily_review"] = date.today().isoformat()
+        plan["last_review_at"] = datetime.now(timezone.utc).isoformat()
+        plan["last_review_duration_s"] = review_duration_s
         _save_to_gist(gist_id, github_token, "running_plan.json",
                       json.dumps(plan, indent=2, ensure_ascii=False))
 

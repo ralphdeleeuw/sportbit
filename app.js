@@ -2000,6 +2000,8 @@
         { btnId:'repushBtn', statusId:'repushStatus', lastRunId:'repushLastRun', workflowFile:'repush_workouts.yml', icon:'↑', title:'Sync naar Garmin', desc:'Bestaande workouts opnieuw pushen naar intervals.icu / Garmin', fn:'triggerRepush()', cls:'success' },
         { btnId:'gcalSyncBtn', statusId:'gcalSyncStatus', lastRunId:'', workflowFile:'sync_to_gcal.yml', icon:'📅', title:'Sync naar Google Agenda', desc:'Hardloopworkouts en persoonlijke events toevoegen aan Google Agenda', fn:'triggerGcalSync()', cls:'info' },
         { btnId:'openGymBtn', statusId:'openGymStatus', lastRunId:'openGymLastRun', workflowFile:'generate_open_gym_program.yml', icon:'🏋️', title:'Open Gym Programma', desc:'Genereer een persoonlijk programma voor je eerstvolgende Open Gym sessie', fn:'triggerOpenGymProgram()', cls:'info' },
+        { btnId:'reviewRunBtn', statusId:'reviewRunStatus', lastRunId:'reviewRunLastRun', workflowFile:'review_running_workout.yml', icon:'🔍', title:'Review Hardloopplan', desc:'Beoordeel en pas hardloopworkouts aan op basis van herstel & belasting', fn:'triggerReviewRunning()', cls:'success',
+          extras:[{id:'reviewModeDaily',label:'Dagelijkse review'},{id:'reviewModePrerun',label:'Pre-run briefing'}] },
       ];
 
       // Toon cleanup knop alleen als er geannuleerde workouts met events zijn
@@ -2238,6 +2240,62 @@
         statusEl.style.color = 'var(--accent2)';
         btn.disabled = false;
         btn.textContent = '🏃 Genereer';
+      }
+    }
+
+    async function triggerReviewRunning() {
+      const token = document.getElementById('githubToken').value.trim();
+      const statusEl = document.getElementById('reviewRunStatus');
+      const btn = document.getElementById('reviewRunBtn');
+      const modeDaily = document.getElementById('reviewModeDaily').checked;
+      const modePrerun = document.getElementById('reviewModePrerun').checked;
+
+      if (!token) {
+        statusEl.textContent = 'Vul eerst je GitHub Token in (nodig om workflow te starten)';
+        statusEl.style.color = 'var(--accent2)';
+        return;
+      }
+
+      btn.disabled = true;
+      btn.textContent = '🔍 Bezig…';
+      statusEl.textContent = 'Review workflow starten…';
+      statusEl.style.color = 'var(--muted)';
+
+      const triggerTime = new Date();
+      const mode = modePrerun ? 'prerun' : modeDaily ? 'daily' : 'auto';
+
+      try {
+        const resp = await fetch(
+          'https://api.github.com/repos/ralphdeleeuw/sportbit/actions/workflows/review_running_workout.yml/dispatches',
+          {
+            method: 'POST',
+            headers: {
+              Authorization: `token ${token}`,
+              Accept: 'application/vnd.github+json',
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({ ref: 'main', inputs: { mode } }),
+          }
+        );
+
+        if (resp.status !== 204) {
+          const body = await resp.json().catch(() => ({}));
+          statusEl.textContent = `Fout ${resp.status}: ${body.message || 'onbekend'}`;
+          statusEl.style.color = 'var(--accent2)';
+          btn.disabled = false;
+          btn.textContent = '🔍 Review';
+          return;
+        }
+
+        statusEl.textContent = '⏳ In wachtrij…';
+        statusEl.style.color = 'var(--muted)';
+        await pollWorkflowRun(token, triggerTime, statusEl, btn, 'review_running_workout.yml', '🔍 Review');
+
+      } catch (e) {
+        statusEl.textContent = `Netwerkfout: ${e.message}`;
+        statusEl.style.color = 'var(--accent2)';
+        btn.disabled = false;
+        btn.textContent = '🔍 Review';
       }
     }
 
@@ -2540,7 +2598,11 @@
                   btn.textContent = btnLabel;
                   await new Promise(r => setTimeout(r, 1500));
                   await loadData();
-                  statusEl.textContent = `✅ Data bijgewerkt (${elapsed}s geleden)`;
+                  let doneMsg = `✅ Data bijgewerkt (${elapsed}s)`;
+                  if (workflowFile === 'review_running_workout.yml' && runningPlanData?.last_review_duration_s) {
+                    doneMsg += ` — AI: ${runningPlanData.last_review_duration_s}s`;
+                  }
+                  statusEl.textContent = doneMsg;
                 } else {
                   statusEl.textContent = `❌ Workflow mislukt: ${run.conclusion}`;
                   statusEl.style.color = 'var(--accent2)';
@@ -2576,8 +2638,10 @@
         { id: 'signupLastRun',  file: 'autosignup.yml' },
         { id: 'syncLastRun',    file: 'fetch_sugarwod.yml' },
         { id: 'healthLastRun',  file: 'fetch_health_data.yml' },
-        { id: 'runningLastRun', file: 'generate_running_workout.yml' },
-        { id: 'repushLastRun',  file: 'repush_workouts.yml' },
+        { id: 'runningLastRun',    file: 'generate_running_workout.yml' },
+        { id: 'repushLastRun',     file: 'repush_workouts.yml' },
+        { id: 'openGymLastRun',    file: 'generate_open_gym_program.yml' },
+        { id: 'reviewRunLastRun',  file: 'review_running_workout.yml' },
       ];
       await Promise.all(runs.map(async ({ id, file }) => {
         const el = document.getElementById(id);
