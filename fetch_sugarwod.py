@@ -1239,6 +1239,33 @@ def fetch_all_workouts_playwright(
                 athlete_notes_map = {}
                 log.warning("[athlete_notes] Click-based notes fetch failed: %s", exc)
 
+            # ── 3b. Navigate to each week to capture its XHR ─────────────────
+            # We've already loaded the current week above. For other weeks,
+            # navigate away first (unmount React) then to the target week URL
+            # so the SPA fires a fresh XHR rather than serving cached data.
+            log.info("[browser] Navigating to each requested week to capture XHRs")
+            for monday_w in weeks:
+                week_str_w = monday_w.strftime("%Y%m%d")
+                week_url = (
+                    f"{SUGARWOD_BASE}/workouts"
+                    f"?week={week_str_w}&track=workout-of-the-day"
+                )
+                pre_count = len(captured)
+                try:
+                    # Navigate away to force React to unmount the calendar
+                    page.goto(
+                        f"{SUGARWOD_BASE}/athletes/me",
+                        wait_until="domcontentloaded",
+                        timeout=15000,
+                    )
+                    page.goto(week_url, wait_until="networkidle", timeout=30000)
+                    page.wait_for_timeout(1500)
+                    log.info("[browser] Week %s: captured %d new XHRs",
+                             week_str_w, len(captured) - pre_count)
+                except Exception as exc_w:
+                    log.warning("[browser] Week %s navigation failed: %s",
+                                week_str_w, exc_w)
+
             # Capture session cookies before closing the browser
             browser_cookies = {
                 c["name"]: c["value"] for c in context.cookies()
@@ -1246,21 +1273,28 @@ def fetch_all_workouts_playwright(
             }
             log.info("[browser] Captured %d session cookies", len(browser_cookies))
 
-            # Try to extract CSRF and trackId from the /api/workouts XHR URL
+            # Log all captured XHR URLs for diagnostics
+            all_captured_urls = [item["url"] for item in captured]
+            log.info("[browser] All captured XHR URLs (%d): %s",
+                     len(all_captured_urls), all_captured_urls)
+
+            # Try to extract CSRF and trackId from any /api/workouts or
+            # /api/ XHR URL in the captured list
             api_csrf: str | None = None
             track_id: str | None = None
             for item in list(captured) + _barbell_page_captured:
                 url = item["url"]
-                if "/api/workouts" in url:
-                    p = dict(urllib.parse.parse_qs(urllib.parse.urlparse(url).query))
-                    if not api_csrf:
-                        api_csrf = p.get("_csrf", [None])[0]
-                    if not track_id:
-                        track_id = p.get("trackId", [None])[0]
-                    if api_csrf:
-                        log.info("[browser] Extracted _csrf=…%s trackId=%s",
-                                 api_csrf[-6:] if api_csrf else "none", track_id)
-                        break
+                if "/api/" not in url:
+                    continue
+                p = dict(urllib.parse.parse_qs(urllib.parse.urlparse(url).query))
+                if not api_csrf and p.get("_csrf"):
+                    api_csrf = p["_csrf"][0]
+                if not track_id and p.get("trackId"):
+                    track_id = p["trackId"][0]
+                if api_csrf and track_id:
+                    log.info("[browser] Extracted _csrf=…%s trackId=%s from %s",
+                             api_csrf[-6:], track_id, url)
+                    break
 
             # Fallback: get CSRF from a cookie (SugarWOD sets _csrf as a cookie)
             if not api_csrf:
@@ -1272,23 +1306,40 @@ def fetch_all_workouts_playwright(
                      (api_csrf[:10] + "…" if api_csrf else "none"), track_id)
             browser.close()
 
-            # ── 3b. Harvest workouts from XHRs captured during /workouts nav ─
-            # The SPA fires /api/workouts for the current week on page load.
-            # Use that data directly so we get workouts even if subsequent
-            # HTTP requests fail (e.g. CSRF mismatch or endpoint change).
+            # ── 3c. Harvest workouts from ALL captured XHRs (shape-based) ────
+            # Detect workout entries by their field names rather than by URL,
+            # so this works even if the /api/workouts endpoint URL changes.
             fetched_weeks: set[str] = set()
             all_xhr_items = list(captured) + _barbell_page_captured
+            log.info("[browser] Scanning %d captured XHRs for workout data",
+                     len(all_xhr_items))
             for item in all_xhr_items:
                 xhr_url = item["url"]
-                if "/api/workouts" not in xhr_url:
-                    continue
                 xhr_data = item["data"]
-                xhr_results = (
-                    xhr_data.get("data") or xhr_data.get("workouts")
-                    or xhr_data.get("results") or []
-                )
+
+                # Extract candidate results array from various response shapes
+                if isinstance(xhr_data, list):
+                    xhr_results = xhr_data
+                elif isinstance(xhr_data, dict):
+                    xhr_results = (
+                        xhr_data.get("data") or xhr_data.get("workouts")
+                        or xhr_data.get("results") or []
+                    )
+                else:
+                    continue
+
                 if not isinstance(xhr_results, list) or not xhr_results:
                     continue
+
+                # Only treat as workout data if items have SugarWOD-specific
+                # scheduling fields (avoids false-positives from PR/benchmark XHRs)
+                sample = xhr_results[0] if isinstance(xhr_results[0], dict) else {}
+                if not any(k in sample for k in (
+                    "scheduledDateInteger", "scheduledDate", "workoutDate",
+                    "TBWorkout",
+                )):
+                    continue
+
                 xp = dict(urllib.parse.parse_qs(
                     urllib.parse.urlparse(xhr_url).query))
                 ws = xp.get("week", [None])[0]
@@ -1297,10 +1348,10 @@ def fetch_all_workouts_playwright(
                     all_workouts.extend(parsed)
                     if ws:
                         fetched_weeks.add(ws)
-                    log.info("[browser] XHR direct: %d workouts from %s (week=%s)",
+                    log.info("[browser] XHR harvest: %d workouts from %s (week=%s)",
                              len(parsed), xhr_url, ws)
 
-            log.info("[browser] XHR direct total: %d workouts, weeks covered: %s",
+            log.info("[browser] XHR harvest total: %d workouts, weeks covered: %s",
                      len(all_workouts), sorted(fetched_weeks))
 
             # Set up HTTP session with browser cookies
