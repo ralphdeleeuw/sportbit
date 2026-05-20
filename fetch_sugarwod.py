@@ -774,9 +774,25 @@ def fetch_all_workouts_playwright(
                 log.warning("[browser] Could not log form fields: %s", dbg_exc)
             # Use type() (character-by-character) instead of fill() to ensure
             # React's synthetic onChange events fire on every keystroke.
-            email_input = page.locator('input[type="email"], input[name="email"]').first
+            email_input = page.locator(
+                'input[type="email"], input[name="email"], input[name="username"]'
+            ).first
             email_input.click()
             email_input.type(email)
+
+            # SugarWOD now uses a two-step login: email → CONTINUE → password.
+            # Click CONTINUE and wait for the password field to become visible.
+            try:
+                cont = page.locator('#continue-button')
+                cont.wait_for(state="visible", timeout=5000)
+                cont.click()
+                log.info("[browser] Clicked CONTINUE (two-step login)")
+                page.locator('input[type="password"]').first.wait_for(
+                    state="visible", timeout=10000
+                )
+                log.info("[browser] Password field now visible")
+            except Exception as cont_exc:
+                log.info("[browser] No CONTINUE step: %s", cont_exc)
 
             password_input = page.locator('input[type="password"]').first
             password_input.click()
