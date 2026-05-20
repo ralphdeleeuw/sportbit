@@ -1,11 +1,6 @@
 name: Update README
 
 on:
-  push:
-    branches:
-      - main
-    paths-ignore:
-      - 'README.md'  # Voorkom oneindige loop
   workflow_dispatch:
 
 permissions:
