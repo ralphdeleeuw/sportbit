@@ -1272,6 +1272,37 @@ def fetch_all_workouts_playwright(
                      (api_csrf[:10] + "…" if api_csrf else "none"), track_id)
             browser.close()
 
+            # ── 3b. Harvest workouts from XHRs captured during /workouts nav ─
+            # The SPA fires /api/workouts for the current week on page load.
+            # Use that data directly so we get workouts even if subsequent
+            # HTTP requests fail (e.g. CSRF mismatch or endpoint change).
+            fetched_weeks: set[str] = set()
+            all_xhr_items = list(captured) + _barbell_page_captured
+            for item in all_xhr_items:
+                xhr_url = item["url"]
+                if "/api/workouts" not in xhr_url:
+                    continue
+                xhr_data = item["data"]
+                xhr_results = (
+                    xhr_data.get("data") or xhr_data.get("workouts")
+                    or xhr_data.get("results") or []
+                )
+                if not isinstance(xhr_results, list) or not xhr_results:
+                    continue
+                xp = dict(urllib.parse.parse_qs(
+                    urllib.parse.urlparse(xhr_url).query))
+                ws = xp.get("week", [None])[0]
+                parsed = _parse_parse_workouts(xhr_results, ws)
+                if parsed:
+                    all_workouts.extend(parsed)
+                    if ws:
+                        fetched_weeks.add(ws)
+                    log.info("[browser] XHR direct: %d workouts from %s (week=%s)",
+                             len(parsed), xhr_url, ws)
+
+            log.info("[browser] XHR direct total: %d workouts, weeks covered: %s",
+                     len(all_workouts), sorted(fetched_weeks))
+
             # Set up HTTP session with browser cookies
             api_session = requests.Session()
             api_session.headers.update({
@@ -1287,6 +1318,9 @@ def fetch_all_workouts_playwright(
 
             for monday in weeks:
                 week_str = monday.strftime("%Y%m%d")
+                if week_str in fetched_weeks:
+                    log.info("[http] Week %s already fetched via XHR, skipping", week_str)
+                    continue
                 ts = str(int(time.time() * 1000))
                 params: dict = {
                     "week": week_str,
@@ -1320,6 +1354,7 @@ def fetch_all_workouts_playwright(
                             parsed = _parse_parse_workouts(results, week_str)
                             if parsed:
                                 all_workouts.extend(parsed)
+                                fetched_weeks.add(week_str)
                                 log.info("[http] Week %s: %d workout(s) added",
                                          week_str, len(parsed))
                             else:
@@ -1764,13 +1799,28 @@ def _parse_workouts_html(html: str, monday: datetime) -> list[dict]:
     # Slice by day-of-week header text (MON 16, TUE 17, …)
     import re
     full_text = soup.get_text(separator="\n")
-    days = ["MON", "TUE", "WED", "THU", "FRI", "SAT", "SUN"]
+    # Try multiple day-header formats SugarWOD has used over time
+    days_abbr = ["MON", "TUE", "WED", "THU", "FRI", "SAT", "SUN"]
+    days_full = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
     positions = []
-    for i, abbr in enumerate(days):
+    for i in range(7):
         date = monday + timedelta(days=i)
-        m = re.search(rf"\b{abbr}\s+{date.day}\b", full_text)
-        if m:
-            positions.append((i, m.start(), m.end()))
+        abbr = days_abbr[i]
+        full = days_full[i]
+        day_n = date.day
+        patterns = [
+            rf"\b{abbr}\s+{day_n}\b",                         # MON 25
+            rf"\b{full}\s+{day_n}\b",                          # Monday 25
+            rf"\b{full},?\s+{date.strftime('%B')}\s+{day_n}\b", # Monday, May 25
+            rf"\b{date.strftime('%m/%d/%Y')}\b",               # 05/25/2026
+            rf"\b{date.strftime('%Y-%m-%d')}\b",               # 2026-05-25
+            rf"\b{day_n}\s+{date.strftime('%B')}\b",           # 25 May
+        ]
+        for pat in patterns:
+            m = re.search(pat, full_text, re.IGNORECASE)
+            if m:
+                positions.append((i, m.start(), m.end()))
+                break
 
     for idx, (day_i, start, end) in enumerate(positions):
         next_start = positions[idx + 1][1] if idx + 1 < len(positions) else len(full_text)
