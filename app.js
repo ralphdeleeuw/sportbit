@@ -946,7 +946,16 @@
     }
 
     function renderWodSections(wods, date) {
-      const effective = getEffectiveWorkouts(date, wods);
+      // Dedupliceer op basis van gestripte beschrijving om identieke secties te voorkomen
+      const seen = new Set();
+      const dedupedWods = wods.filter(w => {
+        const key = stripHtml(w.description || '').trim() + '|||' + (w.athlete_notes || '').trim();
+        if (seen.has(key)) return false;
+        seen.add(key);
+        return true;
+      });
+
+      const effective = getEffectiveWorkouts(date, dedupedWods);
       const visible = effective.filter(w => !w._deleted);
       const deleted = effective.filter(w => w._deleted);
 
