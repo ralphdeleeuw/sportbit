@@ -548,7 +548,7 @@
 
     function renderLogSection(date, customWods) {
       const entry = workoutLog[date];
-      const mainWods = customWods || wodByDate[date] || [];
+      const mainWods = deduplicateWods(customWods || wodByDate[date] || []);
       const checkedTitles = entry ? (entry.workouts_done || []) : [];
       const existingNotes = entry ? (entry.notes || '') : '';
 
@@ -702,7 +702,7 @@
           </div>`;
       }
 
-      const wodSections = hasWod ? wods.map(w => {
+      const wodSections = hasWod ? deduplicateWods(wods).map(w => {
         const desc = stripHtml(w.description || '').trim();
         return `<div class="wod-section">
           <div class="wod-section-title">${w.title}</div>
@@ -945,17 +945,18 @@
       });
     }
 
-    function renderWodSections(wods, date) {
-      // Dedupliceer op basis van gestripte beschrijving om identieke secties te voorkomen
+    function deduplicateWods(wods) {
       const seen = new Set();
-      const dedupedWods = wods.filter(w => {
-        const key = stripHtml(w.description || '').trim() + '|||' + (w.athlete_notes || '').trim();
+      return wods.filter(w => {
+        const key = w.title + '|||' + stripHtml(w.description || '').trim() + '|||' + (w.athlete_notes || '').trim();
         if (seen.has(key)) return false;
         seen.add(key);
         return true;
       });
+    }
 
-      const effective = getEffectiveWorkouts(date, dedupedWods);
+    function renderWodSections(wods, date) {
+      const effective = getEffectiveWorkouts(date, deduplicateWods(wods));
       const visible = effective.filter(w => !w._deleted);
       const deleted = effective.filter(w => w._deleted);
 
