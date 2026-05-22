@@ -1,6 +1,9 @@
 name: Sync naar Google Agenda
 
 on:
+  schedule:
+    # Elke dag om 07:30 UTC (09:30 Amsterdam zomertijd)
+    - cron: '30 7 * * *'
   workflow_dispatch:
 
 jobs:
@@ -11,7 +14,17 @@ jobs:
       - uses: actions/setup-python@v5
         with: {python-version: '3.12'}
       - run: pip install requests google-auth google-auth-oauthlib google-api-python-client
-      - run: python3 sync_to_gcal.py
+      - name: Verwijder geannuleerde workouts uit Google Agenda
+        run: python3 cancel_running_workout.py
+        env:
+          INTERVALS_ATHLETE_ID: ${{ secrets.INTERVALS_ATHLETE_ID }}
+          INTERVALS_API_KEY: ${{ secrets.INTERVALS_API_KEY }}
+          GIST_ID: ${{ secrets.GIST_ID }}
+          GITHUB_TOKEN: ${{ secrets.GIST_TOKEN }}
+          GOOGLE_CREDENTIALS: ${{ secrets.GOOGLE_CREDENTIALS }}
+          CALENDAR_ID: ${{ secrets.CALENDAR_ID }}
+      - name: Sync nieuwe workouts naar Google Agenda
+        run: python3 sync_to_gcal.py
         env:
           GIST_ID: ${{ secrets.GIST_ID }}
           GITHUB_TOKEN: ${{ secrets.GIST_TOKEN }}
