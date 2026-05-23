@@ -1,60 +1,71 @@
 # SportBit Auto Sign-Up for CrossFit Hilversum
 
-This project automates the registration process for CrossFit WOD classes at CrossFit Hilversum through the SportBit platform. It runs daily via GitHub Actions to sign up for predefined weekly training slots, syncs registrations to Google Calendar, and sends notifications via push notifications.
+Automatically sign up for CrossFit WOD classes at CrossFit Hilversum using the SportBit platform. This GitHub Actions workflow runs daily to register you for your preferred training schedule, syncs with Google Calendar, and sends push notifications about successful registrations.
 
-## Project Description
+## Features
 
-The auto sign-up bot is designed for CrossFit Hilversum members who want to secure their spots in popular WOD (Workout of the Day) classes without manually checking the SportBit app. The system:
-
-- Automatically registers for predefined training slots each week
-- Detects and respects manual cancellations
-- Syncs all registrations (both automatic and manual) to Google Calendar
-- Sends push notifications for successful registrations
-- Provides a weekly summary of upcoming training sessions
-- Maintains state persistence through GitHub Gists
+- **Automated registration** for CrossFit classes based on your weekly schedule
+- **Google Calendar integration** to add registered classes to your calendar
+- **State management** using GitHub Gist to track registrations and manual cancellations
+- **Push notifications** for successful sign-ups and weekly summaries
+- **Waitlist support** when classes are full
+- **Manual cancellation detection** to avoid re-registering for cancelled classes
 
 ## Configuration
 
-The following secrets must be configured in your GitHub repository settings:
+All configuration is done through GitHub repository secrets. Set these up in your repository under Settings → Secrets and variables → Actions:
 
-### SportBit Credentials
-- **`SPORTBIT_USERNAME`** — Your SportBit login username (email address)
-- **`SPORTBIT_PASSWORD`** — Your SportBit account password
+### Required Secrets
 
-### Google Calendar Integration
-- **`GOOGLE_CREDENTIALS`** — Google service account credentials JSON for Calendar API access. This should be the full JSON content from a service account key file
-- **`CALENDAR_ID`** — Google Calendar ID where events will be created (use `primary` for your main calendar or a specific calendar ID)
+- **`SPORTBIT_USERNAME`** - Your SportBit login username (email address)
+- **`SPORTBIT_PASSWORD`** - Your SportBit login password
 
-### State Management
-- **`GIST_ID`** — GitHub Gist ID for storing registration state between runs. Create a new secret gist and use its ID
-- **`GIST_TOKEN`** — GitHub personal access token with `gist` scope for reading/writing the state gist
+### Google Calendar Integration (Optional)
 
-### Push Notifications
-- **`PUSHOVER_USER_KEY`** — Your Pushover user key for receiving notifications (optional)
-- **`PUSHOVER_API_TOKEN`** — Pushover application API token (optional)
+- **`GOOGLE_CREDENTIALS`** - Google service account credentials JSON. Create a service account in Google Cloud Console and paste the entire JSON key here
+- **`CALENDAR_ID`** - Google Calendar ID where events should be created (use `primary` for your main calendar, or a specific calendar ID like `abc123@group.calendar.google.com`)
 
-### README Generation
-- **`ANTHROPIC_API_KEY`** — Anthropic API key for automatically generating README documentation (optional)
+### State Management (Required)
+
+- **`GIST_ID`** - GitHub Gist ID for storing registration state. Create a new secret gist and copy its ID from the URL
+- **`GIST_TOKEN`** - GitHub personal access token with `gist` scope. Generate at Settings → Developer settings → Personal access tokens
+
+### Push Notifications (Optional)
+
+- **`PUSHOVER_USER_KEY`** - Your Pushover user key for receiving push notifications
+- **`PUSHOVER_API_TOKEN`** - Pushover application API token
+
+### README Generation (Optional)
+
+- **`ANTHROPIC_API_KEY`** - Anthropic Claude API key for automatic README generation
 
 ## Schedule
 
-The automation runs on the following schedule via GitHub Actions:
+The workflow runs automatically on two schedules:
 
-### Daily Registration Runs
-- **23:01 UTC** (00:01 Amsterdam winter time/CET)
-- **22:01 UTC** (00:01 Amsterdam summer time/CEST)
+1. **Daily at 00:01 UTC** (01:01 CET / 02:01 CEST) - Checks for upcoming classes in the next 8 days and registers for scheduled slots
+2. **Sundays at 17:00 UTC** (18:00 Amsterdam time) - Sends a weekly summary of all upcoming registrations via push notification
 
-The workflow automatically handles the timezone difference between summer and winter time. It checks registrations for the next 8 days and signs up for these predefined slots:
+The default training schedule is configured for:
 - Monday 20:00
 - Wednesday 08:00
 - Thursday 20:00
 - Saturday 09:00
 - Sunday 09:00
 
-### Weekly Summary
-- **Every Sunday at 17:00 UTC** (18:00 Amsterdam time)
+You can also manually trigger the workflow from the GitHub Actions tab to run sign-ups immediately.
 
-Sends a push notification with an overview of all registrations for the upcoming week.
+## How It Works
 
-### Manual Trigger
-The workflow can also be triggered manually from the GitHub Actions UI, which is useful for testing or immediate registration needs. Manual runs bypass the midnight timezone check.
+1. The workflow logs into SportBit using your credentials
+2. Scans the next 8 days for your scheduled training slots
+3. Registers for any classes you're not already signed up for
+4. Creates Google Calendar events for successful registrations
+5. Tracks all registrations in a GitHub Gist to:
+   - Avoid duplicate registrations
+   - Detect manual cancellations (won't re-register cancelled classes)
+   - Remember manually enrolled classes
+6. Sends push notifications for new registrations
+7. On Sundays, sends a weekly overview of all upcoming classes
+
+The system respects manual changes - if you cancel a class or sign up for additional sessions manually, it will detect and honor these modifications.
