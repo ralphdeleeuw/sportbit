@@ -465,7 +465,7 @@ def _review_with_claude(context_text: str) -> dict:
     client = anthropic.Anthropic(api_key=os.environ["ANTHROPIC_API_KEY"])
     msg = client.messages.create(
         model="claude-sonnet-4-6",
-        max_tokens=2000,
+        max_tokens=4096,
         system=_REVIEW_SYSTEM_PROMPT,
         messages=[{
             "role": "user",
@@ -473,11 +473,22 @@ def _review_with_claude(context_text: str) -> dict:
         }],
     )
     raw = msg.content[0].text.strip()
+    log.debug("Claude raw response (stop_reason=%s):\n%s", msg.stop_reason, raw)
+
+    if msg.stop_reason == "max_tokens":
+        log.error("Claude response was truncated by max_tokens — response so far: %s", raw[:500])
+        raise RuntimeError("Claude response truncated by max_tokens limit")
+
     if raw.startswith("```"):
         parts = raw.split("```")
         raw = parts[1] if len(parts) > 1 else raw
         if raw.startswith("json"):
             raw = raw[4:].lstrip()
+
+    if not raw:
+        log.error("Claude returned an empty response. Full message: %s", msg)
+        raise ValueError("Claude returned an empty JSON response")
+
     return json.loads(raw)
 
 
