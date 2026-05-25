@@ -3514,6 +3514,35 @@ def main() -> int:
                 else:
                     attended_workouts.append({"date": d, "title": "CrossFit WOD", "description": ""})
         attended_workouts.sort(key=lambda w: w["date"], reverse=True)
+
+        # Also include recent Strava/intervals.icu activities from dates NOT in the
+        # Sportbit signup (e.g. special holiday WODs like Pinksterwod, open-gym days).
+        # Without this, workouts done outside of the normal class signup are invisible
+        # to the AI coach and lead to wrong recovery calculations.
+        _strava_by_date_main = (strava_data or {}).get("activities_by_date") or {}
+        _intervals_acts_main = (intervals_data or {}).get("activities", {}).get("by_date") or {}
+        _covered_dates = {w["date"] for w in attended_workouts}
+        _lookback_start = (today - timedelta(days=14)).isoformat()
+        _extra_dates = sorted(
+            {
+                d for d in (set(_strava_by_date_main) | set(_intervals_acts_main))
+                if _lookback_start <= d < today.isoformat() and d not in _covered_dates
+            },
+            reverse=True,
+        )
+        for _d in _extra_dates[:3]:
+            _main_wods = date_to_all_main_workouts.get(_d)
+            if _main_wods:
+                attended_workouts.extend(_main_wods)
+            else:
+                _strava_acts = _strava_by_date_main.get(_d, [])
+                _title = _strava_acts[0].get("name", "CrossFit WOD") if _strava_acts else "CrossFit WOD"
+                attended_workouts.append({"date": _d, "title": _title, "description": ""})
+        if _extra_dates:
+            attended_workouts.sort(key=lambda w: w["date"], reverse=True)
+            log.info("Coach advice: %d extra non-Sportbit activity dates toegevoegd: %s",
+                     len(_extra_dates[:3]), _extra_dates[:3])
+
         log.info("Coach advice: %d Sportbit attended dates → %d workouts with descriptions",
                  len(past_sportbit_dates), len([w for w in attended_workouts if w.get("description")]))
         recovery_advice = generate_recovery_advice(
