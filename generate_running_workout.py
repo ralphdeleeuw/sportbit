@@ -636,7 +636,11 @@ def _generate_plan_claude(context_text: str) -> list[dict]:
         log.error("Claude returned an empty response. Full message: %s", message)
         raise ValueError("Claude returned an empty JSON response")
 
-    return json.loads(raw)
+    try:
+        return json.loads(raw)
+    except json.JSONDecodeError as exc:
+        log.error("Claude returned non-JSON response (JSONDecodeError: %s). Raw:\n%s", exc, raw[:500])
+        raise
 
 
 # ── Pace helpers ───────────────────────────────────────────────────────────────
