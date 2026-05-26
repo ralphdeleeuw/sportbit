@@ -64,6 +64,9 @@ Adjust DOWN when:
 - Heavy CrossFit session same day AND run is later that day
 - Athlete notes indicating illness, injury, or extreme fatigue
 - Recent running workout was cancelled due to illness or injury (see "Cancelled running workouts") — reduce intensity and start lighter to rebuild
+- Weather forecast shows feels-like temperature > 25°C → lower pace zones by one step and trim distance 10-15%
+- Weather forecast shows storm, heavy rain, or extreme conditions → replace speed/interval work with easy Z2 run
+- AQI > 100 → avoid high-intensity intervals, cap at Z3
 
 Adjust UP when:
 - HRV above recent average AND TSB positive or near 0 AND good sleep
@@ -181,6 +184,7 @@ def _load_review_context(gist_id: str, token: str) -> dict:
         "today_str": today_str,
         "personal_events": upcoming_personal_events,
         "cancelled_runs": cancelled_runs,
+        "environmental_data": wod_data.get("environmental_data"),
     }
 
 
@@ -269,6 +273,7 @@ def _build_review_context(
     recent_cf_by_date: dict | None = None,
     personal_events: list[dict] | None = None,
     cancelled_runs: list[dict] | None = None,
+    environmental_data: dict | None = None,
 ) -> str:
     now_ams = datetime.now(AMS)
     today_str = date.today().isoformat()
@@ -455,6 +460,27 @@ def _build_review_context(
     ]
     if health_lines:
         sections.append("Subjective health notes:\n" + "\n".join(health_lines))
+
+    env_dict = environmental_data or {}
+    training_conditions = env_dict.get("training_conditions") or {}
+    aqi = env_dict.get("aqi") or {}
+    weather_lines = []
+    for w in target_workouts:
+        d_str = w.get("date", "")
+        run_time = w.get("time", "")
+        cond = training_conditions.get(d_str)
+        if cond:
+            line = (
+                f"  {d_str} at {run_time}: {cond.get('temp_c')}°C "
+                f"(feels like {cond.get('feels_like_c')}°C), "
+                f"humidity {cond.get('humidity_pct')}%, "
+                f"wind {cond.get('wind_kmh')} km/h — {cond.get('weather_desc', '')}"
+            )
+            if aqi.get("value") is not None:
+                line += f" | AQI {aqi['value']} ({aqi.get('category', '')})"
+            weather_lines.append(line)
+    if weather_lines:
+        sections.append("Weather forecast for run day(s):\n" + "\n".join(weather_lines))
 
     return "\n\n".join(sections)
 
@@ -668,6 +694,7 @@ def main() -> None:
         recent_cf_by_date=ctx.get("recent_cf_by_date"),
         personal_events=ctx.get("personal_events"),
         cancelled_runs=ctx.get("cancelled_runs"),
+        environmental_data=ctx.get("environmental_data"),
     )
     log.info("Review context:\n%s", context_text)
 

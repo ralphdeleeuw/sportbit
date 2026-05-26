@@ -259,6 +259,7 @@ def _load_fitness_context(gist_id: str, token: str) -> dict:
         "upcoming_crossfit": upcoming_crossfit,
         "recent_crossfit": recent_crossfit,
         "personal_events": upcoming_personal_events,
+        "environmental_data": wod_data.get("environmental_data"),
     }
 
 
@@ -497,6 +498,27 @@ def _build_claude_context(ctx: dict) -> str:
     if health_lines:
         sections.append("Subjective health scores:\n" + "\n".join(health_lines))
 
+    env_data = ctx.get("environmental_data") or {}
+    training_conditions = env_data.get("training_conditions") or {}
+    aqi = env_data.get("aqi") or {}
+    weather_lines = []
+    for run_date, run_time in [(run1_date, run1_time), (run2_date, run2_time)]:
+        d_str = run_date.isoformat()
+        cond = training_conditions.get(d_str)
+        parts = []
+        if cond:
+            parts.append(
+                f"  {d_str} at {run_time}: {cond.get('temp_c')}°C "
+                f"(feels like {cond.get('feels_like_c')}°C), "
+                f"humidity {cond.get('humidity_pct')}%, "
+                f"wind {cond.get('wind_kmh')} km/h — {cond.get('weather_desc', '')}"
+            )
+        if aqi.get("value") is not None and parts:
+            parts[0] += f" | AQI {aqi['value']} ({aqi.get('category', '')})"
+        weather_lines.extend(parts)
+    if weather_lines:
+        sections.append("Weather forecast for run days:\n" + "\n".join(weather_lines))
+
     return "\n\n".join(sections)
 
 
@@ -511,6 +533,7 @@ _SYSTEM_PROMPT = """You are a professional running coach. You create training sc
 - Also check "Other planned activities" — avoid hard speed sessions the day before a physically demanding activity
 - CrossFit events (e.g. "The Murph", competitions, open workouts) in "Other planned activities" are extremely demanding: treat the day before AND the day after as recovery days — only easy runs (Z2) allowed
 - If recent running workouts were cancelled due to illness or injury (see "Cancelled running workouts"), account for lost training load: start lighter if illness/fatigue was the reason, maintain normal progression if it was a scheduling issue
+- If "Weather forecast for run days" is provided: high temperature (feels-like > 25°C) → lower pace zones by one step and reduce distance by 10-15%; stormy/heavy rain → replace speed work with easy Z2 run; AQI > 100 → avoid high-intensity intervals
 
 Pace zones (always calibrate to recovery status via HRV/TSB):
 - Conversational (max):  6:40/km — "no faster than 6:40/km"
