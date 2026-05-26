@@ -603,44 +603,58 @@ Never use duration_min. The athlete sees distance remaining on their Garmin, not
 Pace: write as "M:SS" (e.g. "6:40", "5:35").
 Walking rest after the entire repeat block (not per repeat) if it is a long break.
 Saturday session: always progressive_run or easy_run. Structure as warmup (1km) + main run + cooldown (1km).
-Total distance 5-9km depending on week number."""
+Total distance 5-9km depending on week number.
+
+CRITICAL OUTPUT RULE: Your response must consist of ONLY the JSON array. Begin your response with '[' — no analysis, no explanation, no reasoning, no markdown."""
 
 
 def _generate_plan_claude(context_text: str) -> list[dict]:
     client = anthropic.Anthropic(api_key=os.environ["ANTHROPIC_API_KEY"])
 
-    # Pre-fill assistant response with '[' to force Claude to start the JSON array directly.
     message = client.messages.create(
         model="claude-sonnet-4-6",
         max_tokens=4096,
         system=_SYSTEM_PROMPT,
-        messages=[
-            {
-                "role": "user",
-                "content": "Generate the running schedule for the upcoming week:\n\n" + context_text,
-            },
-            {
-                "role": "assistant",
-                "content": "[",
-            },
-        ],
+        messages=[{
+            "role": "user",
+            "content": (
+                "Generate the running schedule for the upcoming week. "
+                "Reply with ONLY the JSON array starting with '['. No analysis, no text before the JSON.\n\n"
+                + context_text
+            ),
+        }],
     )
 
-    raw = "[" + message.content[0].text
-    log.debug("Claude raw response (stop_reason=%s):\n%s", message.stop_reason, raw[:200])
+    raw = message.content[0].text.strip()
+    log.debug("Claude raw response (stop_reason=%s, first 200 chars):\n%s", message.stop_reason, raw[:200])
 
     if message.stop_reason == "max_tokens":
         log.error("Claude response was truncated by max_tokens — response so far: %s", raw[:500])
         raise RuntimeError("Claude response truncated by max_tokens limit")
 
-    if not raw.strip() or raw.strip() == "[":
-        log.error("Claude returned an empty response after pre-fill")
+    if raw.startswith("```"):
+        parts = raw.split("```")
+        raw = parts[1] if len(parts) > 1 else raw
+        if raw.startswith("json"):
+            raw = raw[4:].lstrip()
+
+    if not raw:
+        log.error("Claude returned an empty response")
         raise ValueError("Claude returned an empty JSON response")
 
     try:
         return json.loads(raw)
     except json.JSONDecodeError as exc:
-        log.error("Claude returned invalid JSON after pre-fill (JSONDecodeError: %s). Raw:\n%s", exc, raw[:1000])
+        # Last resort: find '[{' in case Claude still added a short preamble
+        m = re.search(r'\[\s*\{', raw)
+        if m:
+            try:
+                result = json.loads(raw[m.start():])
+                log.warning("Extracted JSON from position %d (Claude added preamble despite instructions)", m.start())
+                return result
+            except json.JSONDecodeError:
+                pass
+        log.error("Claude returned non-JSON (JSONDecodeError: %s). Raw:\n%s", exc, raw[:1000])
         raise
 
 
