@@ -609,47 +609,38 @@ Total distance 5-9km depending on week number."""
 def _generate_plan_claude(context_text: str) -> list[dict]:
     client = anthropic.Anthropic(api_key=os.environ["ANTHROPIC_API_KEY"])
 
+    # Pre-fill assistant response with '[' to force Claude to start the JSON array directly.
     message = client.messages.create(
         model="claude-sonnet-4-6",
         max_tokens=4096,
         system=_SYSTEM_PROMPT,
-        messages=[{
-            "role": "user",
-            "content": "Generate the running schedule for the upcoming week:\n\n" + context_text,
-        }],
+        messages=[
+            {
+                "role": "user",
+                "content": "Generate the running schedule for the upcoming week:\n\n" + context_text,
+            },
+            {
+                "role": "assistant",
+                "content": "[",
+            },
+        ],
     )
 
-    raw = message.content[0].text.strip()
-    log.debug("Claude raw response (stop_reason=%s):\n%s", message.stop_reason, raw)
+    raw = "[" + message.content[0].text
+    log.debug("Claude raw response (stop_reason=%s):\n%s", message.stop_reason, raw[:200])
 
     if message.stop_reason == "max_tokens":
         log.error("Claude response was truncated by max_tokens — response so far: %s", raw[:500])
         raise RuntimeError("Claude response truncated by max_tokens limit")
 
-    if raw.startswith("```"):
-        parts = raw.split("```")
-        raw = parts[1] if len(parts) > 1 else raw
-        if raw.startswith("json"):
-            raw = raw[4:].lstrip()
-
-    if not raw:
-        log.error("Claude returned an empty response. Full message: %s", message)
+    if not raw.strip() or raw.strip() == "[":
+        log.error("Claude returned an empty response after pre-fill")
         raise ValueError("Claude returned an empty JSON response")
 
     try:
         return json.loads(raw)
     except json.JSONDecodeError as exc:
-        # Claude may have prepended analysis text before the JSON array.
-        # Search specifically for '[{' — the start of a JSON array of objects.
-        m = re.search(r'\[\s*\{', raw)
-        if m:
-            try:
-                result = json.loads(raw[m.start():])
-                log.warning("Extracted JSON array from position %d (Claude prepended analysis text)", m.start())
-                return result
-            except json.JSONDecodeError:
-                pass
-        log.error("Claude returned non-JSON response (JSONDecodeError: %s). Raw:\n%s", exc, raw[:1000])
+        log.error("Claude returned invalid JSON after pre-fill (JSONDecodeError: %s). Raw:\n%s", exc, raw[:1000])
         raise
 
 

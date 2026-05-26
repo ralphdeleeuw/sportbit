@@ -489,46 +489,38 @@ def _build_review_context(
 
 def _review_with_claude(context_text: str) -> dict:
     client = anthropic.Anthropic(api_key=os.environ["ANTHROPIC_API_KEY"])
+
+    # Pre-fill assistant response with '{' to force Claude to start the JSON object directly.
     msg = client.messages.create(
         model="claude-sonnet-4-6",
         max_tokens=4096,
         system=_REVIEW_SYSTEM_PROMPT,
-        messages=[{
-            "role": "user",
-            "content": "Review the following workout(s) and return your decision:\n\n" + context_text,
-        }],
+        messages=[
+            {
+                "role": "user",
+                "content": "Review the following workout(s) and return your decision:\n\n" + context_text,
+            },
+            {
+                "role": "assistant",
+                "content": "{",
+            },
+        ],
     )
-    raw = msg.content[0].text.strip()
-    log.debug("Claude raw response (stop_reason=%s):\n%s", msg.stop_reason, raw)
+    raw = "{" + msg.content[0].text
+    log.debug("Claude raw response (stop_reason=%s):\n%s", msg.stop_reason, raw[:200])
 
     if msg.stop_reason == "max_tokens":
         log.error("Claude response was truncated by max_tokens — response so far: %s", raw[:500])
         raise RuntimeError("Claude response truncated by max_tokens limit")
 
-    if raw.startswith("```"):
-        parts = raw.split("```")
-        raw = parts[1] if len(parts) > 1 else raw
-        if raw.startswith("json"):
-            raw = raw[4:].lstrip()
-
-    if not raw:
-        log.error("Claude returned an empty response. Full message: %s", msg)
+    if not raw.strip() or raw.strip() == "{":
+        log.error("Claude returned an empty response after pre-fill")
         raise ValueError("Claude returned an empty JSON response")
 
     try:
         return json.loads(raw)
     except json.JSONDecodeError as exc:
-        # Claude may have prepended analysis text before the JSON object.
-        # Search specifically for '{"adjusted"' — the expected start of the response object.
-        m = re.search(r'\{\s*"adjusted"', raw)
-        if m:
-            try:
-                result = json.loads(raw[m.start():])
-                log.warning("Extracted JSON object from position %d (Claude prepended analysis text)", m.start())
-                return result
-            except json.JSONDecodeError:
-                pass
-        log.error("Claude returned non-JSON response (JSONDecodeError: %s). Raw:\n%s", exc, raw[:1000])
+        log.error("Claude returned invalid JSON after pre-fill (JSONDecodeError: %s). Raw:\n%s", exc, raw[:1000])
         raise
 
 
