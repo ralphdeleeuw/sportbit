@@ -518,12 +518,13 @@ def _review_with_claude(context_text: str) -> dict:
     try:
         return json.loads(raw)
     except json.JSONDecodeError as exc:
-        # Claude may have prepended analysis text before the JSON object — find the first '{'
-        start = raw.find('{')
-        if start > 0:
+        # Claude may have prepended analysis text before the JSON object.
+        # Search specifically for '{"adjusted"' — the expected start of the response object.
+        m = re.search(r'\{\s*"adjusted"', raw)
+        if m:
             try:
-                result = json.loads(raw[start:])
-                log.warning("Extracted JSON object from position %d (Claude prepended %d chars of text)", start, start)
+                result = json.loads(raw[m.start():])
+                log.warning("Extracted JSON object from position %d (Claude prepended analysis text)", m.start())
                 return result
             except json.JSONDecodeError:
                 pass
