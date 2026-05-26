@@ -639,12 +639,13 @@ def _generate_plan_claude(context_text: str) -> list[dict]:
     try:
         return json.loads(raw)
     except json.JSONDecodeError as exc:
-        # Claude may have prepended analysis text before the JSON array — find the first '['
-        start = raw.find('[')
-        if start > 0:
+        # Claude may have prepended analysis text before the JSON array.
+        # Search specifically for '[{' — the start of a JSON array of objects.
+        m = re.search(r'\[\s*\{', raw)
+        if m:
             try:
-                result = json.loads(raw[start:])
-                log.warning("Extracted JSON array from position %d (Claude prepended %d chars of text)", start, start)
+                result = json.loads(raw[m.start():])
+                log.warning("Extracted JSON array from position %d (Claude prepended analysis text)", m.start())
                 return result
             except json.JSONDecodeError:
                 pass
