@@ -639,7 +639,16 @@ def _generate_plan_claude(context_text: str) -> list[dict]:
     try:
         return json.loads(raw)
     except json.JSONDecodeError as exc:
-        log.error("Claude returned non-JSON response (JSONDecodeError: %s). Raw:\n%s", exc, raw[:500])
+        # Claude may have prepended analysis text before the JSON array — find the first '['
+        start = raw.find('[')
+        if start > 0:
+            try:
+                result = json.loads(raw[start:])
+                log.warning("Extracted JSON array from position %d (Claude prepended %d chars of text)", start, start)
+                return result
+            except json.JSONDecodeError:
+                pass
+        log.error("Claude returned non-JSON response (JSONDecodeError: %s). Raw:\n%s", exc, raw[:1000])
         raise
 
 
