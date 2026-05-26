@@ -492,7 +492,7 @@ def _build_review_context(
 def _review_with_claude(context_text: str) -> dict:
     client = anthropic.Anthropic(api_key=os.environ["ANTHROPIC_API_KEY"])
     msg = client.messages.create(
-        model="claude-sonnet-4-6",
+        model="claude-opus-4-7",
         max_tokens=4096,
         system=_REVIEW_SYSTEM_PROMPT,
         messages=[{

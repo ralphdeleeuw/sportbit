@@ -440,6 +440,11 @@ def _load_fitness_data(files: dict[str, str]) -> dict:
         "workout_log": workout_log,
         "running_plan_workouts": running_plan_raw.get("workouts") or [],
         "signed_up_dates": signed_up_dates,
+        "personal_records": wod_data.get("personal_records") or [],
+        "withings_data": wod_data.get("withings_data"),
+        "environmental_data": wod_data.get("environmental_data"),
+        "strava_data": strava_data,
+        "intervals_data": intervals_data,
     }
 
 
@@ -568,6 +573,12 @@ def _build_context(data: dict, open_gym_event: dict) -> str:
                     parts.append(f"HR {avg_hr}bpm")
                 if tl:
                     parts.append(f"TL {round(tl)}")
+                hz = act.get("hr_zone_times")
+                if hz and isinstance(hz, list) and sum(hz) > 0:
+                    total = sum(hz)
+                    zone_parts = [f"Z{i+1}:{round(v/total*100)}%" for i, v in enumerate(hz[:5]) if v > 0]
+                    if zone_parts:
+                        parts.append("zones=[" + " ".join(zone_parts) + "]")
                 act_lines.append(" ".join(parts))
         sections.append("Recente activiteiten (afgelopen 7 dagen):\n" + "\n".join(act_lines))
     else:
@@ -663,6 +674,76 @@ def _build_context(data: dict, open_gym_event: dict) -> str:
         lift_lines.append(f"  {lift_name}: {', '.join(rm_parts)}")
     if lift_lines:
         sections.append("Barbell maxima:\n" + "\n".join(lift_lines))
+
+    # ── Persoonlijke records ───────────────────────────────────────────────────
+    personal_records: list = data.get("personal_records") or []
+    if personal_records:
+        pr_lines = [
+            f"  {pr.get('workout', '')}: {pr.get('result', '')}" + (f" — {pr.get('date', '')}" if pr.get("date") else "")
+            for pr in personal_records[:10]
+            if pr.get("workout") and pr.get("result")
+        ]
+        if pr_lines:
+            sections.append("Persoonlijke records (context voor tempo/gewichten):\n" + "\n".join(pr_lines))
+
+    # ── Lichaamssamenstelling (Withings) ──────────────────────────────────────
+    withings_data = data.get("withings_data")
+    if withings_data and withings_data.get("measurements"):
+        _m = withings_data["measurements"][0]
+        w_lines = []
+        if _m.get("weight_kg") is not None:
+            w_lines.append(f"  Gewicht: {_m['weight_kg']} kg")
+        if _m.get("fat_pct") is not None:
+            w_lines.append(f"  Vetpercentage: {_m['fat_pct']}%")
+        if _m.get("muscle_kg") is not None:
+            w_lines.append(f"  Spiermassa: {_m['muscle_kg']} kg")
+        if _m.get("hydration_pct") is not None:
+            w_lines.append(f"  Hydratatie: {_m['hydration_pct']}%")
+        if w_lines:
+            sections.append(f"Lichaamssamenstelling (Withings, {_m.get('date', '')}):\n" + "\n".join(w_lines))
+
+    # ── ACWR trainingsbelasting ────────────────────────────────────────────────
+    strava_data_full = data.get("strava_data") or {}
+    intervals_data_full = data.get("intervals_data") or {}
+    _acwr_acts_by_date = strava_data_full.get("activities_by_date") or {}
+    _acwr_icu = intervals_data_full.get("activities", {}).get("by_date", {})
+    _all_acwr_dates = sorted(set(list(_acwr_acts_by_date.keys()) + list(_acwr_icu.keys())), reverse=True)
+    if _all_acwr_dates:
+        _acute_loads = []
+        _chronic_loads = []
+        _today_str = today.isoformat()
+        for _d in _all_acwr_dates:
+            _days_ago = (today - date.fromisoformat(_d)).days
+            _acts = (_acwr_acts_by_date.get(_d) or []) + (_acwr_icu.get(_d) or [])
+            _tl = sum(a.get("training_load") or a.get("suffer_score") or 0 for a in _acts)
+            if _days_ago <= 7:
+                _acute_loads.append(_tl)
+            if _days_ago <= 28:
+                _chronic_loads.append(_tl)
+        if _acute_loads and _chronic_loads:
+            _acute_avg = sum(_acute_loads) / 7
+            _chronic_avg = sum(_chronic_loads) / 28
+            if _chronic_avg > 0:
+                _ratio = round(_acute_avg / _chronic_avg, 2)
+                _status = "normaal" if 0.8 <= _ratio <= 1.3 else ("hoog risico" if _ratio > 1.5 else ("overbelast risico" if _ratio > 1.3 else "onderbelast"))
+                sections.append(f"Trainingsbelasting (ACWR 7:28d): ratio={_ratio} — {_status} (acuut: {round(_acute_avg)}/dag, chronisch: {round(_chronic_avg)}/dag)")
+
+    # ── Weersomstandigheden op Open Gym dag ───────────────────────────────────
+    environmental_data = data.get("environmental_data") or {}
+    if environmental_data:
+        aqi = environmental_data.get("aqi") or {}
+        cond = (environmental_data.get("training_conditions") or {}).get(event_date_str)
+        env_parts = []
+        if cond:
+            env_parts.append(
+                f"  Temp: {cond.get('temp_c')}°C (voelt als {cond.get('feels_like_c')}°C), "
+                f"vochtigheid {cond.get('humidity_pct')}%, wind {cond.get('wind_kmh')} km/h — "
+                f"{cond.get('weather_desc', '')}"
+            )
+        if aqi.get("value") is not None:
+            env_parts.append(f"  AQI: {aqi['value']} ({aqi.get('category', '')})")
+        if env_parts:
+            sections.append("Weersomstandigheden op trainingsdag:\n" + "\n".join(env_parts))
 
     return "\n\n".join(sections)
 

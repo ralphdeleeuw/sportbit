@@ -2673,6 +2673,8 @@ def generate_workout_plans(
     intervals_data: dict | None = None,
     environmental_data: dict | None = None,
     personal_events: list[dict] | None = None,
+    running_plan: "dict | None" = None,
+    withings_data: "dict | None" = None,
 ) -> dict[str, str]:
     """
     Call the Claude API to generate a personalised execution plan for each
@@ -2732,26 +2734,22 @@ def generate_workout_plans(
             recovery_status_text = "\nCurrent athlete recovery status: " + ", ".join(parts) + "\n"
     if intervals_data and intervals_data.get("wellness", {}).get("by_date"):
         from datetime import date as _date_cls_wod  # noqa: PLC0415
-        _today_iso = _date_cls_wod.today().isoformat()
-        _yesterday_iso = (_date_cls_wod.today() - timedelta(days=1)).isoformat()
         _w = intervals_data["wellness"]["by_date"]
-        _ge = _w.get(_today_iso) or _w.get(_yesterday_iso)
-        if _ge:
-            _gp = []
-            if _ge.get("resting_hr") is not None:
-                _gp.append(f"resting_hr {_ge['resting_hr']}bpm")
+        _recent_dates = sorted(_w.keys(), reverse=True)[:7]
+        _trend_lines = []
+        for _d in reversed(_recent_dates):
+            _ge = _w[_d]
+            _gp = [f"  {_d}:"]
             if _ge.get("hrv") is not None:
                 _gp.append(f"HRV {_ge['hrv']:.0f}ms")
+            if _ge.get("resting_hr") is not None:
+                _gp.append(f"resting_hr {_ge['resting_hr']}bpm")
             if _ge.get("tsb") is not None:
                 _gp.append(f"TSB {_ge['tsb']:+.0f}")
             if _ge.get("sleep_hrs") is not None:
                 _gp.append(f"sleep {_ge['sleep_hrs']:.1f}h")
             if _ge.get("sleep_score") is not None:
                 _gp.append(f"sleep_score {_ge['sleep_score']}/100")
-            if _ge.get("steps") is not None:
-                _gp.append(f"steps {_ge['steps']:,}")
-            if _ge.get("vo2max") is not None:
-                _gp.append(f"VO2max {_ge['vo2max']:.1f}")
             if _ge.get("spo2") is not None:
                 _gp.append(f"SpO₂ {_ge['spo2']:.1f}%")
             for _field, _label, _scale in [
@@ -2763,14 +2761,48 @@ def generate_workout_plans(
             ]:
                 if _ge.get(_field) is not None:
                     _gp.append(f"{_label} {_ge[_field]}{_scale}")
-            if _gp:
-                recovery_status_text += "Garmin: " + ", ".join(_gp) + "\n"
+            _trend_lines.append(" ".join(_gp))
+        if _trend_lines:
+            recovery_status_text += "Garmin wellness trend (last 7 days):\n" + "\n".join(_trend_lines) + "\n"
     acwr = _compute_acwr(strava_data, intervals_data)
     if acwr:
         recovery_status_text += (
             f"Training load (ACWR 7:28d, source: {acwr['source']}): ratio={acwr['ratio']} — {acwr['status']}"
             f" (acute: {acwr['acute_7d']}/day, chronic: {acwr['chronic_28d']}/day)\n"
         )
+
+    # Lichaamssamenstelling (Withings)
+    withings_block = ""
+    if withings_data and withings_data.get("measurements"):
+        _m = withings_data["measurements"][0]
+        _w_lines = []
+        if _m.get("weight_kg") is not None:
+            _w_lines.append(f"  Weight: {_m['weight_kg']} kg")
+        if _m.get("fat_pct") is not None:
+            _w_lines.append(f"  Body fat: {_m['fat_pct']}%")
+        if _m.get("muscle_kg") is not None:
+            _w_lines.append(f"  Muscle mass: {_m['muscle_kg']} kg")
+        if _m.get("hydration_pct") is not None:
+            _w_lines.append(f"  Hydration: {_m['hydration_pct']}%")
+        if _w_lines:
+            withings_block = f"\nBody composition (Withings, {_m.get('date', '')}):\n" + "\n".join(_w_lines) + "\n"
+
+    # Aankomende hardloopsessies (zodat de coach weet of er morgen een lange duurloop staat)
+    running_plan_text = ""
+    if running_plan and running_plan.get("workouts"):
+        from datetime import date as _date_cls_rp  # noqa: PLC0415
+        _today_rp = _date_cls_rp.today().isoformat()
+        _upcoming_runs = sorted(
+            [w for w in running_plan["workouts"] if w.get("date", "") >= _today_rp],
+            key=lambda w: w["date"],
+        )[:3]
+        if _upcoming_runs:
+            _run_lines = ["Upcoming running sessions (consider recovery impact on CrossFit performance):"]
+            for _w in _upcoming_runs:
+                _t = _w.get("time", "")
+                _line = f"  {_w['date']}{' at ' + _t if _t else ''}: {_w.get('name', _w.get('type', 'Run'))} ({_w.get('total_distance_km', '?')}km, {_w.get('session', '')})"
+                _run_lines.append(_line)
+            running_plan_text = "\n" + "\n".join(_run_lines) + "\n"
 
     # Recente workout-lognotities (wat de atleet daadwerkelijk deed + gewichten)
     recent_log_text = ""
@@ -2910,7 +2942,7 @@ Personal focus areas (movements where improvement is desired):
 
 Barbell maxima (kg):
 {barbell_text}{barbell_trend_text}
-{pr_text}{recent_log_text}{personal_event_context}
+{withings_block}{pr_text}{recent_log_text}{running_plan_text}{personal_event_context}
 Weight notation: If weights are noted as "X/Y lbs" or "X/Y kg", always use the first number (X) — that is the men's weight.
 
 Main workout ({_nl_date(date)} — {title}):
@@ -2930,7 +2962,7 @@ Be direct and concise. Maximum 260 words. No introduction."""
         try:
             log.info("Generating AI plan for %s (%s)", date, title)
             message = client.messages.create(
-                model="claude-sonnet-4-6",
+                model="claude-opus-4-7",
                 max_tokens=700,
                 messages=[{"role": "user", "content": prompt}],
             )
@@ -3451,6 +3483,8 @@ def main() -> int:
             intervals_data=intervals_data,
             environmental_data=env_data,
             personal_events=personal_events,
+            running_plan=running_plan,
+            withings_data=withings_data,
         )
     past_sportbit_dates = sorted(
         [d for d in sportbit_attended if d < today.isoformat()],
