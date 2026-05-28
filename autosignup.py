@@ -47,6 +47,9 @@ SCHEDULE = [
 
 DAY_NAMES = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
 
+# Lessen die nooit automatisch geboekt worden
+EXCLUDED_CLASS_NAMES = {"Open Gym"}
+
 # Gist filename for state storage
 GIST_FILENAME = "sportbit_state.json"
 
@@ -119,6 +122,9 @@ class GistStateManager:
                 self.state.setdefault("signed_up", {})
                 self.state.setdefault("cancelled", {})
                 self.state.setdefault("exclusions", {})
+                # Verwijder verouderde SportBit entries (numerieke IDs) — Huppa gebruikt UUIDs
+                self.state["signed_up"] = {k: v for k, v in self.state["signed_up"].items() if not k.isdigit()}
+                self.state["cancelled"] = {k: v for k, v in self.state["cancelled"].items() if not k.isdigit()}
                 # Prune stale exclusions (past dates)
                 today_str = datetime.now(AMS).date().isoformat()
                 self.state["exclusions"] = {
@@ -431,17 +437,15 @@ def find_target_slots(days_ahead: int) -> list[tuple]:
 
 def find_event_at_time(events: list[dict], date_str: str, target_time: str) -> dict | None:
     # Huppa starts_at format: "YYYY-MM-DD HH:MM"
-    # Prefer an event the athlete is already signed up for at this time,
-    # so we don't accidentally try to sign up for CrossFit when they already
-    # enrolled in Open Gym (or another class) at the same slot.
+    # Sla uitgesloten lessen (bijv. Open Gym) over — alleen CrossFit WOD boeken.
+    # Geef voorkeur aan een les waar de sporter al voor ingeschreven is.
     prefix = f"{date_str} {target_time}"
-    for event in events:
-        starts_at = event.get("starts_at", "")
-        if starts_at.startswith(prefix) and event.get("is_booked", False):
+    eligible = [e for e in events if e.get("name") not in EXCLUDED_CLASS_NAMES]
+    for event in eligible:
+        if event.get("starts_at", "").startswith(prefix) and event.get("is_booked", False):
             return event
-    for event in events:
-        starts_at = event.get("starts_at", "")
-        if starts_at.startswith(prefix):
+    for event in eligible:
+        if event.get("starts_at", "").startswith(prefix):
             return event
     return None
 
