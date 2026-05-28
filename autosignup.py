@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-SportBit Auto Sign-Up for CrossFit Hilversum
+Huppa Auto Sign-Up for CrossFit Hilversum
 
 Automatically signs up for WOD classes on a weekly schedule.
 Run via cron or manually. Dry-run mode enabled by default.
@@ -22,7 +22,6 @@ import logging
 import os
 import sys
 from datetime import datetime, timedelta
-from urllib.parse import urljoin
 from zoneinfo import ZoneInfo
 
 import requests
@@ -34,10 +33,7 @@ from google_calendar_sync import GoogleCalendarSync
 # Configuration
 # ──────────────────────────────────────────────────────────────
 
-BASE_URL = "https://crossfithilversum.sportbitapp.nl/cbm/api/"
-
-# Rooster (schedule) ID: 1 = Hilversum
-ROOSTER_ID = 1
+HUPPA_API_BASE = "https://api.huppa.app"
 
 # Weekly schedule: list of (weekday_number, time) pairs
 # Weekday numbers: 0=Mon, 1=Tue, 2=Wed, 3=Thu, 4=Fri, 5=Sat, 6=Sun
@@ -66,7 +62,7 @@ logging.basicConfig(
     format="%(asctime)s [%(levelname)s] %(message)s",
     datefmt="%Y-%m-%d %H:%M:%S",
 )
-log = logging.getLogger("sportbit")
+log = logging.getLogger("huppa")
 
 
 # ──────────────────────────────────────────────────────────────
@@ -80,7 +76,7 @@ class GistStateManager:
     State structure:
     {
         "signed_up": {
-            "<event_id>": {
+            "<occurrence_id>": {
                 "date": "2026-03-09",
                 "time": "20:00",
                 "title": "CrossFit WOD",
@@ -88,7 +84,7 @@ class GistStateManager:
             }
         },
         "cancelled": {
-            "<event_id>": {
+            "<occurrence_id>": {
                 "date": "2026-03-09",
                 "time": "20:00",
                 "title": "CrossFit WOD",
@@ -157,14 +153,14 @@ class GistStateManager:
     def is_excluded(self, date: str, time: str) -> bool:
         return f"{date}_{time}" in self.state.get("exclusions", {})
 
-    def is_cancelled(self, event_id: int) -> bool:
-        return str(event_id) in self.state["cancelled"]
+    def is_cancelled(self, occurrence_id: str) -> bool:
+        return str(occurrence_id) in self.state["cancelled"]
 
-    def is_signed_up_by_script(self, event_id: int) -> bool:
-        return str(event_id) in self.state["signed_up"]
+    def is_signed_up_by_script(self, occurrence_id: str) -> bool:
+        return str(occurrence_id) in self.state["signed_up"]
 
-    def mark_signed_up(self, event_id: int, date: str, time: str, title: str):
-        self.state["signed_up"][str(event_id)] = {
+    def mark_signed_up(self, occurrence_id: str, date: str, time: str, title: str):
+        self.state["signed_up"][str(occurrence_id)] = {
             "date": date,
             "time": time,
             "title": title,
@@ -172,20 +168,20 @@ class GistStateManager:
         }
         self._save()
 
-    def mark_cancelled(self, event_id: int, date: str, time: str, title: str):
-        self.state["cancelled"][str(event_id)] = {
+    def mark_cancelled(self, occurrence_id: str, date: str, time: str, title: str):
+        self.state["cancelled"][str(occurrence_id)] = {
             "date": date,
             "time": time,
             "title": title,
             "cancelled_at": datetime.now().isoformat(timespec="seconds"),
         }
-        self.state["signed_up"].pop(str(event_id), None)
+        self.state["signed_up"].pop(str(occurrence_id), None)
         self._save()
 
     def batch_update_capacity(self, capacity_updates: dict[str, dict]) -> None:
         """Update class capacity data for multiple slots and save once.
 
-        capacity_updates: {"YYYY-MM-DD_HH:MM": {"current": int, "max": int}}
+        capacity_updates: {"YYYY-MM-DD_HH:MM": {"available": int, "is_full": bool}}
         """
         if not capacity_updates:
             return
@@ -210,93 +206,103 @@ class GistStateManager:
         for event in events:
             eid = str(event["id"])
             if eid in self.state["signed_up"] and eid not in self.state["cancelled"]:
-                still_registered = event.get("aangemeld", False)
+                still_registered = event.get("is_booked", False)
                 if not still_registered:
-                    title = event.get("titel", "?")
-                    start = event.get("start", "")
-                    date_str = start[:10] if start else "?"
-                    time_str = start[11:16] if len(start) > 15 else "?"
+                    title = event.get("name", "?")
+                    starts_at = event.get("starts_at", "")
+                    date_str = starts_at[:10] if starts_at else "?"
+                    time_str = starts_at[11:16] if len(starts_at) > 15 else "?"
                     log.info(
-                        "Detected manual cancellation for event %s (%s %s %s).",
+                        "Detected manual cancellation for occurrence %s (%s %s %s).",
                         eid, title, date_str, time_str,
                     )
-                    self.mark_cancelled(int(eid), date_str, time_str, title)
+                    self.mark_cancelled(eid, date_str, time_str, title)
                     newly_cancelled.append(eid)
         if newly_cancelled:
-            log.info("Marked %d event(s) as manually cancelled.", len(newly_cancelled))
+            log.info("Marked %d occurrence(s) as manually cancelled.", len(newly_cancelled))
         return newly_cancelled
 
 
 # ──────────────────────────────────────────────────────────────
-# SportBit Client
+# Huppa Client
 # ──────────────────────────────────────────────────────────────
 
-class SportBitClient:
-    def __init__(self, username: str, password: str):
+class HuppaClient:
+    def __init__(self, email: str, password: str, subdomain: str):
         self.session = requests.Session()
         self.session.headers.update({
-            "Accept": "application/json, text/plain, */*",
-            "User-Agent": (
-                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-                "AppleWebKit/537.36 (KHTML, like Gecko) "
-                "Chrome/145.0.0.0 Safari/537.36"
-            ),
-            "Referer": "https://crossfithilversum.sportbitapp.nl/web/nl/events",
+            "Accept": "application/json",
+            "Content-Type": "application/json",
         })
-        self.username = username
+        self.email = email
         self.password = password
-
-    def _url(self, path: str) -> str:
-        return urljoin(BASE_URL, path)
-
-    def _set_xsrf_header(self):
-        token = self.session.cookies.get("XSRF-TOKEN")
-        if token:
-            self.session.headers["X-XSRF-TOKEN"] = token
+        self.subdomain = subdomain
 
     def login(self) -> bool:
-        log.info("Logging in as %s ...", self.username)
-        self.session.get(self._url("data/heartbeat/"))
-        self._set_xsrf_header()
-
+        log.info("Logging in to Huppa as %s ...", self.email)
         resp = self.session.post(
-            self._url("data/inloggen/"),
-            json={"username": self.username, "password": self.password, "remember": True},
+            f"{HUPPA_API_BASE}/auth/login",
+            json={"email": self.email, "password": self.password},
+            timeout=20,
         )
-
         if resp.status_code == 200:
-            self._set_xsrf_header()
-            log.info("Login successful.")
+            log.info("Huppa login successful.")
             return True
-
-        log.error("Login failed: %s %s", resp.status_code, resp.text[:200])
+        log.error("Huppa login failed: %s %s", resp.status_code, resp.text[:200])
         return False
 
+    def _get_with_reauth(self, url: str, **kwargs) -> requests.Response:
+        resp = self.session.get(url, **kwargs)
+        if resp.status_code == 401:
+            log.info("Session expired, re-authenticating...")
+            self.login()
+            resp = self.session.get(url, **kwargs)
+        return resp
+
     def get_events(self, date: str) -> list[dict]:
-        resp = self.session.get(
-            self._url("data/events/"),
-            params={"datum": date, "rooster": ROOSTER_ID},
+        resp = self._get_with_reauth(
+            f"{HUPPA_API_BASE}/users/me/occurrences",
+            params={"date": date, "subdomain": self.subdomain},
+            timeout=20,
         )
         resp.raise_for_status()
         data = resp.json()
+        # API may return a list directly or wrapped in a key
+        if isinstance(data, list):
+            return data
+        return data.get("data", data.get("occurrences", []))
 
-        events = []
-        for period in ("ochtend", "middag", "avond"):
-            if isinstance(data.get(period), list):
-                events.extend(data[period])
-        return events
-
-    def signup(self, event_id: int) -> bool:
-        self._set_xsrf_header()
+    def signup(self, event: dict) -> bool:
+        org_id = event.get("organization_id")
+        occ_id = event.get("id")
+        if not org_id or not occ_id:
+            log.error("Cannot sign up: missing organization_id or id in event %s", event)
+            return False
         resp = self.session.post(
-            self._url(f"data/events/{event_id}/deelname/"),
+            f"{HUPPA_API_BASE}/organizations/{org_id}/occurrences/{occ_id}/booking",
             json={},
+            timeout=20,
+        )
+        if resp.status_code in (200, 201, 204):
+            log.info("Signed up for occurrence %s.", occ_id)
+            return True
+        log.error("Sign-up failed for occurrence %s: %s %s", occ_id, resp.status_code, resp.text[:200])
+        return False
+
+    def cancel(self, event: dict) -> bool:
+        org_id = event.get("organization_id")
+        occ_id = event.get("id")
+        if not org_id or not occ_id:
+            log.error("Cannot cancel: missing organization_id or id in event %s", event)
+            return False
+        resp = self.session.delete(
+            f"{HUPPA_API_BASE}/organizations/{org_id}/occurrences/{occ_id}/booking",
+            timeout=20,
         )
         if resp.status_code in (200, 204):
-            log.info("Signed up for event %d.", event_id)
+            log.info("Cancelled booking for occurrence %s.", occ_id)
             return True
-
-        log.error("Sign-up failed for event %d: %s %s", event_id, resp.status_code, resp.text[:200])
+        log.error("Cancel failed for occurrence %s: %s %s", occ_id, resp.status_code, resp.text[:200])
         return False
 
 
@@ -315,15 +321,17 @@ def create_calendar_event(event: dict, date: datetime, sync_calendar: bool) -> b
             return True
 
         cal_sync = GoogleCalendarSync(creds_json=creds_json)
-        title = event.get("titel", "CrossFit WOD")
-        start_time = event.get("start", "")
-        start_dt = datetime.fromisoformat(start_time)
+        title = event.get("name", "CrossFit WOD")
+        starts_at = event.get("starts_at", "")
+
+        # Huppa returns "YYYY-MM-DD HH:MM" in Amsterdam time — add timezone for Google Calendar
+        start_dt = datetime.fromisoformat(starts_at).replace(tzinfo=AMS)
         end_dt = start_dt + timedelta(hours=1)
 
         event_details = {
             "summary": title,
-            "description": f"SportBit Event ID: {event.get('id')}",
-            "start": {"dateTime": start_time},
+            "description": f"Huppa Occurrence ID: {event.get('id')}",
+            "start": {"dateTime": start_dt.isoformat()},
             "end": {"dateTime": end_dt.isoformat()},
         }
 
@@ -339,7 +347,7 @@ def create_calendar_event(event: dict, date: datetime, sync_calendar: bool) -> b
         return False
 
 
-def delete_calendar_event(sportbit_event_id: int, sync_calendar: bool) -> bool:
+def delete_calendar_event(occurrence_id: str, sync_calendar: bool) -> bool:
     if not sync_calendar:
         return True
 
@@ -351,23 +359,21 @@ def delete_calendar_event(sportbit_event_id: int, sync_calendar: bool) -> bool:
 
         cal_sync = GoogleCalendarSync(creds_json=creds_json)
         calendar_id = os.environ.get("CALENDAR_ID", "primary")
-        calendar_events = cal_sync.find_events_by_sportbit_id(sportbit_event_id, calendar_id)
+        calendar_events = cal_sync.find_events_by_huppa_id(occurrence_id, calendar_id)
 
         if not calendar_events:
-            log.info("No Google Calendar event found for SportBit event %s.", sportbit_event_id)
+            log.info("No Google Calendar event found for Huppa occurrence %s.", occurrence_id)
             return True
 
         for cal_event in calendar_events:
             cal_sync.delete_event(cal_event["id"], calendar_id)
-            log.info("Deleted Google Calendar event %s for SportBit event %s.", cal_event["id"], sportbit_event_id)
+            log.info("Deleted Google Calendar event %s for Huppa occurrence %s.", cal_event["id"], occurrence_id)
 
         return True
 
     except Exception as e:
-        log.error("Failed to delete Google Calendar event for SportBit event %s: %s", sportbit_event_id, str(e))
+        log.error("Failed to delete Google Calendar event for Huppa occurrence %s: %s", occurrence_id, str(e))
         return False
-
-
 
 
 # ──────────────────────────────────────────────────────────────
@@ -388,23 +394,25 @@ def find_target_slots(days_ahead: int) -> list[tuple]:
     return slots
 
 
-def find_event_at_time(events: list[dict], target_time: str) -> dict | None:
+def find_event_at_time(events: list[dict], date_str: str, target_time: str) -> dict | None:
+    # Huppa starts_at format: "YYYY-MM-DD HH:MM"
     # Prefer an event the athlete is already signed up for at this time,
     # so we don't accidentally try to sign up for CrossFit when they already
     # enrolled in Open Gym (or another class) at the same slot.
+    prefix = f"{date_str} {target_time}"
     for event in events:
-        start = event.get("start", "")
-        if f"T{target_time}:00" in start and event.get("aangemeld", False):
+        starts_at = event.get("starts_at", "")
+        if starts_at.startswith(prefix) and event.get("is_booked", False):
             return event
     for event in events:
-        start = event.get("start", "")
-        if f"T{target_time}:00" in start:
+        starts_at = event.get("starts_at", "")
+        if starts_at.startswith(prefix):
             return event
     return None
 
 
-def send_weekly_summary(username: str, password: str):
-    client = SportBitClient(username, password)
+def send_weekly_summary(email: str, password: str, subdomain: str):
+    client = HuppaClient(email, password, subdomain)
     if not client.login():
         log.error("Aborting: login failed.")
         sys.exit(1)
@@ -424,16 +432,17 @@ def send_weekly_summary(username: str, password: str):
             log.warning("Could not fetch events for %s: %s", date_str, exc)
             continue
         for event in events:
-            if not event.get("aangemeld", False) and not event.get("opWachtlijst", False):
+            if not event.get("is_booked", False) and not event.get("is_on_waitlist", False):
                 continue
-            start = event.get("start", "")
-            time_str = start[11:16] if len(start) > 15 else "?"
-            title = event.get("titel", "CrossFit WOD")
-            spots = f"{event['aantalDeelnemers']}/{event['maxDeelnemers']}"
-            on_waitlist = event.get("opWachtlijst", False)
+            starts_at = event.get("starts_at", "")
+            time_str = starts_at[11:16] if len(starts_at) > 15 else "?"
+            title = event.get("name", "CrossFit WOD")
+            available = event.get("available_slots", "?")
+            on_waitlist = event.get("is_on_waitlist", False)
             status = "⏳ wachtlijst" if on_waitlist else "✅ ingeschreven"
             day_name_nl = day_names_nl[d.weekday()]
-            registered_events.append((d, time_str, f"{day_name_nl} {d.strftime('%d/%m')} {time_str} — {title} ({spots}) {status}"))
+            spots_str = f"{available} vrij" if available != "?" else ""
+            registered_events.append((d, time_str, f"{day_name_nl} {d.strftime('%d/%m')} {time_str} — {title} ({spots_str}) {status}"))
 
     if not registered_events:
         log.info("Geen inschrijvingen gevonden voor de komende week.")
@@ -448,11 +457,9 @@ def send_weekly_summary(username: str, password: str):
     notify.send_notification("CrossFit week overzicht 📅", message)
 
 
-
-
-def run(username: str, password: str, dry_run: bool, days_ahead: int, sync_calendar: bool,
-        state: GistStateManager | None):
-    client = SportBitClient(username, password)
+def run(email: str, password: str, subdomain: str, dry_run: bool, days_ahead: int,
+        sync_calendar: bool, state: GistStateManager | None):
+    client = HuppaClient(email, password, subdomain)
 
     if not client.login():
         log.error("Aborting: login failed.")
@@ -472,7 +479,7 @@ def run(username: str, password: str, dry_run: bool, days_ahead: int, sync_calen
     results = {"signed_up": [], "already": [], "full_waitlist": [], "not_found": [], "failed": [], "skipped": []}
 
     events_cache: dict[str, list[dict]] = {}
-    capacity_updates: dict[str, dict] = {}  # {"YYYY-MM-DD_HH:MM": {"current": int, "max": int}}
+    capacity_updates: dict[str, dict] = {}  # {"YYYY-MM-DD_HH:MM": {"available": int, "is_full": bool}}
 
     # First pass: fetch events and detect manual cancellations.
     # Scan BOTH upcoming slots AND recent past scheduled days (last 14 days)
@@ -502,8 +509,7 @@ def run(username: str, password: str, dry_run: bool, days_ahead: int, sync_calen
                 events_cache[date_str] = client.get_events(date_str)
             all_events.extend(events_cache[date_str])
         # Also scan upcoming non-scheduled days that have signed_up events,
-        # so manual cancellations on those days (e.g. a manually enrolled Friday
-        # lesson that the user later cancels) are detected.
+        # so manual cancellations on those days are detected.
         today_str = today.strftime("%Y-%m-%d")
         signed_up_dates = {
             info["date"]
@@ -520,7 +526,7 @@ def run(username: str, password: str, dry_run: bool, days_ahead: int, sync_calen
             all_events.extend(events_cache[date_str])
         newly_cancelled = state.detect_manual_cancellations(all_events)
         for eid in newly_cancelled:
-            delete_calendar_event(int(eid), sync_calendar)
+            delete_calendar_event(eid, sync_calendar)
 
     for date, target_time in slots:
         date_str = date.strftime("%Y-%m-%d")
@@ -537,22 +543,25 @@ def run(username: str, password: str, dry_run: bool, days_ahead: int, sync_calen
             events_cache[date_str] = client.get_events(date_str)
         events = events_cache[date_str]
 
-        event = find_event_at_time(events, target_time)
+        event = find_event_at_time(events, date_str, target_time)
 
         if not event:
             log.warning("No %s class found on %s.", target_time, date_str)
             results["not_found"].append(label)
             continue
 
-        eid = event["id"]
-        title = event.get("titel", "?")
-        current_cap = event.get("aantalDeelnemers", 0)
-        max_cap = event.get("maxDeelnemers", 0)
-        spots = f"{current_cap}/{max_cap}"
-        already = event.get("aangemeld", False)
-        on_waitlist = event.get("opWachtlijst", False)
+        eid = str(event["id"])
+        title = event.get("name", "?")
+        available_slots = event.get("available_slots", 0)
+        is_full = event.get("is_full", False)
+        spots = f"{available_slots} vrij" if not is_full else "vol"
+        already = event.get("is_booked", False)
+        on_waitlist = event.get("is_on_waitlist", False)
         # Track capacity for the dashboard
-        capacity_updates[f"{date_str}_{target_time}"] = {"current": current_cap, "max": max_cap}
+        capacity_updates[f"{date_str}_{target_time}"] = {
+            "available": available_slots,
+            "is_full": is_full,
+        }
 
         if state and state.is_cancelled(eid):
             log.info("Skipping %s at %s — manually cancelled. [%s]", title, target_time, eid)
@@ -573,8 +582,7 @@ def run(username: str, password: str, dry_run: bool, days_ahead: int, sync_calen
             results["full_waitlist"].append(label)
             continue
 
-        full = event["aantalDeelnemers"] >= event["maxDeelnemers"]
-        status = "FULL (waitlist)" if full else "open"
+        status = "vol (wachtlijst)" if is_full else "open"
 
         if dry_run:
             log.info(
@@ -584,7 +592,7 @@ def run(username: str, password: str, dry_run: bool, days_ahead: int, sync_calen
             results["signed_up"].append(f"{label} (dry-run)")
         else:
             log.info("Signing up for %s at %s (%s, %s) [%s] ...", title, target_time, spots, status, eid)
-            if client.signup(eid):
+            if client.signup(event):
                 results["signed_up"].append(label)
                 if state:
                     state.mark_signed_up(eid, date_str, target_time, title)
@@ -603,23 +611,21 @@ def run(username: str, password: str, dry_run: bool, days_ahead: int, sync_calen
 
     # Scan ALL upcoming days for manual enrollments, including today and scheduled days.
     # On scheduled days the main loop only handles the one targeted slot; any
-    # other manually enrolled class (e.g. Open Gym at a different time, or at
-    # the same time as CrossFit) is detected here. Starting at 0 ensures that
-    # same-day enrollments are picked up when the workflow is triggered manually.
+    # other manually enrolled class (e.g. Open Gym at a different time) is detected here.
     for offset in range(0, days_ahead + 1):
         d = today + timedelta(days=offset)
         date_str = d.strftime("%Y-%m-%d")
         if date_str not in events_cache:
             events_cache[date_str] = client.get_events(date_str)
         for event in events_cache[date_str]:
-            if not event.get("aangemeld", False):
+            if not event.get("is_booked", False):
                 continue
-            eid = event["id"]
+            eid = str(event["id"])
             if state and state.is_signed_up_by_script(eid):
                 continue
-            title = event.get("titel", "?")
-            start = event.get("start", "")
-            time_str = start[11:16] if len(start) > 15 else "?"
+            title = event.get("name", "?")
+            starts_at = event.get("starts_at", "")
+            time_str = starts_at[11:16] if len(starts_at) > 15 else "?"
             day_name = DAY_NAMES[d.weekday()]
             label = f"{day_name} {date_str} {time_str}"
             log.info("Detected manual enrollment for %s at %s [%s].", title, label, eid)
@@ -650,36 +656,36 @@ def run(username: str, password: str, dry_run: bool, days_ahead: int, sync_calen
 # ──────────────────────────────────────────────────────────────
 
 def main():
-    parser = argparse.ArgumentParser(description="SportBit auto sign-up for CrossFit Hilversum")
+    parser = argparse.ArgumentParser(description="Huppa auto sign-up for CrossFit Hilversum")
     parser.add_argument("--live", action="store_true", help="Actually sign up (default: dry-run)")
     parser.add_argument("--days", type=int, default=8, help="Days to look ahead (default: 8)")
     parser.add_argument("--sync-calendar", action="store_true", help="Sync successful signups to Google Calendar")
-    parser.add_argument("--username", "-u", help="SportBit username (or set SPORTBIT_USERNAME env var)")
-    parser.add_argument("--password", "-p", help="SportBit password (or set SPORTBIT_PASSWORD env var)")
+    parser.add_argument("--email", "-e", help="Huppa email (or set HUPPA_EMAIL env var)")
+    parser.add_argument("--password", "-p", help="Huppa password (or set HUPPA_PASSWORD env var)")
+    parser.add_argument("--subdomain", "-s", help="Huppa gym subdomain (or set HUPPA_SUBDOMAIN env var)")
     parser.add_argument("--test-notification", action="store_true", help="Stuur een testnotificatie en stop")
-    parser.add_argument("--weekly-summary", action="store_true", help="Stuur een weekoverzicht via Pushover en stop")
+    parser.add_argument("--weekly-summary", action="store_true", help="Stuur een weekoverzicht en stop")
     args = parser.parse_args()
 
-    # Weekly summary mode
-    if args.weekly_summary:
-        username = args.username or os.environ.get("SPORTBIT_USERNAME")
-        password = args.password or os.environ.get("SPORTBIT_PASSWORD")
-        if not username or not password:
-            log.error("Provide credentials via --username/--password or SPORTBIT_USERNAME/SPORTBIT_PASSWORD env vars.")
-            sys.exit(1)
-        send_weekly_summary(username, password)
-        sys.exit(0)
+    email = args.email or os.environ.get("HUPPA_EMAIL")
+    password = args.password or os.environ.get("HUPPA_PASSWORD")
+    subdomain = args.subdomain or os.environ.get("HUPPA_SUBDOMAIN")
 
     if args.test_notification:
         log.info("Sending test notification...")
-        success = notify.send_notification("SportBit Test 🎉", "Dit is een testbericht van SportBit")
+        success = notify.send_notification("Huppa Test 🎉", "Dit is een testbericht van Huppa")
         sys.exit(0 if success else 1)
 
-    username = args.username or os.environ.get("SPORTBIT_USERNAME")
-    password = args.password or os.environ.get("SPORTBIT_PASSWORD")
+    # Weekly summary mode
+    if args.weekly_summary:
+        if not email or not password or not subdomain:
+            log.error("Provide credentials via --email/--password/--subdomain or HUPPA_EMAIL/HUPPA_PASSWORD/HUPPA_SUBDOMAIN env vars.")
+            sys.exit(1)
+        send_weekly_summary(email, password, subdomain)
+        sys.exit(0)
 
-    if not username or not password:
-        log.error("Provide credentials via --username/--password or SPORTBIT_USERNAME/SPORTBIT_PASSWORD env vars.")
+    if not email or not password or not subdomain:
+        log.error("Provide credentials via --email/--password/--subdomain or HUPPA_EMAIL/HUPPA_PASSWORD/HUPPA_SUBDOMAIN env vars.")
         sys.exit(1)
 
     # Initialize Gist state manager if configured
@@ -696,7 +702,7 @@ def main():
     if dry_run:
         log.info("DRY RUN mode - no sign-ups will be made. Use --live to actually sign up.")
 
-    run(username, password, dry_run, args.days, args.sync_calendar, state)
+    run(email, password, subdomain, dry_run, args.days, args.sync_calendar, state)
 
 
 if __name__ == "__main__":

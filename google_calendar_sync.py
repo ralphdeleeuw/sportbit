@@ -39,10 +39,10 @@ class GoogleCalendarSync:
         events = events_result.get('items', [])
         return events
 
-    def find_events_by_sportbit_id(self, sportbit_event_id, calendar_id='primary'):
+    def find_events_by_huppa_id(self, occurrence_id, calendar_id='primary'):
         result = self.service.events().list(
             calendarId=calendar_id,
-            q=f"SportBit Event ID: {sportbit_event_id}",
+            q=f"Huppa Occurrence ID: {occurrence_id}",
             singleEvents=True,
         ).execute()
         return result.get('items', [])

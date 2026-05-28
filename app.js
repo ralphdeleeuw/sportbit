@@ -21,8 +21,17 @@
     // Activate saved tab on load (before data loads)
     switchTab(_activeTab);
 
+    // ── Migrate legacy localStorage keys (SportBit → Huppa) ──
+    ['gist_id', 'github_token', 'push_subscribed'].forEach(k => {
+      const old = localStorage.getItem(`sportbit_${k}`);
+      if (old && !localStorage.getItem(`huppa_${k}`)) {
+        localStorage.setItem(`huppa_${k}`, old);
+        localStorage.removeItem(`sportbit_${k}`);
+      }
+    });
+
     // ── Load saved Gist ID ────────────────────────────────────
-    const savedGistId = localStorage.getItem('sportbit_gist_id');
+    const savedGistId = localStorage.getItem('huppa_gist_id');
     if (savedGistId) {
       document.getElementById('gistId').value = savedGistId;
       loadData();
@@ -76,12 +85,20 @@
     function renderCapacityBadge(date, time) {
       const key = `${date}_${time}`;
       const cap = classCapacity[key];
-      if (!cap || !cap.max) return '';
-      const pct = cap.current / cap.max;
-      let cls = 'open';
-      if (pct >= 1) cls = 'full';
-      else if (pct >= 0.8) cls = 'near-full';
-      return `<span class="capacity-badge ${cls}">${cap.current}/${cap.max}</span>`;
+      if (!cap) return '';
+      // Legacy format (SportBit): {current, max} — still supported for old data
+      if (cap.max != null) {
+        const pct = cap.current / cap.max;
+        let cls = 'open';
+        if (pct >= 1) cls = 'full';
+        else if (pct >= 0.8) cls = 'near-full';
+        return `<span class="capacity-badge ${cls}">${cap.current}/${cap.max}</span>`;
+      }
+      // Huppa format: {available, is_full}
+      if (cap.is_full) return `<span class="capacity-badge full">vol</span>`;
+      if (cap.available == null) return '';
+      const cls = cap.available <= 3 ? 'near-full' : 'open';
+      return `<span class="capacity-badge ${cls}">${cap.available} vrij</span>`;
     }
 
     function renderCard(item, type, delay, wods) {
@@ -216,7 +233,7 @@
           applicationServerKey: _urlBase64ToUint8Array(VAPID_PUBLIC_KEY),
         });
         await _savePushSubscription(subscription);
-        localStorage.setItem('sportbit_push_subscribed', '1');
+        localStorage.setItem('huppa_push_subscribed', '1');
         renderActiesTab(null);
         alert('Notificaties ingeschakeld! 🎉');
       } catch (err) {
@@ -255,7 +272,7 @@
     let stravaData = null; // Strava activiteiten data
     let healthInput = {}; // Subjectieve hersteldata {slaap, energie, spierpijn, stress}
     let healthHistory = []; // [{date, slaap, energie, spierpijn, stress}]
-    let classCapacity = {}; // {"YYYY-MM-DD_HH:MM": {current, max, checked_at}}
+    let classCapacity = {}; // {"YYYY-MM-DD_HH:MM": {available, is_full, checked_at}}
     let exclusions = {};   // {"YYYY-MM-DD_HH:MM": {excluded_at}}
     let personalEvents = []; // [{id, title, date, time?, location?, notes?, created_at}]
     let intervalsData = null;   // {wellness: {by_date: {...}}, activities: {by_date: {...}}, fetched_at}
@@ -507,12 +524,12 @@
     }
 
     // Load saved token
-    const savedToken = localStorage.getItem('sportbit_github_token');
+    const savedToken = localStorage.getItem('huppa_github_token');
     if (savedToken) document.getElementById('githubToken').value = savedToken;
 
     document.getElementById('githubToken').addEventListener('change', () => {
       const t = document.getElementById('githubToken').value.trim();
-      if (t) localStorage.setItem('sportbit_github_token', t);
+      if (t) localStorage.setItem('huppa_github_token', t);
     });
 
     // Render Acties tab so config inputs are always accessible regardless of data state
@@ -1621,7 +1638,7 @@
       const gistId = document.getElementById('gistId').value.trim();
       if (!gistId) return;
 
-      localStorage.setItem('sportbit_gist_id', gistId);
+      localStorage.setItem('huppa_gist_id', gistId);
       currentGistId = gistId;
 
       const todayEl = document.getElementById('today-content');
@@ -1971,10 +1988,10 @@
       const el = document.getElementById('acties-content');
       if (!el) return;
       const updLabel = updatedAt ? new Date(updatedAt).toLocaleString('nl-NL') : '—';
-      const hasToken = !!localStorage.getItem('sportbit_github_token');
+      const hasToken = !!localStorage.getItem('huppa_github_token');
       const hasGist = !!currentGistId;
       const isConfigured = hasToken && hasGist;
-      const isPushSubscribed = !!localStorage.getItem('sportbit_push_subscribed');
+      const isPushSubscribed = !!localStorage.getItem('huppa_push_subscribed');
 
       let h = `<div class="tab-page-header">
         <div class="tab-page-title">Acties & Sync</div>
@@ -1984,7 +2001,7 @@
       if (!isConfigured) {
         h += `<div class="acties-config">
           ${!hasGist ? `<input type="text" id="gistId-vis" class="config-input" placeholder="Gist ID"
-            onchange="document.getElementById('gistId').value=this.value;localStorage.setItem('sportbit_gist_id',this.value);currentGistId=this.value.trim();loadData()">` : ''}
+            onchange="document.getElementById('gistId').value=this.value;localStorage.setItem('huppa_gist_id',this.value);currentGistId=this.value.trim();loadData()">` : ''}
           <input type="password" id="githubToken-vis" class="config-input" placeholder="GitHub Token (ghp_...)">
           <button class="workflow-btn" onclick="_saveActiesConfig()">Opslaan</button>
         </div>`;
@@ -1993,7 +2010,7 @@
           <summary>⚙ Instellingen wijzigen</summary>
           <div class="acties-config">
             <input type="text" id="gistId-vis" class="config-input" placeholder="Gist ID" value="${escapeHtml(currentGistId)}"
-              onchange="document.getElementById('gistId').value=this.value;localStorage.setItem('sportbit_gist_id',this.value);currentGistId=this.value.trim()">
+              onchange="document.getElementById('gistId').value=this.value;localStorage.setItem('huppa_gist_id',this.value);currentGistId=this.value.trim()">
             <input type="password" id="githubToken-vis" class="config-input" placeholder="GitHub Token">
             <button class="workflow-btn" onclick="_saveActiesConfig()">Opslaan</button>
           </div>
@@ -2001,7 +2018,7 @@
       }
 
       const wfs = [
-        { btnId:'signupBtn', statusId:'signupStatus', lastRunId:'signupLastRun', workflowFile:'autosignup.yml', icon:'⚡', title:'Inschrijven', desc:'CrossFit auto-inschrijving & Google Calendar sync', fn:'triggerSignup()', cls:'' },
+        { btnId:'signupBtn', statusId:'signupStatus', lastRunId:'signupLastRun', workflowFile:'autosignup.yml', icon:'⚡', title:'Inschrijven', desc:'Huppa auto-inschrijving & Google Calendar sync', fn:'triggerSignup()', cls:'' },
         { btnId:'syncBtn', statusId:'syncStatus', lastRunId:'syncLastRun', workflowFile:'fetch_sugarwod.yml', icon:'↻', title:'SugarWOD Sync', desc:'WOD, kracht, persoonlijke records, AI coaching', fn:'triggerSync()', cls:'info',
           extras:[{id:'skipAISync',label:'AI coaching overslaan'}] },
         { btnId:'healthBtn', statusId:'healthStatus', lastRunId:'healthLastRun', workflowFile:'fetch_health_data.yml', icon:'♥', title:'Health Refresh', desc:'Strava, Intervals.icu, Withings, omgevingsdata', fn:'triggerHealthRefresh()', cls:'purple',
@@ -2058,7 +2075,7 @@
       h += renderDataSourcesBlock();
       el.innerHTML = h;
 
-      const savedTok = localStorage.getItem('sportbit_github_token');
+      const savedTok = localStorage.getItem('huppa_github_token');
       const tokVis = document.getElementById('githubToken-vis');
       if (savedTok && tokVis) tokVis.value = savedTok;
 
@@ -2071,13 +2088,13 @@
       if (gistVis && gistVis.value.trim()) {
         const g = gistVis.value.trim();
         document.getElementById('gistId').value = g;
-        localStorage.setItem('sportbit_gist_id', g);
+        localStorage.setItem('huppa_gist_id', g);
         currentGistId = g;
       }
       if (tokVis && tokVis.value.trim()) {
         const t = tokVis.value.trim();
         document.getElementById('githubToken').value = t;
-        localStorage.setItem('sportbit_github_token', t);
+        localStorage.setItem('huppa_github_token', t);
       }
       loadData();
     }
