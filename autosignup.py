@@ -233,6 +233,9 @@ class HuppaClient:
         self.session.headers.update({
             "Accept": "application/json",
             "Content-Type": "application/json",
+            "X-Subdomain": subdomain,
+            "Origin": f"https://{subdomain}.huppa.app",
+            "Referer": f"https://{subdomain}.huppa.app/",
         })
         self.email = email
         self.password = password
@@ -242,7 +245,7 @@ class HuppaClient:
         log.info("Logging in to Huppa as %s ...", self.email)
         resp = self.session.post(
             f"{HUPPA_API_BASE}/auth/login",
-            json={"email": self.email, "password": self.password, "slug": self.subdomain},
+            json={"email": self.email, "password": self.password},
             timeout=20,
         )
         if resp.status_code == 200:
