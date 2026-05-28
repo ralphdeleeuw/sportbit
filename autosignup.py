@@ -278,8 +278,8 @@ class HuppaClient:
             "ends_at": parse_utc(evt.get("endsAt", "")),
             "available_slots": evt.get("availableSlots", 0),
             "is_full": evt.get("isFull", False),
-            "is_booked": evt.get("isBooked", False),
-            "is_on_waitlist": evt.get("isOnWaitlist", False),
+            "is_booked": (evt.get("occurrenceUser") or {}).get("status") == "confirmed",
+            "is_on_waitlist": evt.get("occurrenceWaitlistId") is not None,
             "is_eligible_to_book": evt.get("isEligibleToBook", True),
             "organization_id": (evt.get("category") or {}).get("organizationId"),
         }
