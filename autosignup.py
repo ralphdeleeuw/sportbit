@@ -262,18 +262,41 @@ class HuppaClient:
             resp = self.session.get(url, **kwargs)
         return resp
 
+    @staticmethod
+    def _normalize_event(evt: dict) -> dict:
+        """Convert camelCase API fields to snake_case with Amsterdam-local datetime strings."""
+        def parse_utc(s: str) -> str:
+            if not s:
+                return ""
+            dt = datetime.fromisoformat(s.replace("Z", "+00:00"))
+            return dt.astimezone(AMS).strftime("%Y-%m-%d %H:%M")
+
+        return {
+            "id": evt.get("id"),
+            "name": evt.get("name", "CrossFit WOD"),
+            "starts_at": parse_utc(evt.get("startsAt", "")),
+            "ends_at": parse_utc(evt.get("endsAt", "")),
+            "available_slots": evt.get("availableSlots", 0),
+            "is_full": evt.get("isFull", False),
+            "is_booked": evt.get("isBooked", False),
+            "is_on_waitlist": evt.get("isOnWaitlist", False),
+            "is_eligible_to_book": evt.get("isEligibleToBook", True),
+            "organization_id": evt.get("organizationId"),
+        }
+
     def get_events(self, date: str) -> list[dict]:
         resp = self._get_with_reauth(
             f"{HUPPA_API_BASE}/users/me/occurrences",
-            params={"date": date, "subdomain": self.subdomain},
+            params={"date": date},
             timeout=20,
         )
         resp.raise_for_status()
         data = resp.json()
-        # API may return a list directly or wrapped in a key
-        if isinstance(data, list):
-            return data
-        return data.get("data", data.get("occurrences", []))
+        raw = data if isinstance(data, list) else data.get("data", data.get("occurrences", []))
+        normalized = [self._normalize_event(e) for e in raw]
+        log.debug("Fetched %d events for %s: %s", len(normalized), date,
+                  [(e["starts_at"], e["name"]) for e in normalized])
+        return normalized
 
     def signup(self, event: dict) -> bool:
         org_id = event.get("organization_id")
