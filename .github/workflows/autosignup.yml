@@ -1,4 +1,4 @@
-name: CrossFit Auto Sign-Up
+name: CrossFit Auto Sign-Up (Huppa)
 
 on:
   schedule:
@@ -26,8 +26,9 @@ jobs:
       - name: Run auto sign-up with calendar sync
         if: github.event.schedule != '0 17 * * 0'
         env:
-          SPORTBIT_USERNAME: ${{ secrets.SPORTBIT_USERNAME }}
-          SPORTBIT_PASSWORD: ${{ secrets.SPORTBIT_PASSWORD }}
+          HUPPA_EMAIL: ${{ secrets.HUPPA_EMAIL }}
+          HUPPA_PASSWORD: ${{ secrets.HUPPA_PASSWORD }}
+          HUPPA_SUBDOMAIN: ${{ secrets.HUPPA_SUBDOMAIN }}
           GOOGLE_CREDENTIALS: ${{ secrets.GOOGLE_CREDENTIALS }}
           CALENDAR_ID: ${{ secrets.CALENDAR_ID }}
           GIST_ID: ${{ secrets.GIST_ID }}
@@ -39,8 +40,9 @@ jobs:
       - name: Stuur weekoverzicht
         if: github.event.schedule == '0 17 * * 0'
         env:
-          SPORTBIT_USERNAME: ${{ secrets.SPORTBIT_USERNAME }}
-          SPORTBIT_PASSWORD: ${{ secrets.SPORTBIT_PASSWORD }}
+          HUPPA_EMAIL: ${{ secrets.HUPPA_EMAIL }}
+          HUPPA_PASSWORD: ${{ secrets.HUPPA_PASSWORD }}
+          HUPPA_SUBDOMAIN: ${{ secrets.HUPPA_SUBDOMAIN }}
           GIST_ID: ${{ secrets.GIST_ID }}
           GITHUB_TOKEN: ${{ secrets.GIST_TOKEN }}
           VAPID_PRIVATE_KEY: ${{ secrets.VAPID_PRIVATE_KEY }}
