@@ -242,7 +242,7 @@ class HuppaClient:
         log.info("Logging in to Huppa as %s ...", self.email)
         resp = self.session.post(
             f"{HUPPA_API_BASE}/auth/login",
-            json={"email": self.email, "password": self.password},
+            json={"email": self.email, "password": self.password, "slug": self.subdomain},
             timeout=20,
         )
         if resp.status_code == 200:
