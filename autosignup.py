@@ -122,9 +122,16 @@ class GistStateManager:
                 self.state.setdefault("signed_up", {})
                 self.state.setdefault("cancelled", {})
                 self.state.setdefault("exclusions", {})
-                # Verwijder verouderde SportBit entries (numerieke IDs) — Huppa gebruikt UUIDs
-                self.state["signed_up"] = {k: v for k, v in self.state["signed_up"].items() if not k.isdigit()}
-                self.state["cancelled"] = {k: v for k, v in self.state["cancelled"].items() if not k.isdigit()}
+                # Verwijder SportBit entries (numerieke IDs) van na 1 juni 2026 — historie bewaren
+                HUPPA_MIGRATION_DATE = "2026-06-01"
+                self.state["signed_up"] = {
+                    k: v for k, v in self.state["signed_up"].items()
+                    if not k.isdigit() or v.get("date", "") < HUPPA_MIGRATION_DATE
+                }
+                self.state["cancelled"] = {
+                    k: v for k, v in self.state["cancelled"].items()
+                    if not k.isdigit() or v.get("date", "") < HUPPA_MIGRATION_DATE
+                }
                 # Prune stale exclusions (past dates)
                 today_str = datetime.now(AMS).date().isoformat()
                 self.state["exclusions"] = {
