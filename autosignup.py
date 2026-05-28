@@ -304,14 +304,23 @@ class HuppaClient:
         if not org_id or not occ_id:
             log.error("Cannot sign up: missing organization_id or id in event %s", event)
             return False
-        resp = self.session.post(
-            f"{HUPPA_API_BASE}/organizations/{org_id}/occurrences/{occ_id}/booking",
-            json={},
-            timeout=20,
-        )
+        url = f"{HUPPA_API_BASE}/organizations/{org_id}/occurrences/{occ_id}/booking"
+        resp = self.session.post(url, json={}, timeout=20)
         if resp.status_code in (200, 201, 204):
             log.info("Signed up for occurrence %s.", occ_id)
             return True
+        # Huppa vereist een specifiek abonnement als er meerdere actief zijn
+        if resp.status_code == 422:
+            body = resp.json()
+            if body.get("code") == "multiple_booking_products_available":
+                products = body.get("data", {}).get("userProducts", [])
+                if products:
+                    product_id = products[0]["id"]
+                    log.info("Meerdere abonnementen beschikbaar, gebruik product %s.", product_id)
+                    resp = self.session.post(url, json={"userProductId": product_id}, timeout=20)
+                    if resp.status_code in (200, 201, 204):
+                        log.info("Signed up for occurrence %s (product %s).", occ_id, product_id)
+                        return True
         log.error("Sign-up failed for occurrence %s: %s %s", occ_id, resp.status_code, resp.text[:200])
         return False
 
