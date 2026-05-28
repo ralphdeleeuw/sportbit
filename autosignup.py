@@ -281,7 +281,7 @@ class HuppaClient:
             "is_booked": evt.get("isBooked", False),
             "is_on_waitlist": evt.get("isOnWaitlist", False),
             "is_eligible_to_book": evt.get("isEligibleToBook", True),
-            "organization_id": evt.get("organizationId"),
+            "organization_id": (evt.get("category") or {}).get("organizationId"),
         }
 
     def get_events(self, date: str) -> list[dict]:
