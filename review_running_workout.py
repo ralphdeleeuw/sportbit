@@ -614,7 +614,7 @@ def _notify(
 
     if mode == "prerun":
         w = workouts[0]
-        d = datetime.strptime(w["date"], "%Y-%m-%d")
+        d = datetime.strptime(w["date"][:10], "%Y-%m-%d")
         dag = dag_nl[d.weekday()]
         time_str = w.get("time", "?")
         dist = w.get("total_distance_km", "?")
@@ -635,7 +635,7 @@ def _notify(
         title = "Hardloopplan bijgesteld 🏃"
         lines = [f"Reden: {reason}", ""]
         for w in workouts:
-            d = datetime.strptime(w["date"], "%Y-%m-%d")
+            d = datetime.strptime(w["date"][:10], "%Y-%m-%d")
             dag = dag_nl[d.weekday()]
             dist = w.get("total_distance_km", "?")
             lines.append(f"{dag} {d.day}/{d.month} — {w['name']} ({dist}km)")
