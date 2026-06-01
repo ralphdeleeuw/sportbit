@@ -2112,6 +2112,7 @@ def generate_recovery_advice(
     personal_events: list[dict] | None = None,
     running_plan: "dict | None" = None,
     deload_detected: bool = False,
+    now_time: str | None = None,
 ) -> str:
     """
     Generate a daily recovery/intensity advice based on recent workouts and
@@ -2612,7 +2613,9 @@ A negative TSB within the optimal range (-10 to -30) means the athlete is accumu
 
 {tsb_zone_note}
 
-Today is: {today_str}
+Today is: {today_str}{f", current time: {now_time}" if now_time else ""}
+
+IMPORTANT: Only workouts listed under "Past CrossFit box sessions the athlete ACTUALLY attended" have already occurred. A workout mentioned in "Previous coach advice" was upcoming at the time that advice was generated — it may or may not have happened since then. Never conclude a workout has already happened based solely on it appearing in previous advice. Use the current time and the scheduled training time to determine whether today's workout has occurred yet.
 
 Athlete: {athlete_profile['name']}, {athlete_profile['weight_kg']} kg, age 47
 Experience: {athlete_profile['experience']}
@@ -3595,6 +3598,7 @@ def main() -> int:
             personal_events=personal_events,
             running_plan=running_plan,
             deload_detected=deload_detected,
+            now_time=now.strftime("%H:%M"),
         )
 
     # 2. SugarWOD logbook (athlete scored a result)
@@ -3633,6 +3637,7 @@ def main() -> int:
             personal_events=personal_events,
             running_plan=running_plan,
             deload_detected=deload_detected,
+            now_time=now.strftime("%H:%M"),
         )
 
     # 3. Fallback: all programmed past workouts
@@ -3659,6 +3664,7 @@ def main() -> int:
             personal_events=personal_events,
             running_plan=running_plan,
             deload_detected=deload_detected,
+            now_time=now.strftime("%H:%M"),
         )
 
     ai_generated_at = datetime.now(AMS).isoformat() if not skip_ai else None
