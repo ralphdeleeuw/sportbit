@@ -378,7 +378,7 @@ def _build_review_context(
         sections.append("Recent running activities (last 14 days):\n" + "\n".join(run_lines))
 
     # CrossFit sessions relevant voor de run(s) — gebruik ingeschreven sessies
-    run_dates = {w.get("date", "") for w in target_workouts}
+    run_dates = {w.get("date", "")[:10] for w in target_workouts if w.get("date")}
     cf_dates = run_dates | {
         (date.fromisoformat(d) - timedelta(days=1)).isoformat()
         for d in run_dates if d
