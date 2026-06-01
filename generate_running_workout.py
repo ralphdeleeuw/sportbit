@@ -997,12 +997,18 @@ def _build_expanded_description(spec: dict) -> str:
             count = step.get("count", 1)
             lines = [f"Main set {count}x"]
             for child in step.get("children", []):
-                cdist = child.get("distance_m", 0)
-                cpr = _pr(child)
-                cpace_label = f" {cpr}" if cpr else ""
-                chr_zone = child.get("hr_zone", "")
-                chr_str = f" {chr_zone}" if chr_zone else ""
-                lines.append(f"- {dist_str(cdist)}{cpace_label} Pace{chr_str}")
+                ctype = child.get("type")
+                if ctype == "rest":
+                    dur = child.get("duration_s")
+                    if dur:
+                        lines.append(f"- {dur}s Rest")
+                else:
+                    cdist = child.get("distance_m", 0)
+                    cpr = _pr(child)
+                    cpace_label = f" {cpr}" if cpr else ""
+                    chr_zone = child.get("hr_zone", "")
+                    chr_str = f" {chr_zone}" if chr_zone else ""
+                    lines.append(f"- {dist_str(cdist)}{cpace_label} Pace{chr_str}")
             sections.append("\n".join(lines))
 
     icu_text = _build_icu_workout_text(spec)
