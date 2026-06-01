@@ -563,6 +563,7 @@ def _apply_adjustments(
             continue
 
         # Bewaar meta-velden van het origineel
+        adj.setdefault("date", orig.get("date"))
         adj.setdefault("time", orig.get("time", "20:00" if adj.get("session") == "speed" else "09:00"))
         adj.setdefault("week_number", orig.get("week_number"))
         adj["full_description"] = _build_description(adj)
