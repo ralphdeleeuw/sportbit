@@ -2641,7 +2641,6 @@ Provide advice on:
 1. **Recovery level** — are there muscle groups that need extra rest based on recent workouts?{"  Use the subjective recovery data (sleep, energy, muscle soreness) as the primary physiological recovery indicator. Use the Strava workout data (heart rate, duration) to assess the actual training load per session. If a subjective metric (e.g. sleep) is consistently at the same level over multiple weeks, treat it as the athlete's personal baseline — do not flag it as a persistent problem unless it has clearly worsened." if health_input else ""}{"  The ACWR ratio indicates training load: check if there is a pattern with the previous advice." if acwr else ""}
 2. **Intensity advice** — go full throttle, train controlled, or deliberately scale today?
 3. **One concrete tip** for the next workout taking recovery into account (e.g. pacing, scaling choice, specific movement)
-4. **Nutrition** — include this section only if meal information is available: consider the training time (see above) — is the meal a good recovery meal (evening training) or pre-workout preparation (morning training)? One sentence, only if relevant.
 
 When referring to dates, always use the exact date (e.g. "Thursday 19 March"), NEVER vague terms like "yesterday" or "the day before yesterday".
 Be direct, practical and concise. Maximum 200 words. Write in English. No introduction."""
