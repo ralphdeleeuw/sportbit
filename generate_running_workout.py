@@ -736,7 +736,9 @@ def _step_to_doc(step: dict) -> dict | None:
         pd = pace_doc(step)
         if pd:
             doc["pace"] = pd
-        doc["hr"] = hr_zone
+        # GEEN doc["hr"]: een HR-target verdringt het pace-doel op Garmin
+        # (Garmin toont dan de HR-zone "halter" i.p.v. de tempo-naald).
+        # De HR-zone blijft zichtbaar als label in de stapnaam (text).
         return doc
 
     if stype == "cooldown":
@@ -756,7 +758,7 @@ def _step_to_doc(step: dict) -> dict | None:
         pd = pace_doc(step)
         if pd:
             doc["pace"] = pd
-        doc["hr"] = hr_zone
+        # GEEN doc["hr"]: zie warmup — pace blijft het Garmin-doel (naald).
         return doc
 
     if stype == "run":
@@ -780,8 +782,8 @@ def _step_to_doc(step: dict) -> dict | None:
         pd = pace_doc(step)
         if pd:
             doc["pace"] = pd
-        if hr_zone:
-            doc["hr"] = hr_zone
+        # GEEN doc["hr"]: pace is het primaire Garmin-doel zodat de tempo-naald
+        # verschijnt. HR-zone staat in de stapnaam (text) als visueel label.
         return doc
 
     if stype == "rest":
@@ -908,8 +910,9 @@ def _build_icu_workout_text(spec: dict) -> str:
 
     def _step_lines(step: dict) -> list[str]:
         stype = step.get("type")
-        hr = step.get("hr_zone", "")
-        hr_str = f" {hr}" if hr else ""
+        # BEWUST geen HR-zone token (Z1/Z2) in deze geparste tekst: de server
+        # zou dat als HR-target lezen, wat het pace-doel op Garmin verdringt
+        # (HR-zone "halter" i.p.v. tempo-naald). Pace blijft het enige target.
         result = []
         if stype == "warmup":
             dist = step.get("distance_m")
@@ -917,19 +920,19 @@ def _build_icu_workout_text(spec: dict) -> str:
             # "pace" keyword after range tells intervals.icu to render needle gauge
             pace_part = f" {pr} pace" if pr else ""
             if dist:
-                result.append(f"{dist}m{pace_part}{hr_str} Warmup")
+                result.append(f"{dist}m{pace_part} Warmup")
         elif stype == "cooldown":
             dist = step.get("distance_m")
             pr = _pace_range(step)
             pace_part = f" {pr} pace" if pr else ""
             if dist:
-                result.append(f"{dist}m{pace_part}{hr_str} Cooldown")
+                result.append(f"{dist}m{pace_part} Cooldown")
         elif stype == "run":
             dist = step.get("distance_m")
             pr = _pace_range(step)
             pace_part = f" {pr} pace" if pr else ""
             if dist:
-                result.append(f"{dist}m{pace_part}{hr_str}")
+                result.append(f"{dist}m{pace_part}")
         elif stype == "rest":
             dur = step.get("duration_s")
             if dur:
@@ -975,23 +978,23 @@ def _build_expanded_description(spec: dict) -> str:
         pace = s.get("pace_target") or pace_max or pace_min
         return pace or ""
 
+    # Let op: geen HR-zone token (Z1/Z2) in deze geparste tekst — de server zou
+    # dat als HR-target lezen en zo het pace-doel (naald) op Garmin verdringen.
     sections: list[str] = []
     for step in spec.get("steps", []):
         stype = step.get("type")
         dist = step.get("distance_m", 0)
         pr = _pr(step)
         pace_label = f" {pr}" if pr else ""
-        hr = step.get("hr_zone", "")
-        hr_str = f" {hr}" if hr else ""
 
         if stype == "warmup":
-            sections.append(f"Warmup\n- Warmup {dist_str(dist)}{pace_label} Pace{hr_str} intensity=warmup")
+            sections.append(f"Warmup\n- Warmup {dist_str(dist)}{pace_label} Pace intensity=warmup")
 
         elif stype == "cooldown":
-            sections.append(f"Cooldown\n- Cooldown {dist_str(dist)}{pace_label} Pace{hr_str} intensity=cooldown")
+            sections.append(f"Cooldown\n- Cooldown {dist_str(dist)}{pace_label} Pace intensity=cooldown")
 
         elif stype == "run":
-            sections.append(f"- {dist_str(dist)}{pace_label} Pace{hr_str}")
+            sections.append(f"- {dist_str(dist)}{pace_label} Pace")
 
         elif stype == "repeat":
             count = step.get("count", 1)
@@ -1006,9 +1009,7 @@ def _build_expanded_description(spec: dict) -> str:
                     cdist = child.get("distance_m", 0)
                     cpr = _pr(child)
                     cpace_label = f" {cpr}" if cpr else ""
-                    chr_zone = child.get("hr_zone", "")
-                    chr_str = f" {chr_zone}" if chr_zone else ""
-                    lines.append(f"- {dist_str(cdist)}{cpace_label} Pace{chr_str}")
+                    lines.append(f"- {dist_str(cdist)}{cpace_label} Pace")
             sections.append("\n".join(lines))
 
     icu_text = _build_icu_workout_text(spec)
@@ -1151,12 +1152,19 @@ def _push_to_intervals(athlete_id: str, api_key: str, events: list[dict]) -> lis
                 result.get("id"),
                 len(stored_steps),
             )
-            # Log pace-veld van eerste stap zodat je kunt zien welk formaat
-            # intervals.icu opslaat — handig voor het diagnosticeren van de naald
+            # Log pace- én hr-veld van de eerste stappen zodat je in de logs
+            # kunt verifiëren dat pace het enige target is (naald i.p.v. halter).
+            # Als 'hr' hier nog verschijnt, wint die op Garmin van pace.
             for i, step in enumerate(stored_steps[:3]):
                 pace = step.get("pace")
-                if pace:
-                    log.info("  Stap %d pace (opgeslagen door intervals.icu): %s", i + 1, json.dumps(pace))
+                hr = step.get("hr")
+                if pace or hr:
+                    log.info(
+                        "  Stap %d targets (opgeslagen door intervals.icu): pace=%s hr=%s",
+                        i + 1,
+                        json.dumps(pace) if pace else "—",
+                        json.dumps(hr) if hr else "—",
+                    )
 
             # PUT-fallback als POST geen stappen opleverde
             event_id = result.get("id")
