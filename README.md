@@ -1,71 +1,63 @@
-# SportBit Auto Sign-Up for CrossFit Hilversum
+# CrossFit Auto Sign-Up for Huppa
 
-Automatically sign up for CrossFit WOD classes at CrossFit Hilversum using the SportBit platform. This GitHub Actions workflow runs daily to register you for your preferred training schedule, syncs with Google Calendar, and sends push notifications about successful registrations.
+Automated sign-up system for CrossFit classes at CrossFit Hilversum using the Huppa platform. The system automatically registers you for predefined weekly workout slots, syncs with Google Calendar, and sends notifications about your registrations.
 
-## Features
+## Project Description
 
-- **Automated registration** for CrossFit classes based on your weekly schedule
-- **Google Calendar integration** to add registered classes to your calendar
-- **State management** using GitHub Gist to track registrations and manual cancellations
-- **Push notifications** for successful sign-ups and weekly summaries
-- **Waitlist support** when classes are full
-- **Manual cancellation detection** to avoid re-registering for cancelled classes
+This project automates the process of signing up for CrossFit WOD (Workout of the Day) classes on a fixed weekly schedule. It runs daily via GitHub Actions to:
+
+- Check for available classes matching your preferred schedule
+- Automatically sign up for classes (or join the waitlist if full)
+- Sync confirmed registrations to your Google Calendar
+- Send push notifications about new registrations
+- Track registration state to avoid duplicate sign-ups
+- Detect manual cancellations and update calendar accordingly
+- Send a weekly summary of upcoming classes every Sunday
+
+The system is designed for members of CrossFit Hilversum who want to maintain a consistent training schedule without manually booking classes each week.
 
 ## Configuration
 
-All configuration is done through GitHub repository secrets. Set these up in your repository under Settings → Secrets and variables → Actions:
+The following secrets must be configured in your GitHub repository settings:
 
-### Required Secrets
+### Huppa Credentials
+- **`HUPPA_EMAIL`** — Your Huppa account email address
+- **`HUPPA_PASSWORD`** — Your Huppa account password  
+- **`HUPPA_SUBDOMAIN`** — The gym's subdomain (e.g., `crossfithilversum`)
 
-- **`SPORTBIT_USERNAME`** - Your SportBit login username (email address)
-- **`SPORTBIT_PASSWORD`** - Your SportBit login password
+### Google Calendar Integration
+- **`GOOGLE_CREDENTIALS`** — Google service account credentials JSON for calendar access
+- **`CALENDAR_ID`** — Target Google Calendar ID (use `primary` for your main calendar)
 
-### Google Calendar Integration (Optional)
-
-- **`GOOGLE_CREDENTIALS`** - Google service account credentials JSON. Create a service account in Google Cloud Console and paste the entire JSON key here
-- **`CALENDAR_ID`** - Google Calendar ID where events should be created (use `primary` for your main calendar, or a specific calendar ID like `abc123@group.calendar.google.com`)
-
-### State Management (Required)
-
-- **`GIST_ID`** - GitHub Gist ID for storing registration state. Create a new secret gist and copy its ID from the URL
-- **`GIST_TOKEN`** - GitHub personal access token with `gist` scope. Generate at Settings → Developer settings → Personal access tokens
+### State Management
+- **`GIST_ID`** — GitHub Gist ID for storing registration state between runs
+- **`GIST_TOKEN`** — GitHub personal access token with gist permissions
 
 ### Push Notifications (Optional)
+- **`PUSHOVER_USER_KEY`** — Pushover user key for receiving notifications
+- **`PUSHOVER_API_TOKEN`** — Pushover application API token
+- **`VAPID_PRIVATE_KEY`** — VAPID private key for web push notifications
+- **`VAPID_CLAIMS_EMAIL`** — Email address for VAPID claims
 
-- **`PUSHOVER_USER_KEY`** - Your Pushover user key for receiving push notifications
-- **`PUSHOVER_API_TOKEN`** - Pushover application API token
-
-### README Generation (Optional)
-
-- **`ANTHROPIC_API_KEY`** - Anthropic Claude API key for automatic README generation
+### Documentation Generation
+- **`ANTHROPIC_API_KEY`** — Anthropic API key for automated README generation
 
 ## Schedule
 
-The workflow runs automatically on two schedules:
+The automation runs on two schedules via GitHub Actions:
 
-1. **Daily at 00:01 UTC** (01:01 CET / 02:01 CEST) - Checks for upcoming classes in the next 8 days and registers for scheduled slots
-2. **Sundays at 17:00 UTC** (18:00 Amsterdam time) - Sends a weekly summary of all upcoming registrations via push notification
+### Daily Sign-Up Run
+- **Time**: Every day at 00:01 UTC (01:01 CET / 02:01 CEST)
+- **Purpose**: Checks for classes in the next 8 days and signs up for any matching the configured schedule
+- **Current schedule**:
+  - Monday 20:00
+  - Wednesday 08:00
+  - Thursday 20:00
+  - Saturday 09:00
+  - Sunday 09:00
 
-The default training schedule is configured for:
-- Monday 20:00
-- Wednesday 08:00
-- Thursday 20:00
-- Saturday 09:00
-- Sunday 09:00
+### Weekly Summary
+- **Time**: Sundays at 17:00 UTC (18:00 Amsterdam time)
+- **Purpose**: Sends a push notification with an overview of all registered classes for the upcoming week
 
-You can also manually trigger the workflow from the GitHub Actions tab to run sign-ups immediately.
-
-## How It Works
-
-1. The workflow logs into SportBit using your credentials
-2. Scans the next 8 days for your scheduled training slots
-3. Registers for any classes you're not already signed up for
-4. Creates Google Calendar events for successful registrations
-5. Tracks all registrations in a GitHub Gist to:
-   - Avoid duplicate registrations
-   - Detect manual cancellations (won't re-register cancelled classes)
-   - Remember manually enrolled classes
-6. Sends push notifications for new registrations
-7. On Sundays, sends a weekly overview of all upcoming classes
-
-The system respects manual changes - if you cancel a class or sign up for additional sessions manually, it will detect and honor these modifications.
+The workflow can also be triggered manually from the GitHub Actions tab for immediate sign-ups or testing.
