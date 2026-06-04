@@ -1799,10 +1799,17 @@
             : 'AI Coach advies';
           const tsStr = formatAdviceTimestamp(recoveryAdviceGeneratedAt);
           const tsHtml = tsStr ? `<div class="ai-coach-timestamp">gegenereerd ${tsStr}</div>` : '';
-          h += `<div class="ai-coach-block">
-            <div class="ai-coach-label">${label}</div>
-            ${tsHtml}
-            <div class="ai-coach-body">${marked.parse(recoveryAdvice)}</div>
+          h += `<div class="ai-coach-block" onclick="this.classList.toggle('open')">
+            <div class="ai-coach-toggle">
+              <div class="ai-coach-toggle-left">
+                <div class="ai-coach-label">${label}</div>
+                ${tsHtml}
+              </div>
+              <div class="wod-chevron">▾</div>
+            </div>
+            <div class="ai-coach-content">
+              <div class="ai-coach-body">${marked.parse(recoveryAdvice)}</div>
+            </div>
           </div>`;
         }
         h += `</div>`;

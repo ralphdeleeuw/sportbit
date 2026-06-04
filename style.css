@@ -585,12 +585,21 @@
       margin-top: 16px; padding-top: 16px;
       border-top: 1px solid var(--border-subtle);
     }
+    .ai-coach-toggle {
+      display: flex; justify-content: space-between; align-items: center;
+      cursor: pointer; user-select: none;
+    }
+    .ai-coach-toggle-left { display: flex; flex-direction: column; gap: 4px; }
     .ai-coach-label {
       font-size: 11px; font-weight: 600; letter-spacing: 0.08em;
-      text-transform: uppercase; color: var(--accent); margin-bottom: 8px;
+      text-transform: uppercase; color: var(--accent);
     }
-    .ai-coach-timestamp { font-size: 11px; color: var(--faint); margin-bottom: 12px; }
-    .ai-coach-body { font-size: 15px; color: #d4d4d4; line-height: 1.85; }
+    .ai-coach-timestamp { font-size: 11px; color: var(--faint); }
+    .ai-coach-toggle .wod-chevron { color: var(--accent); transition: transform 0.2s; }
+    .ai-coach-block.open .wod-chevron { transform: rotate(180deg); }
+    .ai-coach-content { display: none; margin-top: 14px; }
+    .ai-coach-block.open .ai-coach-content { display: block; }
+    .ai-coach-body { font-size: 15px; color: #d4d4d4; line-height: 1.80; }
     .ai-coach-body h1, .ai-coach-body h2 { font-size: 1.1rem; font-weight: 700; color: #f0f0f0; margin: 1em 0 0.4em; }
     .ai-coach-body h3, .ai-coach-body h4 { font-size: 1rem; font-weight: 600; color: #e0e0e0; margin: 0.8em 0 0.3em; }
     .ai-coach-body p { margin: 0.6em 0; }
