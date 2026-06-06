@@ -1350,7 +1350,7 @@ def _push_to_garmin_connect(specs: list[dict], garmin_email: str, garmin_passwor
             workout = _build_garmin_native_workout(spec)
             resp = client.client.post(
                 "connectapi",
-                "/proxy/workout-service/workout",
+                "/workout-service/workout",
                 api=True,
                 json=workout,
             )
@@ -1359,7 +1359,7 @@ def _push_to_garmin_connect(specs: list[dict], garmin_email: str, garmin_passwor
             if workout_id and spec.get("date"):
                 client.client.post(
                     "connectapi",
-                    f"/proxy/workout-service/schedule/{workout_id}",
+                    f"/workout-service/schedule/{workout_id}",
                     api=True,
                     json={"date": spec["date"]},
                 )
