@@ -687,16 +687,17 @@ def _step_to_doc(step: dict) -> dict | None:
         return _pace_to_sec_per_km(pace_str) if pace_str else None
 
     def pace_doc(s: dict) -> dict | None:
-        """Build pace dict for workout_doc: range (value+value2) or single value."""
+        """Build pace dict for workout_doc: native intervals.icu format {"start", "end", "units": "secs"}."""
         pace_min = s.get("pace_min")
         pace_max = s.get("pace_max")
         if pace_min and pace_max:
             fast = _pace_to_sec_per_km(pace_min)  # lower secs/km = faster
             slow = _pace_to_sec_per_km(pace_max)  # higher secs/km = slower
-            return {"units": "secs/km", "value": fast, "value2": slow}
+            return {"start": fast, "end": slow, "units": "secs"}
         pace_str = s.get("pace_target") or pace_max or pace_min
         if pace_str:
-            return {"units": "secs/km", "value": _pace_to_sec_per_km(pace_str)}
+            v = _pace_to_sec_per_km(pace_str)
+            return {"start": v, "end": v, "units": "secs"}
         return None
 
     def pace_range_str(s: dict) -> str:
@@ -827,6 +828,8 @@ def _build_workout_doc(spec: dict) -> dict | None:
         "steps": steps,
         "locales": [],
         "options": {},
+        "target": "PACE",
+        "pace_units": "MINS_KM",
         "distance": total_dist,
         "duration": total_dur,
         "description": _build_icu_workout_text(spec),
