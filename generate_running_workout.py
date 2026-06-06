@@ -1354,12 +1354,17 @@ def _push_to_garmin_connect(specs: list[dict], garmin_email: str, garmin_passwor
     for spec in specs:
         try:
             workout = _build_garmin_native_workout(spec)
-            resp = client.garth.post("proxy/workout-service/workout", json=workout)
+            resp = client.connectapi(
+                "/proxy/workout-service/workout",
+                method="POST",
+                json=workout,
+            )
             workout_id = resp.get("workoutId") if isinstance(resp, dict) else None
             log.info("✓ Garmin native workout aangemaakt: '%s' (id: %s)", spec.get("name"), workout_id)
             if workout_id and spec.get("date"):
-                sched = client.garth.post(
-                    f"proxy/workout-service/schedule/{workout_id}",
+                client.connectapi(
+                    f"/proxy/workout-service/schedule/{workout_id}",
+                    method="POST",
                     json={"date": spec["date"]},
                 )
                 log.info("  Ingepland op %s", spec["date"])
