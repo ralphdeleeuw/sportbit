@@ -766,6 +766,12 @@ def _step_to_doc(step: dict) -> dict | None:
         hr_zone = step.get("hr_zone")
         dur = calc_duration(step)
         if not dur:
+            log.warning(
+                "_step_to_doc: 'run' stap overgeslagen — geen berekende duration "
+                "(distance_m=%s, pace_fields=%s)",
+                step.get("distance_m"),
+                {k: step.get(k) for k in ("pace_min", "pace_max", "pace_target", "duration_s", "duration_min")},
+            )
             return None
         hr_str = f" {hr_zone}" if hr_zone else ""
         pr = pace_range_str(step)
