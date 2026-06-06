@@ -1127,6 +1127,59 @@ def _delete_old_intervals_events(athlete_id: str, api_key: str, existing_plan: d
             log.warning("Fout bij verwijderen oud event %s: %s", eid, exc)
 
 
+def _ensure_pace_workout_order(athlete_id: str, api_key: str) -> None:
+    """Update Run sport settings so PACE is the first priority in workout_order.
+
+    intervals.icu derives workout_doc.target from the athlete's workout_order setting.
+    With workout_order='POWER_HR_PACE', it sets target='POWER' regardless of what we push.
+    Garmin then looks for a power meter, finds none, and shows no gauge at all.
+    Setting workout_order='PACE_HR_POWER' makes intervals.icu store target='PACE',
+    which causes Garmin to show the pace needle during structured workouts.
+    """
+    session = requests.Session()
+    session.auth = ("API_KEY", api_key)
+    session.headers.update({"Accept": "application/json", "Content-Type": "application/json"})
+
+    resp = session.get(f"{INTERVALS_BASE}/{athlete_id}/settings", timeout=20)
+    if not resp.ok:
+        log.warning("Kan sport settings niet ophalen: %s — %s", resp.status_code, resp.text[:200])
+        return
+
+    data = resp.json()
+    settings_list = data if isinstance(data, list) else [data]
+    run_settings = next(
+        (s for s in settings_list if "Run" in (s.get("types") or [])),
+        None,
+    )
+    if not run_settings:
+        log.warning("Geen Run sport settings gevonden in response")
+        return
+
+    current_order = run_settings.get("workout_order", "")
+    if current_order.startswith("PACE"):
+        log.info("Run workout_order is al correct: %s", current_order)
+        return
+
+    log.info("Run workout_order aanpassen: '%s' → 'PACE_HR_POWER'", current_order)
+    updated = {**run_settings, "workout_order": "PACE_HR_POWER"}
+    settings_id = run_settings.get("id")
+    url = (
+        f"{INTERVALS_BASE}/{athlete_id}/settings/{settings_id}"
+        if settings_id
+        else f"{INTERVALS_BASE}/{athlete_id}/settings"
+    )
+    put_resp = session.put(url, json=updated, timeout=20)
+    if put_resp.ok:
+        log.info("✓ Run workout_order bijgewerkt naar PACE_HR_POWER")
+        log.info("  → intervals.icu zal nu target='PACE' gebruiken, Garmin toont de naald.")
+    else:
+        log.warning(
+            "Kan workout_order niet bijwerken: %s — %s",
+            put_resp.status_code,
+            put_resp.text[:300],
+        )
+
+
 def _push_to_intervals(athlete_id: str, api_key: str, events: list[dict]) -> list[dict | None]:
     session = requests.Session()
     session.auth = ("API_KEY", api_key)
@@ -1484,6 +1537,7 @@ def main() -> None:
         if not athlete_id or not api_key:
             log.error("INTERVALS_ATHLETE_ID en INTERVALS_API_KEY zijn vereist voor --test-workout")
             sys.exit(1)
+        _ensure_pace_workout_order(athlete_id, api_key)
         now_ams = datetime.now(AMS)
         test_date = now_ams.date().isoformat()
         # Plan 1 uur vanaf nu, afgerond naar het eerstvolgende hele uur
@@ -1556,6 +1610,7 @@ def main() -> None:
         sys.exit(1)
 
     if repush:
+        _ensure_pace_workout_order(athlete_id, api_key)
         _repush_existing(athlete_id, api_key, gist_id, github_token)
         return
 
