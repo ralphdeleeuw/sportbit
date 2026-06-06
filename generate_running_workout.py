@@ -1397,8 +1397,9 @@ def _push_to_garmin_connect(specs: list[dict], garmin_email: str, garmin_passwor
                 t = step.get("targetType", {}).get("workoutTargetTypeKey", "—")
                 v1 = step.get("targetValueOne", "—")
                 v2 = step.get("targetValueTwo", "—")
+                skey = step.get("stepType", {}).get("stepTypeKey", "—")
                 log.info("  Stap %d: %s | target=%s (%.4f–%.4f m/s)",
-                         j, step["intensity"], t,
+                         j, skey, t,
                          v1 if isinstance(v1, float) else 0,
                          v2 if isinstance(v2, float) else 0)
         except Exception as exc:
