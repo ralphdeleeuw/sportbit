@@ -1283,6 +1283,112 @@ def _push_to_intervals(athlete_id: str, api_key: str, events: list[dict]) -> lis
     return results
 
 
+# ── Garmin Connect native workout push ────────────────────────────────────────
+
+def _pace_str_to_mmps(pace_str: str) -> int:
+    """Convert '6:20' (min:sec per km) to mm/s for Garmin Connect API."""
+    parts = pace_str.split(":")
+    secs_per_km = int(parts[0]) * 60 + int(parts[1])
+    return int(1_000_000 / secs_per_km)  # 1000m / secs_per_km = m/s, × 1000 = mm/s
+
+
+def _build_garmin_native_workout(spec: dict) -> dict:
+    """Build Garmin Connect native workout JSON with step-level pace targets.
+
+    intervals.icu does not translate pace fields to native Garmin step targets
+    (it only translates HR and power). This function builds the proper Garmin
+    workout JSON directly so the watch shows the pace needle gauge.
+    """
+    gc_steps = []
+    for i, step in enumerate(spec.get("steps", []), 1):
+        stype = step.get("type", "run")
+        dist_m = step.get("distance_m", 0)
+
+        if stype == "warmup":
+            intensity = "WARMUP"
+        elif stype == "cooldown":
+            intensity = "COOLDOWN"
+        else:
+            intensity = "ACTIVE"
+
+        pace_min = step.get("pace_min")  # e.g. "6:20" — faster end
+        pace_max = step.get("pace_max")  # e.g. "6:40" — slower end
+
+        if pace_min and pace_max:
+            # workoutTargetTypeId 6 = pace zone (custom pace range)
+            # targetValueOne = slow end (lower speed), targetValueTwo = fast end (higher speed)
+            target_fields = {
+                "targetType": {"workoutTargetTypeId": 6, "workoutTargetTypeKey": "pace.zone"},
+                "targetValueOne": _pace_str_to_mmps(pace_max),   # slower = lower mm/s
+                "targetValueTwo": _pace_str_to_mmps(pace_min),   # faster = higher mm/s
+            }
+        else:
+            target_fields = {
+                "targetType": {"workoutTargetTypeId": 1, "workoutTargetTypeKey": "no.target"},
+            }
+
+        gc_step = {
+            "stepOrder": i,
+            "type": "WorkoutStep",
+            "intensity": intensity,
+            "endCondition": {
+                "conditionTypeId": 3,
+                "conditionTypeKey": "distance",
+                "displayOrder": 3,
+            },
+            "endConditionValue": dist_m,
+            **target_fields,
+        }
+        gc_steps.append(gc_step)
+
+    return {
+        "workoutName": spec.get("name", "Running Workout"),
+        "description": _build_icu_workout_text(spec),
+        "sport": "running",
+        "workoutSegments": [{
+            "segmentOrder": 1,
+            "sport": "running",
+            "workoutSteps": gc_steps,
+        }],
+    }
+
+
+def _push_to_garmin_connect(specs: list[dict], garmin_email: str, garmin_password: str) -> None:
+    """Push native structured workouts to Garmin Connect with pace step targets."""
+    try:
+        from garminconnect import Garmin  # type: ignore[import]
+    except ImportError:
+        log.warning("garminconnect niet geïnstalleerd — Garmin native push overgeslagen")
+        return
+
+    try:
+        client = Garmin(garmin_email, garmin_password)
+        client.login()
+        log.info("Garmin Connect login geslaagd")
+    except Exception as exc:
+        log.error("Garmin Connect login mislukt: %s", exc)
+        return
+
+    for spec in specs:
+        try:
+            workout = _build_garmin_native_workout(spec)
+            # garminconnect ≥0.2: gebruik garth.post voor workout-service
+            resp = client.garth.post(
+                "proxy/workout-service/workout",
+                json=workout,
+            )
+            wid = resp.get("workoutId") if isinstance(resp, dict) else "?"
+            log.info("✓ Garmin Connect native workout aangemaakt: '%s' (id: %s)", spec.get("name"), wid)
+            # Log step targets voor verificatie
+            for j, step in enumerate(workout["workoutSegments"][0]["workoutSteps"], 1):
+                t = step.get("targetType", {}).get("workoutTargetTypeKey", "—")
+                v1 = step.get("targetValueOne", "—")
+                v2 = step.get("targetValueTwo", "—")
+                log.info("  Stap %d: intensity=%s target=%s (%s–%s mm/s)", j, step["intensity"], t, v1, v2)
+        except Exception as exc:
+            log.error("Garmin Connect push mislukt voor '%s': %s", spec.get("name"), exc)
+
+
 # ── Google Agenda helpers ──────────────────────────────────────────────────────
 
 def _gcal_event_body(spec: dict) -> dict | None:
@@ -1564,10 +1670,12 @@ def main() -> None:
         if arg == "--inspect-event" and i + 1 < len(sys.argv):
             inspect_event_id = sys.argv[i + 1]
 
-    athlete_id   = os.environ.get("INTERVALS_ATHLETE_ID", "").strip()
-    api_key      = os.environ.get("INTERVALS_API_KEY", "").strip()
-    gist_id      = os.environ.get("GIST_ID", "").strip()
-    github_token = os.environ.get("GITHUB_TOKEN", "").strip()
+    athlete_id     = os.environ.get("INTERVALS_ATHLETE_ID", "").strip()
+    api_key        = os.environ.get("INTERVALS_API_KEY", "").strip()
+    gist_id        = os.environ.get("GIST_ID", "").strip()
+    github_token   = os.environ.get("GITHUB_TOKEN", "").strip()
+    garmin_email   = os.environ.get("GARMIN_EMAIL", "").strip()
+    garmin_password = os.environ.get("GARMIN_PASSWORD", "").strip()
 
     if test_workout:
         # Duwt een vaste mini-workout naar intervals.icu om de Garmin naald te testen.
@@ -1603,10 +1711,17 @@ def main() -> None:
             log.info("Stappen:")
             for s in (results[0].get("workout_doc") or {}).get("steps", []):
                 log.info("  %s", json.dumps({k: v for k, v in s.items() if k in ("text","pace","hr","distance","duration","warmup","cooldown","rest")}))
-            log.info("Sync nu je Garmin via Garmin Connect, dan start de workout en kijk of de naald zichtbaar is.")
         else:
             log.error("Test-workout aanmaken mislukt")
             sys.exit(1)
+
+        # Direct naar Garmin Connect pushen met native pace step-targets
+        if garmin_email and garmin_password:
+            log.info("Garmin Connect native workout pushen (pace step-targets)...")
+            _push_to_garmin_connect([spec], garmin_email, garmin_password)
+            log.info("Sync nu je Garmin via Garmin Connect, dan start de workout en kijk of de naald zichtbaar is.")
+        else:
+            log.warning("GARMIN_EMAIL/GARMIN_PASSWORD niet ingesteld — Garmin native push overgeslagen")
         return
 
     if inspect_event_id:
@@ -1650,6 +1765,15 @@ def main() -> None:
     if repush:
         _ensure_pace_workout_order(athlete_id, api_key)
         _repush_existing(athlete_id, api_key, gist_id, github_token)
+        if garmin_email and garmin_password:
+            # Laad specs opnieuw voor native Garmin push
+            gist_files = _load_gist(gist_id, github_token)
+            plan_raw = gist_files.get("running_plan.json", "")
+            plan = _parse_json(plan_raw, "running_plan.json") or {}
+            specs = plan.get("workouts", [])
+            if specs:
+                log.info("Garmin Connect native workouts pushen (pace step-targets)...")
+                _push_to_garmin_connect(specs, garmin_email, garmin_password)
         return
 
     log.info("Laden fitnessdata uit Gist...")
