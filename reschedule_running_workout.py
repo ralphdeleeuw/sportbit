@@ -20,6 +20,8 @@ import sys
 
 import requests
 
+from generate_running_workout import _build_intervals_event, _push_to_intervals
+
 log = logging.getLogger(__name__)
 INTERVALS_BASE = "https://intervals.icu/api/v1/athlete"
 
@@ -245,32 +247,25 @@ def main() -> None:
             else:
                 log.info("Geen event_id voor %s — oud event niet verwijderd", key)
 
-            # Maak nieuw event aan op de nieuwe datum
-            new_event: dict = {
-                "start_date_local": f"{new_date}T{new_time}:00",
-                "category": "WORKOUT",
-                "type": "Run",
-                "name": workout.get("name", "Hardloopworkout"),
-                "description": workout.get("description", ""),
-            }
-            if workout.get("workout_doc"):
-                new_event["workout_doc"] = workout["workout_doc"]
+            # Maak nieuw event aan op de nieuwe datum.
+            # Gebruik _build_intervals_event zodat de ICU-description (voor server-side
+            # parsing naar workout_doc.steps) én de workout_doc altijd correct zijn.
+            rescheduled_spec = {**workout, "date": new_date, "time": new_time}
+            new_event = _build_intervals_event(rescheduled_spec)
 
-            try:
-                resp = ints.post(
-                    f"{INTERVALS_BASE}/{athlete_id}/events", json=new_event, timeout=20
-                )
-                resp.raise_for_status()
-                new_id = resp.json().get("id")
-                log.info("Nieuw intervals.icu event: id=%s op %s %s", new_id, new_date, new_time)
-                workout["date"] = new_date
-                workout["time"] = new_time
-                workout["event_id"] = new_id
-                del health_input[key]
-                changed = True
-            except Exception as exc:
-                log.error("Fout bij aanmaken nieuw event voor %s: %s", key, exc)
+            results = _push_to_intervals(athlete_id, api_key, [new_event])
+            result = results[0] if results else None
+            if not result:
+                log.error("Kon nieuw intervals.icu event niet aanmaken voor %s", key)
                 continue
+
+            new_id = result.get("id")
+            log.info("Nieuw intervals.icu event: id=%s op %s %s", new_id, new_date, new_time)
+            workout["date"] = new_date
+            workout["time"] = new_time
+            workout["event_id"] = new_id
+            del health_input[key]
+            changed = True
 
             # Google Agenda sync
             gcal_creds_json  = os.environ.get("GOOGLE_CREDENTIALS", "").strip()

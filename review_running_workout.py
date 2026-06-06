@@ -105,13 +105,13 @@ Output: return ONLY valid JSON (no markdown, no explanation):
   ]
 }
 
-Step formats:
-  Warm-up:      {"type":"warmup",   "distance_m":<int>, "pace_max":"M:SS"}
-  Easy/long run:{"type":"run",      "distance_m":<int>, "pace_max":"M:SS"}
+Step formats (PACE IS ALWAYS REQUIRED for run/warmup/cooldown — a step without pace cannot be displayed on Garmin and will be silently dropped, causing distance and duration to disappear from the workout):
+  Warm-up:      {"type":"warmup",   "distance_m":<int>, "pace_min":"M:SS", "pace_max":"M:SS"}
+  Easy/long run:{"type":"run",      "distance_m":<int>, "pace_min":"M:SS", "pace_max":"M:SS"}
   Interval:     {"type":"run",      "distance_m":<int>, "pace_target":"M:SS"}
   Repeat:       {"type":"repeat",   "count":<int>, "children":[<steps>]}
   Walking rest: {"type":"rest",     "duration_s":<int>}
-  Cool-down:    {"type":"cooldown", "distance_m":<int>, "pace_max":"M:SS"}
+  Cool-down:    {"type":"cooldown", "distance_m":<int>, "pace_min":"M:SS", "pace_max":"M:SS"}
 
 If no adjustments needed: {"adjusted": false, "reason": "...", "workouts": []}
 
@@ -539,6 +539,29 @@ def _review_with_claude(context_text: str) -> dict:
 
 # ── Aanpassingen doorvoeren ───────────────────────────────────────────────────
 
+def _validate_steps(steps: list[dict]) -> list[str]:
+    """Controleer of elke run/warmup/cooldown stap een pace- of duration-veld heeft.
+
+    Retourneert een lijst van foutmeldingen. Leeg = stappen zijn geldig.
+    Een stap zonder pace en zonder duration wordt door _step_to_doc stilzwijgend
+    weggegooid, wat leidt tot een workout_doc zonder correcte afstand/tijdsduur.
+    """
+    errors = []
+    for i, step in enumerate(steps):
+        stype = step.get("type")
+        run_steps = []
+        if stype in ("run", "warmup", "cooldown"):
+            run_steps = [step]
+        elif stype == "repeat":
+            run_steps = [c for c in step.get("children", []) if c.get("type") in ("run", "warmup", "cooldown")]
+        for s in run_steps:
+            has_pace = any(s.get(f) for f in ("pace_min", "pace_max", "pace_target"))
+            has_dur = s.get("duration_s") or s.get("duration_min")
+            if not has_pace and not has_dur:
+                errors.append(f"stap {i} type={s.get('type')!r} heeft geen pace of duration")
+    return errors
+
+
 def _apply_adjustments(
     review: dict,
     original_workouts: list[dict],
@@ -567,6 +590,17 @@ def _apply_adjustments(
         adj.setdefault("time", orig.get("time", "20:00" if adj.get("session") == "speed" else "09:00"))
         adj.setdefault("week_number", orig.get("week_number"))
         adj["full_description"] = _build_description(adj)
+
+        # Valideer stappen vóór toepassen: een run-stap zonder pace wordt door
+        # _step_to_doc stilzwijgend weggegooid, wat een lege workout_doc oplevert.
+        step_errors = _validate_steps(adj.get("steps", []))
+        if step_errors:
+            log.error(
+                "Review-aanpassing voor %s afgewezen — ongeldige stappen: %s. "
+                "Originele workout behouden.",
+                adj_date, "; ".join(step_errors),
+            )
+            continue
 
         # Verwijder oud intervals.icu event voor deze workout
         old_event_id = orig.get("event_id")
