@@ -1299,39 +1299,62 @@ def _pace_to_mps(pace_str: str) -> float:
 
 
 def _build_garmin_native_workout(spec: dict) -> dict:
+    # stepType IDs: 1=warmup, 2=cooldown, 3=interval, 4=recovery
+    step_type_map = {
+        "warmup":   {"stepTypeId": 1, "stepTypeKey": "warmup",   "displayOrder": 1},
+        "cooldown": {"stepTypeId": 2, "stepTypeKey": "cooldown",  "displayOrder": 2},
+        "run":      {"stepTypeId": 3, "stepTypeKey": "interval",  "displayOrder": 3},
+        "rest":     {"stepTypeId": 4, "stepTypeKey": "recovery",  "displayOrder": 4},
+    }
+
     gc_steps = []
     for i, step in enumerate(spec.get("steps", []), 1):
         stype = step.get("type", "run")
         dist_m = step.get("distance_m", 0)
-        intensity = {"warmup": "WARMUP", "cooldown": "COOLDOWN"}.get(stype, "ACTIVE")
+        step_type = step_type_map.get(stype, step_type_map["run"])
 
         pace_min = step.get("pace_min")
         pace_max = step.get("pace_max")
 
         if pace_min and pace_max:
             target = {
-                "targetType": {"workoutTargetTypeId": 5, "workoutTargetTypeKey": "speed.zone"},
+                "targetType": {
+                    "workoutTargetTypeId": 5,
+                    "workoutTargetTypeKey": "speed.zone",
+                    "displayOrder": 5,
+                },
                 "targetValueOne": _pace_to_mps(pace_max),  # slower = lower m/s
                 "targetValueTwo": _pace_to_mps(pace_min),  # faster = higher m/s
             }
         else:
-            target = {"targetType": {"workoutTargetTypeId": 1, "workoutTargetTypeKey": "no.target"}}
+            target = {
+                "targetType": {
+                    "workoutTargetTypeId": 1,
+                    "workoutTargetTypeKey": "no.target",
+                    "displayOrder": 1,
+                }
+            }
 
         gc_steps.append({
+            "type": "ExecutableStepDTO",
             "stepOrder": i,
-            "type": "WorkoutStep",
-            "intensity": intensity,
-            "endCondition": {"conditionTypeId": 3, "conditionTypeKey": "distance"},
-            "endConditionValue": dist_m,
+            "stepType": step_type,
+            "endCondition": {
+                "conditionTypeId": 3,
+                "conditionTypeKey": "distance",
+                "displayOrder": 3,
+                "displayable": True,
+            },
+            "endConditionValue": float(dist_m),
             **target,
         })
 
-    sport = {"sportTypeId": 1, "sportTypeKey": "running"}
+    sport_type = {"sportTypeId": 1, "sportTypeKey": "running"}
     return {
         "workoutName": spec.get("name", "Running Workout"),
         "description": _build_icu_workout_text(spec),
-        "sport": sport,
-        "workoutSegments": [{"segmentOrder": 1, "sport": sport, "workoutSteps": gc_steps}],
+        "sportType": sport_type,
+        "workoutSegments": [{"segmentOrder": 1, "sportType": sport_type, "workoutSteps": gc_steps}],
     }
 
 
