@@ -1140,19 +1140,28 @@ def _ensure_pace_workout_order(athlete_id: str, api_key: str) -> None:
     session.auth = ("API_KEY", api_key)
     session.headers.update({"Accept": "application/json", "Content-Type": "application/json"})
 
-    resp = session.get(f"{INTERVALS_BASE}/{athlete_id}/settings", timeout=20)
-    if not resp.ok:
-        log.warning("Kan sport settings niet ophalen: %s — %s", resp.status_code, resp.text[:200])
-        return
+    # Try multiple known intervals.icu endpoints for sport settings
+    run_settings = None
+    for get_url in [
+        f"{INTERVALS_BASE}/{athlete_id}/sport-settings",
+        f"{INTERVALS_BASE}/{athlete_id}/settings",
+    ]:
+        resp = session.get(get_url, timeout=20)
+        if resp.ok:
+            data = resp.json()
+            settings_list = data if isinstance(data, list) else [data]
+            run_settings = next(
+                (s for s in settings_list if "Run" in (s.get("types") or [])),
+                None,
+            )
+            if run_settings:
+                log.info("Sport settings gevonden via: %s", get_url)
+                break
+        else:
+            log.info("GET %s: %s (probeer volgende endpoint)", get_url, resp.status_code)
 
-    data = resp.json()
-    settings_list = data if isinstance(data, list) else [data]
-    run_settings = next(
-        (s for s in settings_list if "Run" in (s.get("types") or [])),
-        None,
-    )
     if not run_settings:
-        log.warning("Geen Run sport settings gevonden in response")
+        log.warning("Geen Run sport settings gevonden — workout_order kan niet worden aangepast")
         return
 
     current_order = run_settings.get("workout_order", "")
@@ -1163,21 +1172,22 @@ def _ensure_pace_workout_order(athlete_id: str, api_key: str) -> None:
     log.info("Run workout_order aanpassen: '%s' → 'PACE_HR_POWER'", current_order)
     updated = {**run_settings, "workout_order": "PACE_HR_POWER"}
     settings_id = run_settings.get("id")
-    url = (
-        f"{INTERVALS_BASE}/{athlete_id}/settings/{settings_id}"
-        if settings_id
-        else f"{INTERVALS_BASE}/{athlete_id}/settings"
-    )
-    put_resp = session.put(url, json=updated, timeout=20)
-    if put_resp.ok:
-        log.info("✓ Run workout_order bijgewerkt naar PACE_HR_POWER")
-        log.info("  → intervals.icu zal nu target='PACE' gebruiken, Garmin toont de naald.")
-    else:
-        log.warning(
-            "Kan workout_order niet bijwerken: %s — %s",
-            put_resp.status_code,
-            put_resp.text[:300],
-        )
+
+    for put_url in [
+        f"{INTERVALS_BASE}/{athlete_id}/sport-settings/{settings_id}" if settings_id else None,
+        f"{INTERVALS_BASE}/{athlete_id}/sport-settings",
+        f"{INTERVALS_BASE}/{athlete_id}/settings/{settings_id}" if settings_id else None,
+    ]:
+        if not put_url:
+            continue
+        put_resp = session.put(put_url, json=updated, timeout=20)
+        if put_resp.ok:
+            log.info("✓ Run workout_order bijgewerkt naar PACE_HR_POWER (via %s)", put_url)
+            log.info("  → intervals.icu zal nu target='PACE' gebruiken, Garmin toont de naald.")
+            return
+        log.info("PUT %s: %s — %s", put_url, put_resp.status_code, put_resp.text[:150])
+
+    log.warning("Kon workout_order niet bijwerken via bekende endpoints")
 
 
 def _push_to_intervals(athlete_id: str, api_key: str, events: list[dict]) -> list[dict | None]:
@@ -1208,6 +1218,11 @@ def _push_to_intervals(athlete_id: str, api_key: str, events: list[dict]) -> lis
                 result.get("id"),
                 len(stored_steps),
             )
+            # Log workout-level target — intervals.icu zet dit op basis van workout_order.
+            # Moet 'PACE' zijn voor Garmin naald; 'POWER' = geen naald (geen vermogensmeter).
+            stored_target = (stored_doc or {}).get("target", "—")
+            log.info("  workout_doc.target (opgeslagen door intervals.icu): %s", stored_target)
+
             # Log pace- én hr-veld van de eerste stappen zodat je in de logs
             # kunt verifiëren dat pace het enige target is (naald i.p.v. halter).
             # Als 'hr' hier nog verschijnt, wint die op Garmin van pace.
