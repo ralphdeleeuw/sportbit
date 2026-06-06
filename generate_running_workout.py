@@ -1464,6 +1464,7 @@ def main() -> None:
     logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
 
     repush = "--repush" in sys.argv
+    test_workout = "--test-workout" in sys.argv
     inspect_event_id = None
     for i, arg in enumerate(sys.argv):
         if arg == "--inspect-event" and i + 1 < len(sys.argv):
@@ -1473,6 +1474,45 @@ def main() -> None:
     api_key      = os.environ.get("INTERVALS_API_KEY", "").strip()
     gist_id      = os.environ.get("GIST_ID", "").strip()
     github_token = os.environ.get("GITHUB_TOKEN", "").strip()
+
+    if test_workout:
+        # Duwt een vaste mini-workout naar intervals.icu om de Garmin naald te testen.
+        # Geen HR-targets — alleen pace-bereiken. Workout is vandaag over ~1 uur.
+        if not athlete_id or not api_key:
+            log.error("INTERVALS_ATHLETE_ID en INTERVALS_API_KEY zijn vereist voor --test-workout")
+            sys.exit(1)
+        now_ams = datetime.now(AMS)
+        test_date = now_ams.date().isoformat()
+        # Plan 1 uur vanaf nu, afgerond naar het eerstvolgende hele uur
+        test_hour = (now_ams.hour + 1) % 24
+        test_time = f"{test_hour:02d}:00:00"
+        spec = {
+            "date": test_date,
+            "session": "speed",
+            "type": "interval_run",
+            "name": "Naald-test (verwijder na test)",
+            "description": "Mini-workout om Garmin pace-naald te testen. Geen HR-doel, alleen tempobereik.",
+            "total_distance_km": 2.0,
+            "time": test_time,
+            "steps": [
+                {"type": "warmup",   "distance_m": 500,  "pace_min": "6:20", "pace_max": "6:40"},
+                {"type": "run",      "distance_m": 1000, "pace_min": "6:00", "pace_max": "6:20"},
+                {"type": "cooldown", "distance_m": 500,  "pace_min": "6:20", "pace_max": "6:40"},
+            ],
+        }
+        event = _build_intervals_event(spec)
+        log.info("Test-workout aanmaken: '%s' op %s om %s", spec["name"], test_date, test_time)
+        results = _push_to_intervals(athlete_id, api_key, [event])
+        if results and results[0]:
+            log.info("✓ Test-workout gepusht naar intervals.icu (id: %s)", results[0].get("id"))
+            log.info("Stappen:")
+            for s in (results[0].get("workout_doc") or {}).get("steps", []):
+                log.info("  %s", json.dumps({k: v for k, v in s.items() if k in ("text","pace","hr","distance","duration","warmup","cooldown","rest")}))
+            log.info("Sync nu je Garmin via Garmin Connect, dan start de workout en kijk of de naald zichtbaar is.")
+        else:
+            log.error("Test-workout aanmaken mislukt")
+            sys.exit(1)
+        return
 
     if inspect_event_id:
         # Fetch and print a single event's workout_doc — used to verify pace format
