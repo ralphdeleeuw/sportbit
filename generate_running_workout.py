@@ -1134,13 +1134,12 @@ def _delete_old_intervals_events(athlete_id: str, api_key: str, existing_plan: d
 
 
 def _ensure_pace_workout_order(athlete_id: str, api_key: str) -> None:
-    """Update Run sport settings so PACE is the first priority in workout_order.
+    """Update Run sport settings so PACE leads all order fields.
 
-    intervals.icu derives workout_doc.target from the athlete's workout_order setting.
-    With workout_order='POWER_HR_PACE', it sets target='POWER' regardless of what we push.
-    Garmin then looks for a power meter, finds none, and shows no gauge at all.
-    Setting workout_order='PACE_HR_POWER' makes intervals.icu store target='PACE',
-    which causes Garmin to show the pace needle during structured workouts.
+    intervals.icu computes workout_doc.target from one of the athlete's order settings
+    (workout_order, interval_display, tiz_order, load_order). We set ALL of them to
+    PACE_HR_POWER so that regardless of which field controls the computed target, it
+    results in target='PACE'. Garmin then generates a speed-target gauge (needle).
     """
     session = requests.Session()
     session.auth = ("API_KEY", api_key)
@@ -1167,18 +1166,26 @@ def _ensure_pace_workout_order(athlete_id: str, api_key: str) -> None:
             log.info("GET %s: %s (probeer volgende endpoint)", get_url, resp.status_code)
 
     if not run_settings:
-        log.warning("Geen Run sport settings gevonden — workout_order kan niet worden aangepast")
+        log.warning("Geen Run sport settings gevonden — order velden kunnen niet worden aangepast")
         return
 
-    current_order = run_settings.get("workout_order", "")
-    if current_order.startswith("PACE"):
-        log.info("Run workout_order is al correct: %s", current_order)
+    # Update ALL four order fields to PACE first — we don't know which one controls target
+    order_fields = ["workout_order", "tiz_order", "load_order", "interval_display"]
+    needs_update = any(
+        not (run_settings.get(f) or "").startswith("PACE") for f in order_fields
+    )
+    if not needs_update:
+        log.info("Alle Run order-velden hebben PACE al als eerste prioriteit")
         return
 
-    log.info("Run workout_order aanpassen: '%s' → 'PACE_HR_POWER'", current_order)
-    updated = {**run_settings, "workout_order": "PACE_HR_POWER"}
+    updated = {**run_settings}
+    for f in order_fields:
+        current = run_settings.get(f, "")
+        if not current.startswith("PACE"):
+            updated[f] = "PACE_HR_POWER"
+            log.info("  %s: '%s' → 'PACE_HR_POWER'", f, current)
+
     settings_id = run_settings.get("id")
-
     for put_url in [
         f"{INTERVALS_BASE}/{athlete_id}/sport-settings/{settings_id}" if settings_id else None,
         f"{INTERVALS_BASE}/{athlete_id}/sport-settings",
@@ -1188,10 +1195,11 @@ def _ensure_pace_workout_order(athlete_id: str, api_key: str) -> None:
             continue
         put_resp = session.put(put_url, json=updated, timeout=20)
         if put_resp.ok:
-            log.info("✓ Run workout_order bijgewerkt naar PACE_HR_POWER (via %s)", put_url)
-            log.info("  → intervals.icu zal nu target='PACE' gebruiken, Garmin toont de naald.")
+            log.info("✓ Run order-velden bijgewerkt (via %s)", put_url)
             return
         log.info("PUT %s: %s — %s", put_url, put_resp.status_code, put_resp.text[:150])
+
+    log.warning("Kon order-velden niet bijwerken via bekende endpoints")
 
     log.warning("Kon workout_order niet bijwerken via bekende endpoints")
 
@@ -1243,8 +1251,9 @@ def _push_to_intervals(athlete_id: str, api_key: str, events: list[dict]) -> lis
                         json.dumps(hr) if hr else "—",
                     )
 
-            # PUT-fallback als POST geen stappen opleverde
             event_id = result.get("id")
+
+            # PUT-fallback als POST geen stappen opleverde
             if event_id and event.get("workout_doc") and not (stored_doc or {}).get("steps"):
                 log.warning("POST leverde geen stappen op — retry via PUT voor event %s", event_id)
                 put_url = f"{INTERVALS_BASE}/{athlete_id}/events/{event_id}"
@@ -1255,8 +1264,22 @@ def _push_to_intervals(athlete_id: str, api_key: str, events: list[dict]) -> lis
                 if put_resp.ok:
                     put_steps = len(((put_resp.json().get("workout_doc") or {}).get("steps")) or [])
                     log.info("PUT geslaagd: %d stappen opgeslagen", put_steps)
+                    stored_target = (put_resp.json().get("workout_doc") or {}).get("target", "—")
+                    log.info("  PUT workout_doc.target: %s", stored_target)
                 else:
                     log.warning("PUT ook mislukt: %s — %s", put_resp.status_code, put_resp.text[:200])
+
+            # Altijd een PUT sturen om target=PACE te forceren. intervals.icu overschrijft
+            # ons gepushte target='PACE' tijdens POST — dit PUT-verzoek probeert het te fixen.
+            elif event_id and event.get("workout_doc"):
+                put_url = f"{INTERVALS_BASE}/{athlete_id}/events/{event_id}"
+                put_payload = {"workout_doc": {**event["workout_doc"], "target": "PACE"}}
+                put_resp = session.put(put_url, json=put_payload, timeout=20)
+                if put_resp.ok:
+                    put_target = (put_resp.json().get("workout_doc") or {}).get("target", "—")
+                    log.info("  PUT target forceren → opgeslagen target: %s", put_target)
+                else:
+                    log.info("  PUT target %s — %s", put_resp.status_code, put_resp.text[:100])
 
             results.append(result)
         except Exception as exc:
