@@ -1863,6 +1863,10 @@ def main() -> None:
     ical = _generate_ical(specs)
     _save_ical_to_gist(gist_id, github_token, ical)
 
+    if garmin_email and garmin_password:
+        log.info("Native Garmin workouts pushen (pace step-targets)...")
+        _push_to_garmin_connect(specs, garmin_email, garmin_password)
+
     _notify(specs)
 
     log.info("Klaar! %d workout(s) gepland in intervals.icu.", len(specs))
