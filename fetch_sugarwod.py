@@ -3065,20 +3065,22 @@ def load_health_input(gist_id: str, token: str) -> tuple[dict | None, list[dict]
         return None, []
 
 
-def load_sportbit_attended_dates(gist_id: str, token: str) -> tuple[set[str], dict[str, str]]:
+def load_sportbit_attended_dates(gist_id: str, token: str) -> tuple[set[str], dict[str, str], set[str]]:
     """Read sportbit_state.json from the shared gist and return:
     - A set of ISO dates where the athlete was signed up (and did NOT cancel),
       filtered to scheduled class days (Mon/Wed/Thu/Sat).
     - A dict of {date: time} for ALL non-cancelled signups (past + future),
       used to look up actual training times.
+    - A set of ISO dates where the athlete HAD signed up but cancelled,
+      with no remaining active signup on that date.
 
-    Returns (set[str], dict[str, str]).
+    Returns (set[str], dict[str, str], set[str]).
     """
     # Weekdays (0=Mon … 6=Sun) that are scheduled CrossFit class days
     SCHEDULED_WEEKDAYS = {0, 2, 3, 5, 6}  # Mon, Wed, Thu, Sat, Sun
 
     if not gist_id or not token:
-        return set(), {}
+        return set(), {}, set()
     try:
         resp = requests.get(
             f"https://api.github.com/gists/{gist_id}",
@@ -3090,7 +3092,7 @@ def load_sportbit_attended_dates(gist_id: str, token: str) -> tuple[set[str], di
         raw = files.get("sportbit_state.json", {}).get("content", "")
         if not raw:
             log.warning("[gist] sportbit_state.json not found or empty")
-            return set(), {}
+            return set(), {}, set()
         state = json.loads(raw)
         signed_up: dict = state.get("signed_up", {})
         cancelled: dict = state.get("cancelled", {})
@@ -3114,12 +3116,20 @@ def load_sportbit_attended_dates(gist_id: str, token: str) -> tuple[set[str], di
                     else:
                         skipped += 1
                         log.info("[gist] Skipping %s (weekday %d, not a scheduled class day)", date, weekday)
+        # Dates with a cancelled signup but no remaining active signup on that date
+        cancelled_dates: set[str] = {
+            info.get("date", "")
+            for info in cancelled.values()
+            if info.get("date") and info["date"] not in attended
+        }
+        cancelled_dates.discard("")
         log.info("[gist] Sportbit attended dates: %d (skipped %d non-class-day signups)", len(attended), skipped)
         log.info("[gist] Signed-up times: %d dates with known training time", len(signed_up_times))
-        return attended, signed_up_times
+        log.info("[gist] Cancelled CF dates (no active signup): %d", len(cancelled_dates))
+        return attended, signed_up_times, cancelled_dates
     except Exception as exc:
         log.warning("[gist] Failed to load sportbit_state.json: %s", exc)
-        return set(), {}
+        return set(), {}, set()
 
 
 def load_workout_log(gist_id: str, token: str) -> dict[str, dict]:
@@ -3455,7 +3465,7 @@ def main() -> int:
     date_to_workout = {d: _pick_main_workout(ws) for d, ws in _by_date_all.items()}
 
     # 1. Sportbit attended dates (signed up, not cancelled) + actual training times
-    sportbit_attended, signed_up_times = load_sportbit_attended_dates(gist_id, token)
+    sportbit_attended, signed_up_times, cancelled_cf_dates = load_sportbit_attended_dates(gist_id, token)
 
     # Environmental data (weer + AQI) — opgehaald na signed_up_times zodat trainingsdagen bekend zijn
     env_data = None
@@ -3579,6 +3589,14 @@ def main() -> int:
             reverse=True,
         )
         for _d in _extra_dates[:3]:
+            # Don't attach a CrossFit WOD description to a date where the athlete
+            # had signed up but cancelled — only the Strava/intervals activity is real.
+            if _d in cancelled_cf_dates:
+                _strava_acts = _strava_by_date_main.get(_d, [])
+                _title = _strava_acts[0].get("name", "activity") if _strava_acts else "activity"
+                attended_workouts.append({"date": _d, "title": _title, "description": ""})
+                log.info("Extra date %s: skipping WOD description (cancelled CF signup)", _d)
+                continue
             _main_wods = date_to_all_main_workouts.get(_d)
             if _main_wods:
                 attended_workouts.extend(_main_wods)
