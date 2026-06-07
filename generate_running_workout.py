@@ -1422,7 +1422,7 @@ def _gcal_event_body(spec: dict) -> dict | None:
     if len(time_str) == 5:
         time_str += ":00"
     try:
-        dt_start = datetime.fromisoformat(f"{spec['date']}T{time_str}")
+        dt_start = datetime.fromisoformat(f"{spec['date'][:10]}T{time_str}")
     except (ValueError, KeyError):
         return None
 
