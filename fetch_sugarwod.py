@@ -3475,12 +3475,18 @@ def main() -> int:
     workout_log = load_workout_log(gist_id, token)
 
     # Generate AI coaching plans for upcoming workouts (requires signed_up_times)
+    # Only generate plans for dates the athlete has an active (non-cancelled) signup.
+    if signed_up_times:
+        _signed_up_upcoming = [w for w in upcoming_workouts if w.get("date", "") in signed_up_times]
+        _plans_input = _signed_up_upcoming if _signed_up_upcoming else upcoming_workouts
+    else:
+        _plans_input = upcoming_workouts
     if skip_ai:
         log.info("AI coaching overgeslagen (SKIP_AI=true)")
         workout_plans = {}
     else:
         workout_plans = generate_workout_plans(
-            upcoming_workouts, barbell_lifts, ATHLETE_PROFILE,
+            _plans_input, barbell_lifts, ATHLETE_PROFILE,
             signed_up_times=signed_up_times,
             health_input=health_input,
             health_history=health_history,
