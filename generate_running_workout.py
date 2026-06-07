@@ -1377,7 +1377,7 @@ def _push_to_garmin_connect(specs: list[dict], garmin_email: str, garmin_passwor
     # Verwijder bestaande workouts met dezelfde naam om dubbeling te voorkomen
     spec_names = {s.get("name") for s in specs if s.get("name")}
     try:
-        existing = client.connectapi("/workout-service/workouts", limit=100, start=0, myWorkoutsOnly=True)
+        existing = client.connectapi("/workout-service/workouts", params={"limit": 100, "start": 0, "myWorkoutsOnly": True})
         if isinstance(existing, list):
             for w in existing:
                 if w.get("workoutName") in spec_names:
