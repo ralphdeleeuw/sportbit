@@ -2555,7 +2555,7 @@ def generate_recovery_advice(
         workouts_list = running_plan["workouts"]
         week_nr = running_plan.get("week_number", "?")
         upcoming_runs = sorted(
-            [w for w in workouts_list if w.get("date", "") >= today_iso],
+            [w for w in workouts_list if w.get("date", "") >= today_iso and not w.get("cancelled")],
             key=lambda w: w.get("date", ""),
         )[:3]
         recent_runs = sorted(
@@ -2567,8 +2567,14 @@ def generate_recovery_advice(
         if recent_runs:
             lines.append("  Past planned running sessions:")
             for w in reversed(recent_runs):
+                status = ""
+                if w.get("cancelled"):
+                    reason = w.get("cancel_reason", "")
+                    status = f" [CANCELLED{': ' + reason if reason else ''}]"
+                elif w.get("completed"):
+                    status = " [completed]"
                 lines.append(f"    {_nl_date(w['date'])}: {w.get('name', w.get('type', 'Run'))} "
-                             f"({w.get('total_distance_km', '?')}km, {w.get('session', '')})")
+                             f"({w.get('total_distance_km', '?')}km, {w.get('session', '')}){status}")
         # Apply health_input run_1/run_2 time overrides (user may have rescheduled
         # via the PWA before the running plan was regenerated server-side)
         _hi = health_input or {}
@@ -2643,7 +2649,7 @@ Provide advice on:
 3. **One concrete tip** for the next workout taking recovery into account (e.g. pacing, scaling choice, specific movement)
 
 When referring to dates, always use the exact date (e.g. "Thursday 19 March"), NEVER vague terms like "yesterday" or "the day before yesterday".
-Be direct, practical and concise. Maximum 200 words. Write in English. No introduction."""
+Be direct, practical and concise. Maximum 160 words. Write in English. No introduction."""
 
     try:
         log.info("Generating recovery advice")
@@ -2795,7 +2801,7 @@ def generate_workout_plans(
         from datetime import date as _date_cls_rp  # noqa: PLC0415
         _today_rp = _date_cls_rp.today().isoformat()
         _upcoming_runs = sorted(
-            [w for w in running_plan["workouts"] if w.get("date", "") >= _today_rp],
+            [w for w in running_plan["workouts"] if w.get("date", "") >= _today_rp and not w.get("cancelled")],
             key=lambda w: w["date"],
         )[:3]
         if _upcoming_runs:
@@ -2959,7 +2965,7 @@ Provide a plan with:
 4. **Skill tip**: If one or more focus areas appear in this workout, give one targeted improvement tip specifically aimed at reaching RX level for that movement faster (technique, drills, mindset). Skip this section if none of the focus areas are present.
 5. **Nutrition**: include this section only if a dinner meal is known — consider the training time: is the meal a good recovery meal (evening training) or proper preparation (morning training)? One sentence.
 
-Be direct and concise. Maximum 260 words. No introduction."""
+Be direct and concise. Maximum 210 words. No introduction."""
 
         try:
             log.info("Generating AI plan for %s (%s)", date, title)
