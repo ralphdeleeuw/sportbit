@@ -1039,7 +1039,7 @@ def _build_intervals_event(spec: dict) -> dict:
     description = f"{expanded}\n\nSent: {sent_at}" if expanded else f"Sent: {sent_at}"
 
     event: dict = {
-        "start_date_local": f"{spec['date']}T{time_str}",
+        "start_date_local": f"{spec['date'][:10]}T{time_str}",
         "category": "WORKOUT",
         "type": "Run",
         "name": spec["name"],
