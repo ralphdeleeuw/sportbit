@@ -1299,7 +1299,6 @@ def _pace_to_mps(pace_str: str) -> float:
 
 
 def _build_garmin_native_workout(spec: dict) -> dict:
-    # stepType IDs: 1=warmup, 2=cooldown, 3=interval, 4=recovery
     step_type_map = {
         "warmup":   {"stepTypeId": 1, "stepTypeKey": "warmup",   "displayOrder": 1},
         "cooldown": {"stepTypeId": 2, "stepTypeKey": "cooldown",  "displayOrder": 2},
@@ -1307,47 +1306,45 @@ def _build_garmin_native_workout(spec: dict) -> dict:
         "rest":     {"stepTypeId": 4, "stepTypeKey": "recovery",  "displayOrder": 4},
     }
 
-    gc_steps = []
-    for i, step in enumerate(spec.get("steps", []), 1):
+    def _executable_step(step: dict, order: int) -> dict:
         stype = step.get("type", "run")
-        dist_m = step.get("distance_m", 0)
         step_type = step_type_map.get(stype, step_type_map["run"])
-
         pace_min = step.get("pace_min")
         pace_max = step.get("pace_max")
-
         if pace_min and pace_max:
             target = {
-                "targetType": {
-                    "workoutTargetTypeId": 5,
-                    "workoutTargetTypeKey": "speed.zone",
-                    "displayOrder": 5,
-                },
-                "targetValueOne": _pace_to_mps(pace_max),  # slower = lower m/s
-                "targetValueTwo": _pace_to_mps(pace_min),  # faster = higher m/s
+                "targetType": {"workoutTargetTypeId": 5, "workoutTargetTypeKey": "speed.zone", "displayOrder": 5},
+                "targetValueOne": _pace_to_mps(pace_max),
+                "targetValueTwo": _pace_to_mps(pace_min),
             }
         else:
-            target = {
-                "targetType": {
-                    "workoutTargetTypeId": 1,
-                    "workoutTargetTypeKey": "no.target",
-                    "displayOrder": 1,
-                }
-            }
+            target = {"targetType": {"workoutTargetTypeId": 1, "workoutTargetTypeKey": "no.target", "displayOrder": 1}}
+        duration_s = step.get("duration_s")
+        if duration_s:
+            end_cond = {"conditionTypeId": 2, "conditionTypeKey": "time", "displayOrder": 2, "displayable": True}
+            end_val = float(duration_s)
+        else:
+            end_cond = {"conditionTypeId": 3, "conditionTypeKey": "distance", "displayOrder": 3, "displayable": True}
+            end_val = float(step.get("distance_m", 0))
+        return {"type": "ExecutableStepDTO", "stepOrder": order, "stepType": step_type,
+                "endCondition": end_cond, "endConditionValue": end_val, **target}
 
-        gc_steps.append({
-            "type": "ExecutableStepDTO",
-            "stepOrder": i,
-            "stepType": step_type,
-            "endCondition": {
-                "conditionTypeId": 3,
-                "conditionTypeKey": "distance",
-                "displayOrder": 3,
-                "displayable": True,
-            },
-            "endConditionValue": float(dist_m),
-            **target,
-        })
+    gc_steps = []
+    for i, step in enumerate(spec.get("steps", []), 1):
+        if step.get("type") == "repeat":
+            count = step.get("count", 1)
+            children = [_executable_step(child, j) for j, child in enumerate(step.get("children", []), 1)]
+            gc_steps.append({
+                "type": "RepeatGroupDTO",
+                "stepOrder": i,
+                "stepType": {"stepTypeId": 6, "stepTypeKey": "repeat", "displayOrder": 6},
+                "numberOfIterations": count,
+                "endCondition": {"conditionTypeId": 7, "conditionTypeKey": "iterations", "displayOrder": 7, "displayable": True},
+                "endConditionValue": float(count),
+                "workoutSteps": children,
+            })
+        else:
+            gc_steps.append(_executable_step(step, i))
 
     sport_type = {"sportTypeId": 1, "sportTypeKey": "running"}
     return {
@@ -1408,14 +1405,18 @@ def _push_to_garmin_connect(specs: list[dict], garmin_email: str, garmin_passwor
                 )
                 log.info("  Ingepland op %s", spec["date"])
             for j, step in enumerate(workout["workoutSegments"][0]["workoutSteps"], 1):
-                t = step.get("targetType", {}).get("workoutTargetTypeKey", "—")
-                v1 = step.get("targetValueOne", "—")
-                v2 = step.get("targetValueTwo", "—")
                 skey = step.get("stepType", {}).get("stepTypeKey", "—")
-                log.info("  Stap %d: %s | target=%s (%.4f–%.4f m/s)",
-                         j, skey, t,
-                         v1 if isinstance(v1, float) else 0,
-                         v2 if isinstance(v2, float) else 0)
+                if step.get("type") == "RepeatGroupDTO":
+                    log.info("  Stap %d: %s | %dx herhaling (%d stappen)",
+                             j, skey, step.get("numberOfIterations", 0), len(step.get("workoutSteps", [])))
+                else:
+                    t = step.get("targetType", {}).get("workoutTargetTypeKey", "—")
+                    v1 = step.get("targetValueOne", "—")
+                    v2 = step.get("targetValueTwo", "—")
+                    log.info("  Stap %d: %s | target=%s (%.4f–%.4f m/s)",
+                             j, skey, t,
+                             v1 if isinstance(v1, float) else 0,
+                             v2 if isinstance(v2, float) else 0)
         except Exception as exc:
             log.error("Garmin Connect push mislukt voor '%s': %s", spec.get("name"), exc)
 
