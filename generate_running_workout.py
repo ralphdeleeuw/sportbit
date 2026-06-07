@@ -1627,7 +1627,7 @@ def _save_plan_to_gist(
 def _notify(specs: list[dict]) -> None:
     lines = ["Hardloopschema deze week:"]
     for s in specs:
-        d = datetime.strptime(s["date"], "%Y-%m-%d")
+        d = datetime.strptime(s["date"][:10], "%Y-%m-%d")
         dag = ["ma", "di", "wo", "do", "vr", "za", "zo"][d.weekday()]
         time_str = s.get("time", "20:00" if s.get("session") == "speed" else "09:00")
         dist = s.get("total_distance_km", "?")
