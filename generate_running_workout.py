@@ -1374,6 +1374,20 @@ def _push_to_garmin_connect(specs: list[dict], garmin_email: str, garmin_passwor
         log.error("Garmin Connect login mislukt: %s", exc)
         return
 
+    # Verwijder bestaande workouts met dezelfde naam om dubbeling te voorkomen
+    spec_names = {s.get("name") for s in specs if s.get("name")}
+    try:
+        existing = client.connectapi("/workout-service/workouts", limit=100, start=0, myWorkoutsOnly=True)
+        if isinstance(existing, list):
+            for w in existing:
+                if w.get("workoutName") in spec_names:
+                    wid = w.get("workoutId")
+                    if wid:
+                        client.client.request("DELETE", "connectapi", f"/workout-service/workout/{wid}", api=True)
+                        log.info("  Oude workout verwijderd: '%s' (id: %s)", w.get("workoutName"), wid)
+    except Exception as exc:
+        log.warning("Opruimen bestaande workouts mislukt: %s", exc)
+
     for spec in specs:
         try:
             workout = _build_garmin_native_workout(spec)
