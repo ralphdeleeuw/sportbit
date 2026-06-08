@@ -483,8 +483,14 @@ def fetch_intervals_data() -> dict | None:
                     act.setdefault(k, v)
 
                 # Stream-fallback: GCT / verticale oscillatie / ratio staan niet op
-                # activity-niveau, alleen in de streams. Haal ze op en middel ze.
-                if not all(k in act for k in _RUN_DYNAMICS):
+                # activity-niveau, alleen in de streams. Haal de streams alleen op
+                # als ze er volgens 'stream_types' ook echt in zitten — anders is het
+                # een verspilde API-call (de meeste runs hebben geen RD-streams).
+                rd_stream_types = {"ground_contact_time", "vertical_oscillation",
+                                   "vertical_ratio", "stride"}
+                available = set(detail.get("stream_types") or [])
+                if (not all(k in act for k in _RUN_DYNAMICS)
+                        and (rd_stream_types & available)):
                     try:
                         s_resp = session.get(
                             f"{ACTIVITY_BASE}/{act_id}/streams",
