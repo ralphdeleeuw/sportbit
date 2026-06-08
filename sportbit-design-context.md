@@ -238,7 +238,8 @@ laps: [{ distance_m, pace_per_km, avg_hr }]
 ### Wellness (daily)
 ```
 date, resting_hr, hrv, sleep_hrs, sleep_score,
-ctl, atl, tsb, weight_kg, spo2
+ctl, atl, tsb, weight_kg, spo2,
+skin_temp_c, endurance_score, hill_score   # Fenix 8 (Elevate V5 + Garmin scores), indien gesynct
 ```
 
 ### Body Composition (Withings)
@@ -255,7 +256,14 @@ name (e.g. "Back Squat"), 1RM, 3RM, 5RM, last_updated
 ### Strava Activity
 ```
 name, type, date, duration_min, distance_m,
-avg_hr, max_hr, calories, suffer_score, perceived_exertion
+avg_hr, max_hr, calories, suffer_score, perceived_exertion,
+avg_watts   # running power (Fenix 8), indien opgenomen
+```
+
+### Intervals.icu Activity (extra t.o.v. Strava)
+```
+avg_watts (running power), stride_length_m, ground_contact_ms,
+vert_oscillation_mm, vert_ratio_pct   # running dynamics (Fenix 8, zonder borstband)
 ```
 
 ---

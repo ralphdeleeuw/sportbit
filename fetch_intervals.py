@@ -34,6 +34,9 @@ Return formaat:
         "tsb": float,            # training stress balance (vorm = CTL - ATL)
         "weight_kg": float,      # gewicht in kg (als Garmin dit bijhoudt)
         "spo2": float,           # bloedzuurstof %
+        "skin_temp_c": float,    # huidtemperatuur-afwijking (Fenix 8 Elevate V5, indien gesynct)
+        "endurance_score": int,  # Garmin Endurance Score (Fenix 8, indien gesynct)
+        "hill_score": int,       # Garmin Hill Score (Fenix 8, indien gesynct)
       }
     }
   },
@@ -48,12 +51,22 @@ Return formaat:
           "max_hr": int,
           "calories": int,
           "training_load": float,
+          "avg_watts": float,         # gem. vermogen — bij hardlopen running power (Fenix 8 vanaf pols)
+          "stride_length_m": float,   # gem. staplengte (running dynamics, Fenix 8 zonder band)
+          "ground_contact_ms": float, # grondcontacttijd (ms)
+          "vert_oscillation_mm": float,  # verticale oscillatie (mm)
+          "vert_ratio_pct": float,    # verticale ratio (%)
         }
       ]
     }
   },
   "fetched_at": "ISO8601"
 }
+
+NB: Fenix 8-specifieke velden (running power/dynamics, huidtemperatuur,
+Endurance/Hill Score) worden alleen opgenomen als intervals.icu ze daadwerkelijk
+synct vanuit Garmin Connect. Zet de omgevingsvariabele INTERVALS_DEBUG_KEYS=1 om
+de ruwe API-keys te loggen en te zien welke velden binnenkomen.
 """
 
 import logging
@@ -68,10 +81,35 @@ BASE_URL = "https://intervals.icu/api/v1/athlete"
 DAYS_BACK = 30  # ophalen laatste 30 dagen wellness (nodig voor stabiele HRV basislijn)
 ACTIVITY_DAYS_BACK = 28  # ophalen laatste 28 dagen activiteiten (nodig voor 7:28 ACWR)
 
+# Discovery-modus: log de ruwe keys van het eerste wellness-record en de eerste run.
+# Handig om vast te stellen welke nieuwe Fenix 8-velden intervals.icu daadwerkelijk
+# levert (running power/dynamics, huidtemperatuur, Endurance/Hill Score).
+DEBUG_KEYS = os.environ.get("INTERVALS_DEBUG_KEYS", "").strip() in ("1", "true", "yes")
+
 
 def _auth(api_key: str) -> tuple[str, str]:
     """HTTP Basic Auth tuple voor intervals.icu: username='API_KEY', password=api_key."""
     return ("API_KEY", api_key)
+
+
+# Running-dynamics velden → (kandidaat-keys in intervals.icu, afronding).
+# intervals.icu hanteert geen vaste veldnamen; we proberen meerdere varianten.
+_RUN_DYNAMICS = {
+    "stride_length_m":     (("average_stride", "avg_stride", "stride_length"), 2),
+    "ground_contact_ms":   (("average_ground_contact_time", "ground_contact_time", "avg_gct"), 1),
+    "vert_oscillation_mm": (("average_vertical_oscillation", "vertical_oscillation", "avg_vert_osc"), 1),
+    "vert_ratio_pct":      (("average_vertical_ratio", "vertical_ratio", "avg_vert_ratio"), 1),
+}
+
+
+def _extract_run_dynamics(source: dict) -> dict:
+    """Haal beschikbare running-dynamics velden uit een activity- of detail-dict."""
+    found: dict = {}
+    for out_key, (candidates, ndigits) in _RUN_DYNAMICS.items():
+        val = next((source.get(k) for k in candidates if source.get(k) is not None), None)
+        if val is not None and val > 0:
+            found[out_key] = round(float(val), ndigits)
+    return found
 
 
 def fetch_intervals_data() -> dict | None:
@@ -109,6 +147,13 @@ def fetch_intervals_data() -> dict | None:
         resp.raise_for_status()
         wellness_list = resp.json()
         log.info("Intervals.icu wellness: %d records ontvangen", len(wellness_list))
+
+        if DEBUG_KEYS and wellness_list:
+            # Log de keys van het meest recente record met data (laatste in de lijst)
+            for w in reversed(wellness_list):
+                if any(v is not None for v in w.values()):
+                    log.info("[DEBUG] wellness keys (%s): %s", w.get("id"), sorted(w.keys()))
+                    break
 
         for w in wellness_list:
             day = w.get("id")  # datum als "YYYY-MM-DD"
@@ -210,6 +255,26 @@ def fetch_intervals_data() -> dict | None:
                 if val is not None:
                     entry[field] = int(val)
 
+            # ── Fenix 8-specifieke wellness (alleen als intervals.icu ze synct) ──
+            # Huidtemperatuur(-afwijking) van de Elevate V5 sensor. intervals.icu
+            # gebruikt geen vaste veldnaam; probeer meerdere bekende varianten.
+            skin_temp = next(
+                (w.get(k) for k in ("skinTemp", "skin_temp", "bodyTemp", "temperature")
+                 if w.get(k) is not None),
+                None,
+            )
+            if skin_temp is not None:
+                entry["skin_temp_c"] = round(float(skin_temp), 2)
+
+            # Garmin Endurance Score / Hill Score (proprietary; synct meestal niet
+            # naar derden, maar nemen we mee als het veld aanwezig is).
+            endurance = w.get("enduranceScore") or w.get("endurance_score")
+            if endurance is not None and endurance > 0:
+                entry["endurance_score"] = int(endurance)
+            hill = w.get("hillScore") or w.get("hill_score")
+            if hill is not None and hill > 0:
+                entry["hill_score"] = int(hill)
+
             if entry:
                 result["wellness"]["by_date"][day] = entry
 
@@ -227,6 +292,17 @@ def fetch_intervals_data() -> dict | None:
         resp.raise_for_status()
         activities_list = resp.json()
         log.info("Intervals.icu activiteiten: %d records ontvangen", len(activities_list))
+
+        if DEBUG_KEYS:
+            run_types_dbg = {"run", "running", "trailrun", "treadmill"}
+            sample_run = next(
+                (a for a in activities_list
+                 if any(rt in (a.get("type") or "").lower() for rt in run_types_dbg)),
+                None,
+            )
+            if sample_run:
+                log.info("[DEBUG] run activity keys (%s): %s",
+                         sample_run.get("name"), sorted(sample_run.keys()))
 
         for act in activities_list:
             # Datum uit start_date_local (formaat: "YYYY-MM-DDTHH:MM:SS")
@@ -300,6 +376,11 @@ def fetch_intervals_data() -> dict | None:
             cadence = act.get("average_cadence")
             if cadence is not None and cadence > 0:
                 entry["avg_cadence"] = round(float(cadence), 1)
+
+            # ── Running dynamics (Fenix 8 meet deze vanaf de pols, zonder band) ──
+            # Probeer op activity-niveau; ontbrekende velden worden later via de
+            # detail/stream fetch aangevuld (zie laps-sectie).
+            entry.update(_extract_run_dynamics(act))
 
             # TRIMP (traditionele trainingsbelasting op basis van HR)
             trimp = act.get("trimp")
@@ -380,6 +461,48 @@ def fetch_intervals_data() -> dict | None:
                 if not resp.ok:
                     continue
                 detail = resp.json()
+
+                if DEBUG_KEYS:
+                    log.info("[DEBUG] activity detail keys (%s): %s", act_id, sorted(detail.keys()))
+
+                # Running dynamics aanvullen vanuit activity-detail (heeft soms meer
+                # velden dan de lijst-respons). Bestaande waarden niet overschrijven.
+                for k, v in _extract_run_dynamics(detail).items():
+                    act.setdefault(k, v)
+
+                # Stream-fallback: als running dynamics nog ontbreken, haal de streams
+                # op en middel ze. Alleen als er nog iets te winnen valt.
+                if not any(k in act for k in _RUN_DYNAMICS):
+                    try:
+                        s_resp = session.get(
+                            f"{BASE_URL}/{athlete_id}/activities/{act_id}/streams",
+                            params={"types": "ground_contact_time,vertical_oscillation,"
+                                             "vertical_ratio,stride,watts"},
+                            timeout=20,
+                        )
+                        if s_resp.ok:
+                            streams = s_resp.json() or []
+                            # intervals.icu geeft een lijst van {type, data:[...]}
+                            by_type = {s.get("type"): s.get("data") or [] for s in streams
+                                       if isinstance(s, dict)}
+                            stream_map = {
+                                "stride_length_m":     ("stride", 2),
+                                "ground_contact_ms":   ("ground_contact_time", 1),
+                                "vert_oscillation_mm": ("vertical_oscillation", 1),
+                                "vert_ratio_pct":      ("vertical_ratio", 1),
+                            }
+                            for out_key, (stype, ndigits) in stream_map.items():
+                                vals = [v for v in by_type.get(stype, []) if isinstance(v, (int, float)) and v > 0]
+                                if vals:
+                                    act.setdefault(out_key, round(sum(vals) / len(vals), ndigits))
+                            # Running power uit watts-stream als activity-niveau ontbreekt
+                            if not act.get("avg_watts"):
+                                w_vals = [v for v in by_type.get("watts", []) if isinstance(v, (int, float)) and v > 0]
+                                if w_vals:
+                                    act["avg_watts"] = round(sum(w_vals) / len(w_vals))
+                    except Exception as exc:
+                        log.warning("Streams fetch mislukt voor activiteit %s: %s", act_id, exc)
+
                 laps_raw = detail.get("laps") or []
                 laps = []
                 for lap in laps_raw:
