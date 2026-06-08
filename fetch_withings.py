@@ -67,6 +67,18 @@ log = logging.getLogger(__name__)
 WITHINGS_API = "https://wbsapi.withings.net"
 _GIST_TOKEN_FILENAME = "withings_token.json"
 
+# Bekende Withings API-statuscodes (de `status` in de JSON-body, NIET HTTP).
+# Helpt om een nietszeggende code als 503 te vertalen naar een actie.
+_WITHINGS_STATUS_HINTS = {
+    247: "userid ontbreekt of is onjuist",
+    250: "userid en/of OAuth-credentials komen niet overeen — controleer client_id/secret",
+    283: "te veel aanvragen of ongeldige actie",
+    342: "ongeldige of ontbrekende signature",
+    401: "ontbrekende of ongeldige parameters",
+    503: "ongeldige/verlopen refresh token (token-rotatie uit sync) — opnieuw autoriseren nodig",
+    601: "te veel aanvragen — rate limit bereikt",
+}
+
 # Withings measure types (meastype)
 _MEASTYPE_WEIGHT = 1          # kg
 _MEASTYPE_FAT_RATIO = 6       # %
@@ -143,11 +155,24 @@ def _refresh_access_token(
         )
         resp.raise_for_status()
         body = resp.json()
-        if body.get("status") != 0:
-            log.warning("Withings token refresh mislukt: status=%s", body.get("status"))
+        status = body.get("status")
+        if status != 0:
+            hint = _WITHINGS_STATUS_HINTS.get(status, "onbekende statuscode")
+            error = body.get("error", "")
+            log.warning(
+                "Withings token refresh mislukt: status=%s (%s)%s",
+                status,
+                hint,
+                f" — {error}" if error else "",
+            )
             return None
         b = body["body"]
         return b["access_token"], b.get("refresh_token", "")
+    except requests.exceptions.HTTPError as exc:
+        # Echte HTTP 5xx (bv. Withings tijdelijk onbereikbaar) — anders dan een
+        # logische status=503 in de JSON-body.
+        log.warning("Withings token refresh HTTP-fout: %s", exc)
+        return None
     except Exception as exc:
         log.warning("Withings token refresh fout: %s", exc)
         return None
@@ -190,6 +215,11 @@ def fetch_withings_data(max_measurements: int = 30) -> dict | None:
             log.info("Withings: Gist-token mislukt, probeer GitHub Secret refresh token...")
             result = _refresh_access_token(client_id, client_secret, refresh_token_env)
         if not result:
+            log.warning(
+                "Withings: token refresh definitief mislukt (Gist- én Secret-token). "
+                "Genereer een nieuwe refresh token via de OAuth-flow en werk de "
+                "WITHINGS_REFRESH_TOKEN secret bij — de huidige token is verlopen of geroteerd."
+            )
             return None
 
     access_token, new_refresh_token = result
