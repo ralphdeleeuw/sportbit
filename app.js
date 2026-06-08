@@ -1349,10 +1349,11 @@
         const cal     = act.calories ? `<span class="strava-stat"><strong>${Math.round(act.calories)}</strong> kcal</span>` : '';
         const suffer  = act.suffer_score       ? `<span class="strava-stat">RE <strong>${Math.round(act.suffer_score)}</strong></span>` : '';
         const rpe     = act.perceived_exertion ? `<span class="strava-stat">RPE <strong>${act.perceived_exertion}</strong></span>` : '';
+        const power   = act.avg_watts ? `<span class="strava-stat">⚡ <strong>${Math.round(act.avg_watts)}</strong> W</span>` : '';
         const name    = act.name ? ` — ${act.name}` : '';
         return `<div class="strava-block">
           <div class="strava-block-label">Strava${name}</div>
-          ${dur}${elapsed}${hr}${hrMax}${cal}${suffer}${rpe}
+          ${dur}${elapsed}${power}${hr}${hrMax}${cal}${suffer}${rpe}
         </div>`;
       }).join('');
     }
@@ -1382,6 +1383,13 @@
         const rpe     = act.rpe != null   ? `<span class="strava-stat">RPE <strong>${act.rpe}</strong></span>` : '';
         const cadence = act.avg_cadence   ? `<span class="strava-stat">cadans <strong>${isRun ? Math.round(act.avg_cadence * 2) : Math.round(act.avg_cadence)}</strong> ${isRun ? 'spm' : 'rpm'}</span>` : '';
         const temp    = act.avg_temp_c != null ? `<span class="strava-stat">🌡 <strong>${act.avg_temp_c}°C</strong></span>` : '';
+        // Vermogen: bij hardlopen is dit running power (Fenix 8 vanaf de pols), bij fietsen wattage
+        const power   = act.avg_watts     ? `<span class="strava-stat">⚡ <strong>${Math.round(act.avg_watts)}</strong> W</span>` : '';
+        // Running dynamics (Fenix 8) — alleen tonen bij hardlopen
+        const stride  = (isRun && act.stride_length_m)    ? `<span class="strava-stat">stap <strong>${act.stride_length_m.toFixed(2)}</strong> m</span>` : '';
+        const gct     = (isRun && act.ground_contact_ms)  ? `<span class="strava-stat">GCT <strong>${Math.round(act.ground_contact_ms)}</strong> ms</span>` : '';
+        const vosc    = (isRun && act.vert_oscillation_mm)? `<span class="strava-stat">vert.osc <strong>${act.vert_oscillation_mm.toFixed(1)}</strong> mm</span>` : '';
+        const vratio  = (isRun && act.vert_ratio_pct)     ? `<span class="strava-stat">vert.ratio <strong>${act.vert_ratio_pct.toFixed(1)}</strong>%</span>` : '';
         const flags   = [act.indoor ? '🏠 Indoor' : '', act.race ? '🏁 Race' : ''].filter(Boolean).map(f => `<span class="strava-stat">${f}</span>`).join('');
         const name    = act.name || act.type || 'Activiteit';
 
@@ -1426,7 +1434,7 @@
 
         return `<div class="strava-block">
           <div class="strava-block-label">Intervals — ${name}${flags ? ' ' + flags : ''}</div>
-          ${dist}${dur}${pace}${cadence}${hr}${hrMax}${elev}${cal}${rpe}${tl}${trimp}${temp}${hrZoneHtml}${lapsHtml}
+          ${dist}${dur}${pace}${power}${cadence}${stride}${gct}${vosc}${vratio}${hr}${hrMax}${elev}${cal}${rpe}${tl}${trimp}${temp}${hrZoneHtml}${lapsHtml}
         </div>`;
       }).join('');
     }
@@ -2804,6 +2812,9 @@
           { label: 'Gewicht',    key: 'weight_kg' },
           { label: 'Stappen',    key: 'steps' },
           { label: 'VO2max',     key: 'vo2max' },
+          { label: 'Huidtemp °C', get: r => r.skin_temp_c != null ? r.skin_temp_c.toFixed(2) : null },
+          { label: 'Endurance', key: 'endurance_score' },
+          { label: 'Hill',      key: 'hill_score' },
           { label: 'Spierpijn',  key: 'soreness' },
           { label: 'Vermoeid',   key: 'fatigue' },
           { label: 'Stress',     key: 'stress' },
@@ -2829,6 +2840,10 @@
           { label: 'HR gem',   key: 'avg_hr' },
           { label: 'HR max',   key: 'max_hr' },
           { label: 'Watt gem', get: r => r.avg_watts != null ? Math.round(r.avg_watts) : null },
+          { label: 'Stap m',   get: r => r.stride_length_m != null ? r.stride_length_m.toFixed(2) : null },
+          { label: 'GCT ms',   get: r => r.ground_contact_ms != null ? Math.round(r.ground_contact_ms) : null },
+          { label: 'Vert.osc', get: r => r.vert_oscillation_mm != null ? r.vert_oscillation_mm.toFixed(1) : null },
+          { label: 'Vert.%',   get: r => r.vert_ratio_pct != null ? r.vert_ratio_pct.toFixed(1) : null },
           { label: 'TL',       get: r => r.training_load != null ? Math.round(r.training_load) : null },
           { label: 'RPE',      key: 'rpe' },
           { label: 'kcal',     key: 'calories' },
@@ -3000,6 +3015,14 @@
         if (w.bp_systolic != null && w.bp_diastolic != null)
           p.push(`Bloeddruk <strong>${w.bp_systolic}/${w.bp_diastolic}</strong>`);
         if (w.body_fat_pct != null) p.push(`Vet <strong>${w.body_fat_pct}%</strong>`);
+        // Fenix 8 Elevate V5: huidtemperatuur(-afwijking) als herstel-/ziekte-indicator
+        if (w.skin_temp_c != null) {
+          const sign = w.skin_temp_c > 0 ? '+' : '';
+          p.push(`Huidtemp <strong>${sign}${w.skin_temp_c.toFixed(2)}°C</strong>`);
+        }
+        // Fenix 8 Garmin prestatie-scores (indien gesynct via intervals.icu)
+        if (w.endurance_score != null) p.push(`Endurance <strong>${w.endurance_score}</strong>`);
+        if (w.hill_score != null) p.push(`Hill <strong>${w.hill_score}</strong>`);
         if (w.ctl != null && w.atl != null)
           p.push(`Fitness <strong>${Math.round(w.ctl)}</strong> · Moe <strong>${Math.round(w.atl)}</strong>`);
         if (p.length) metricsRow = `<div class="recovery-data-row"><span class="rec-source">Garmin</span>${p.join(' · ')}</div>`;
@@ -3434,6 +3457,9 @@
         parts.push(`pace <strong>${Math.floor(spm)}:${String(Math.round((spm % 1) * 60)).padStart(2,'0')}/km</strong>`);
       }
       if (act.avg_hr) parts.push(`gem.HR <strong>${act.avg_hr} bpm</strong>`);
+      if (act.avg_watts) parts.push(`⚡ <strong>${Math.round(act.avg_watts)} W</strong>`);
+      if (act.stride_length_m) parts.push(`stap <strong>${act.stride_length_m.toFixed(2)} m</strong>`);
+      if (act.ground_contact_ms) parts.push(`GCT <strong>${Math.round(act.ground_contact_ms)} ms</strong>`);
       if (act.rpe) parts.push(`RPE <strong>${act.rpe}</strong>`);
 
       let lapsHtml = '';

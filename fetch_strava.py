@@ -73,6 +73,7 @@ def fetch_strava_data(days: int = 28) -> dict | None:
                     "distance_m": float | None,
                     "suffer_score": float | None,
                     "perceived_exertion": float | None,
+                    "avg_watts": float | None,  # running power (Fenix 8), indien opgenomen
                 }
             ]
         }
@@ -155,6 +156,9 @@ def fetch_strava_data(days: int = 28) -> dict | None:
             "distance_m": act.get("distance") or None,
             "suffer_score": act.get("suffer_score"),
             "perceived_exertion": act.get("perceived_exertion"),
+            # Hardloopvermogen (Fenix 8 vanaf de pols) — Strava levert dit voor runs als
+            # het toestel power opneemt. Alleen opslaan als aanwezig (>0).
+            "avg_watts": act.get("average_watts") or None,
         }
         activities_by_date.setdefault(date_str, []).append(entry)
 

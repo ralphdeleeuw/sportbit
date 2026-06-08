@@ -310,10 +310,12 @@ def section_health_metrics(wod_data: dict | None, health_input: dict | None, hi_
         dates = sorted(wellness_by_date.keys(), reverse=True)[:14]
 
         lines.append("### Objectieve Metingen (intervals.icu / Garmin)\n")
+        # Optionele kolommen alleen tonen als ten minste één dag de data heeft
+        has_skin = any(wellness_by_date[d].get("skin_temp_c") is not None for d in dates)
         rows = []
         for d in dates:
             w = wellness_by_date[d]
-            rows.append([
+            row = [
                 d,
                 _fmt_val(w.get("resting_hr"), " bpm"),
                 _fmt_val(w.get("hrv"), " ms"),
@@ -323,12 +325,31 @@ def section_health_metrics(wod_data: dict | None, health_input: dict | None, hi_
                 _fmt_val(w.get("atl"), ""),
                 _fmt_val(w.get("tsb"), ""),
                 _fmt_val(w.get("spo2"), " %"),
-            ])
-        lines.append(_table(
-            ["Datum", "Rustpols", "HRV (RMSSD)", "Slaap", "Slaapscore", "CTL (fitness)", "ATL (vermoeidheid)", "TSB (vorm)", "SpO2"],
-            rows,
-        ))
+            ]
+            if has_skin:
+                row.append(_fmt_val(w.get("skin_temp_c"), " °C"))
+            rows.append(row)
+        headers = ["Datum", "Rustpols", "HRV (RMSSD)", "Slaap", "Slaapscore",
+                   "CTL (fitness)", "ATL (vermoeidheid)", "TSB (vorm)", "SpO2"]
+        if has_skin:
+            headers.append("Huidtemp")
+        lines.append(_table(headers, rows))
         lines.append("\n*CTL = chronic training load (fitness), ATL = acute training load (vermoeidheid), TSB = CTL − ATL (hogere TSB = beter hersteld)*")
+
+        # Garmin Endurance/Hill Score (Fenix 8) — alleen als beschikbaar
+        latest_scores = next(
+            (wellness_by_date[d] for d in dates
+             if wellness_by_date[d].get("endurance_score") is not None
+             or wellness_by_date[d].get("hill_score") is not None),
+            None,
+        )
+        if latest_scores:
+            parts = []
+            if latest_scores.get("endurance_score") is not None:
+                parts.append(f"Endurance Score {latest_scores['endurance_score']}")
+            if latest_scores.get("hill_score") is not None:
+                parts.append(f"Hill Score {latest_scores['hill_score']}")
+            lines.append(f"\n*Garmin prestatie-scores: {', '.join(parts)}*")
 
     # Subjectieve health input
     lines.append("\n### Subjectieve Herstelscores (health_input.json)\n")
@@ -373,11 +394,32 @@ def section_activities(wod_data: dict | None) -> str:
         lines.append("*Geen activiteitendata beschikbaar.*")
         return "\n".join(lines)
 
+    all_day_acts = {d: acts_by_date.get(d, []) + strava_by_date.get(d, []) for d in dates}
+    # Hardloopvorm-kolom (running power + dynamics, Fenix 8) alleen tonen indien aanwezig
+    has_dynamics = any(
+        a.get("avg_watts") or a.get("stride_length_m") or a.get("ground_contact_ms")
+        or a.get("vert_oscillation_mm") or a.get("vert_ratio_pct")
+        for acts in all_day_acts.values() for a in acts
+    )
+
+    def _form_summary(a: dict) -> str:
+        parts = []
+        if a.get("avg_watts"):
+            parts.append(f"{round(a['avg_watts'])}W")
+        if a.get("stride_length_m"):
+            parts.append(f"stap {a['stride_length_m']:.2f}m")
+        if a.get("ground_contact_ms"):
+            parts.append(f"GCT {round(a['ground_contact_ms'])}ms")
+        if a.get("vert_oscillation_mm"):
+            parts.append(f"osc {a['vert_oscillation_mm']:.1f}mm")
+        if a.get("vert_ratio_pct"):
+            parts.append(f"ratio {a['vert_ratio_pct']:.1f}%")
+        return ", ".join(parts) if parts else "—"
+
     rows = []
     for d in dates:
-        day_acts = acts_by_date.get(d, []) + strava_by_date.get(d, [])
-        for a in day_acts:
-            rows.append([
+        for a in all_day_acts[d]:
+            row = [
                 d,
                 a.get("name", "—"),
                 a.get("type", "—"),
@@ -385,16 +427,19 @@ def section_activities(wod_data: dict | None) -> str:
                 _fmt_val(a.get("avg_hr"), " bpm"),
                 _fmt_val(a.get("calories"), " kcal"),
                 _fmt_val(a.get("training_load") or a.get("suffer_score"), ""),
-            ])
+            ]
+            if has_dynamics:
+                row.append(_form_summary(a))
+            rows.append(row)
 
     if not rows:
         lines.append("*Geen activiteiten gevonden.*")
         return "\n".join(lines)
 
-    lines.append(_table(
-        ["Datum", "Naam", "Type", "Duur", "Gem. HR", "Calorieën", "Training Load"],
-        rows,
-    ))
+    headers = ["Datum", "Naam", "Type", "Duur", "Gem. HR", "Calorieën", "Training Load"]
+    if has_dynamics:
+        headers.append("Vermogen/Hardloopvorm")
+    lines.append(_table(headers, rows))
     return "\n".join(lines)
 
 
