@@ -41,6 +41,7 @@ import anthropic
 import requests
 
 import notify
+from gist_utils import load_gist, patch_gist
 
 log = logging.getLogger(__name__)
 AMS = ZoneInfo("Europe/Amsterdam")
@@ -89,26 +90,11 @@ PACE_ZONES = {
 # ── Gist helpers ───────────────────────────────────────────────────────────────
 
 def _load_gist(gist_id: str, token: str) -> dict[str, str]:
-    resp = requests.get(
-        f"https://api.github.com/gists/{gist_id}",
-        headers={"Authorization": f"token {token}", "Accept": "application/json"},
-        timeout=20,
-    )
-    resp.raise_for_status()
-    return {
-        name: meta.get("content", "")
-        for name, meta in resp.json().get("files", {}).items()
-    }
+    return load_gist(gist_id, token)
 
 
 def _save_to_gist(gist_id: str, token: str, filename: str, content: str) -> None:
-    resp = requests.patch(
-        f"https://api.github.com/gists/{gist_id}",
-        headers={"Authorization": f"token {token}", "Accept": "application/json"},
-        json={"files": {filename: {"content": content}}},
-        timeout=20,
-    )
-    resp.raise_for_status()
+    patch_gist(gist_id, token, {filename: content})
 
 
 def _parse_json(raw: str, label: str) -> dict | list | None:

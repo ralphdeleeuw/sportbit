@@ -21,32 +21,10 @@ import sys
 import requests
 
 from generate_running_workout import _build_intervals_event, _push_to_intervals
+from gist_utils import load_gist as _load_gist, patch_gist as _patch_gist
 
 log = logging.getLogger(__name__)
 INTERVALS_BASE = "https://intervals.icu/api/v1/athlete"
-
-
-def _load_gist(gist_id: str, token: str) -> dict[str, str]:
-    resp = requests.get(
-        f"https://api.github.com/gists/{gist_id}",
-        headers={"Authorization": f"token {token}", "Accept": "application/json"},
-        timeout=20,
-    )
-    resp.raise_for_status()
-    return {
-        name: meta.get("content", "")
-        for name, meta in resp.json().get("files", {}).items()
-    }
-
-
-def _patch_gist(gist_id: str, token: str, files: dict[str, str]) -> None:
-    resp = requests.patch(
-        f"https://api.github.com/gists/{gist_id}",
-        headers={"Authorization": f"token {token}", "Accept": "application/json"},
-        json={"files": {k: {"content": v} for k, v in files.items()}},
-        timeout=20,
-    )
-    resp.raise_for_status()
 
 
 def _gcal_reschedule(workout: dict, calendar_id: str, creds_json: str) -> None:

@@ -26,6 +26,8 @@ from zoneinfo import ZoneInfo
 
 import requests
 
+from gist_utils import load_gist as _load_gist
+
 # ──────────────────────────────────────────────────────────────────────────────
 # Atletenprofiel (hardcoded fallback — identiek aan fetch_sugarwod.py)
 # ──────────────────────────────────────────────────────────────────────────────
@@ -119,24 +121,6 @@ BARBELL_LIFTS_FALLBACK = {
     "Weighted Chin Up": {"1RM": 7.5, "3RM": 7.5},
     "Weighted Hip Thrust": {"5RM": 110},
 }
-
-
-# ──────────────────────────────────────────────────────────────────────────────
-# Gist helpers
-# ──────────────────────────────────────────────────────────────────────────────
-
-def _load_gist(gist_id: str, token: str) -> dict[str, str]:
-    """Laad alle bestanden uit de Gist. Retourneert {filename: content}."""
-    resp = requests.get(
-        f"https://api.github.com/gists/{gist_id}",
-        headers={"Authorization": f"token {token}", "Accept": "application/json"},
-        timeout=20,
-    )
-    resp.raise_for_status()
-    return {
-        name: meta.get("content", "")
-        for name, meta in resp.json().get("files", {}).items()
-    }
 
 
 def _parse_json(raw: str, label: str) -> dict | list | None:

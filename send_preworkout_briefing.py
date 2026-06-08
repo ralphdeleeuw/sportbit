@@ -25,23 +25,13 @@ from zoneinfo import ZoneInfo
 import requests
 
 import notify
+from gist_utils import load_gist as _load_gist
 
 log = logging.getLogger(__name__)
 AMS = ZoneInfo("Europe/Amsterdam")
 
 WINDOW_MINUTES = 45   # stuur notificatie als les binnen dit aantal minuten begint
 BUFFER_MINUTES = 15   # maar niet eerder dan dit aantal minuten
-
-
-def _load_gist(gist_id: str, token: str) -> dict:
-    resp = requests.get(
-        f"https://api.github.com/gists/{gist_id}",
-        headers={"Authorization": f"token {token}", "Accept": "application/json"},
-        timeout=20,
-    )
-    resp.raise_for_status()
-    files = resp.json().get("files", {})
-    return {name: meta.get("content", "") for name, meta in files.items()}
 
 
 def _tsb_label(tsb: float | None) -> str:
