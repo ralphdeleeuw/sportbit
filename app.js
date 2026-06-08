@@ -123,7 +123,7 @@
           <div class="ai-coach-block" style="margin:0">
             <div class="ai-coach-label">Open Gym Programma</div>
             ${ts}
-            <div class="ai-coach-body">${marked.parse(_prog.program_markdown || '')}</div>
+            <div class="ai-coach-body">${safeMarkdown(_prog.program_markdown)}</div>
           </div>
         </div>`;
       })();
@@ -162,7 +162,7 @@
             <div class="card-info">
               <div class="card-header">
                 <div class="card-header-left">
-                  <div class="card-title">${item.title}</div>
+                  <div class="card-title">${escapeHtml(item.title)}</div>
                   ${metaHtml}
                 </div>
                 <div class="card-right">
@@ -188,7 +188,7 @@
         <div class="card ${cancelled ? 'cancelled' : ''}" style="animation-delay:${delay}s" ${cancelled ? 'onclick="this.classList.toggle(\'open\')"' : ''}>
           <div class="card-dot ${cancelled ? 'dot-cancelled' : 'dot-active'}"></div>
           <div class="card-info">
-            <div class="card-title">${item.title}</div>
+            <div class="card-title">${escapeHtml(item.title)}</div>
             ${metaHtml}
             ${undoBtn}
           </div>
@@ -843,7 +843,7 @@
                 <div class="ai-coach-block" style="margin:0">
                   <div class="ai-coach-label">Open Gym Programma</div>
                   ${ts}
-                  <div class="ai-coach-body">${marked.parse(prog.program_markdown || '')}</div>
+                  <div class="ai-coach-body">${safeMarkdown(prog.program_markdown)}</div>
                 </div>
                 ${stravaHtml}${openGymLogHtml}${nietGedaanBtn}
               </div>
@@ -865,7 +865,7 @@
           <div class="card-info">
             <div class="card-header" onclick="toggleWod(this.closest('.card'), event)" style="cursor:pointer">
               <div class="card-header-left">
-                <div class="card-title">${item.title}</div>
+                <div class="card-title">${escapeHtml(item.title)}</div>
                 ${metaHtml}
               </div>
               <div class="card-right">
@@ -1158,7 +1158,7 @@
         <div class="coach-plan">
           <div class="coach-plan-label">AI Coach Plan</div>
           ${planTsHtml}
-          <div class="coach-plan-body">${marked.parse(plan)}</div>
+          <div class="coach-plan-body">${safeMarkdown(plan)}</div>
         </div>` : '';
 
       return sections + deletedHtml + weightHtml + planHtml;
@@ -1816,7 +1816,7 @@
               <div class="wod-chevron">▾</div>
             </div>
             <div class="ai-coach-content">
-              <div class="ai-coach-body">${marked.parse(recoveryAdvice)}</div>
+              <div class="ai-coach-body">${safeMarkdown(recoveryAdvice)}</div>
             </div>
           </div>`;
         }
@@ -1852,7 +1852,7 @@
           <div class="ai-coach-block">
             <div class="ai-coach-label">Open Gym Programma — ${eventDateLabel} ${openGymProgram.for_time}</div>
             ${ts}
-            <div class="ai-coach-body">${marked.parse(openGymProgram.program_markdown || '')}</div>
+            <div class="ai-coach-body">${safeMarkdown(openGymProgram.program_markdown)}</div>
           </div>
         </div>`;
       }
@@ -2758,7 +2758,8 @@
       // Load data and re-render table
       const raw = document.getElementById('bm-data');
       if (!raw) return;
-      const categories = JSON.parse(raw.textContent);
+      let categories;
+      try { categories = JSON.parse(raw.textContent); } catch(e) { return; }
       const table = document.getElementById('bm-table');
       if (table && categories[cat]) {
         table.innerHTML = buildBenchmarkTable(categories[cat]);
@@ -4218,4 +4219,9 @@
         .replace(/</g, '&lt;')
         .replace(/>/g, '&gt;')
         .replace(/"/g, '&quot;');
+    }
+
+    function safeMarkdown(md) {
+      const html = marked.parse(md || '');
+      return typeof DOMPurify !== 'undefined' ? DOMPurify.sanitize(html) : html;
     }
