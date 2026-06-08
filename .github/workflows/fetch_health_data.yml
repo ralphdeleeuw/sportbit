@@ -21,6 +21,11 @@ on:
         required: false
         default: 'false'
         type: boolean
+      debug_intervals_keys:
+        description: 'Intervals.icu ruwe API-keys loggen (discovery Fenix 8-velden)'
+        required: false
+        default: 'false'
+        type: boolean
 
 jobs:
   refresh-health:
@@ -54,4 +59,5 @@ jobs:
           SKIP_STRAVA: ${{ inputs.skip_strava || 'false' }}
           SKIP_WITHINGS: ${{ inputs.skip_withings || 'false' }}
           SKIP_INTERVALS: ${{ inputs.skip_intervals || 'false' }}
+          INTERVALS_DEBUG_KEYS: ${{ inputs.debug_intervals_keys && '1' || '' }}
         run: python3 fetch_sugarwod.py
