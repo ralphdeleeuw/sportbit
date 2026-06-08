@@ -78,6 +78,10 @@ import requests
 log = logging.getLogger(__name__)
 
 BASE_URL = "https://intervals.icu/api/v1/athlete"
+# Single-activity endpoint (detail + streams). Let op: dit is /activity/{id}
+# (enkelvoud, zonder athlete-prefix). De /athlete/{id}/activities/{id}-variant
+# negeert het id en geeft de volledige lijst terug → kapotte lap-fetch.
+ACTIVITY_BASE = "https://intervals.icu/api/v1/activity"
 DAYS_BACK = 30  # ophalen laatste 30 dagen wellness (nodig voor stabiele HRV basislijn)
 ACTIVITY_DAYS_BACK = 28  # ophalen laatste 28 dagen activiteiten (nodig voor 7:28 ACWR)
 
@@ -255,9 +259,13 @@ def fetch_intervals_data() -> dict | None:
                 if val is not None:
                     entry[field] = int(val)
 
-            # ── Fenix 8-specifieke wellness (alleen als intervals.icu ze synct) ──
-            # Huidtemperatuur(-afwijking) van de Elevate V5 sensor. intervals.icu
-            # gebruikt geen vaste veldnaam; probeer meerdere bekende varianten.
+            # ── Fenix 8-specifieke wellness ─────────────────────────────────
+            # LET OP: uit discovery (INTERVALS_DEBUG_KEYS) blijkt dat intervals.icu
+            # de Garmin huidtemperatuur, Endurance Score en Hill Score NIET synct.
+            # Onderstaande extractie is defensief en future-proof: ze vult alleen
+            # iets als intervals.icu deze velden ooit gaat aanbieden. Voor nu blijven
+            # ze leeg (en worden ze in de UI weggelaten). Wil je deze data tóch,
+            # dan moet die via de directe Garmin Connect-fetch (fetch_garmin.py) komen.
             skin_temp = next(
                 (w.get(k) for k in ("skinTemp", "skin_temp", "bodyTemp", "temperature")
                  if w.get(k) is not None),
@@ -266,8 +274,6 @@ def fetch_intervals_data() -> dict | None:
             if skin_temp is not None:
                 entry["skin_temp_c"] = round(float(skin_temp), 2)
 
-            # Garmin Endurance Score / Hill Score (proprietary; synct meestal niet
-            # naar derden, maar nemen we mee als het veld aanwezig is).
             endurance = w.get("enduranceScore") or w.get("endurance_score")
             if endurance is not None and endurance > 0:
                 entry["endurance_score"] = int(endurance)
@@ -357,8 +363,10 @@ def fetch_intervals_data() -> dict | None:
             if elev is not None and elev > 0:
                 entry["elevation_m"] = round(float(elev))
 
-            # Gemiddeld vermogen (watt, relevant voor fietsen)
-            watts = act.get("average_watts")
+            # Gemiddeld vermogen (watt). Bij hardlopen is dit running power; de
+            # Fenix 8 meet dit vanaf de pols. intervals.icu levert het als
+            # 'icu_average_watts' (runs hebben geen 'average_watts').
+            watts = act.get("average_watts") or act.get("icu_average_watts")
             if watts is not None and watts > 0:
                 entry["avg_watts"] = round(float(watts))
 
@@ -455,27 +463,31 @@ def fetch_intervals_data() -> dict | None:
             act_id = act["intervals_id"]
             try:
                 resp = session.get(
-                    f"{BASE_URL}/{athlete_id}/activities/{act_id}",
+                    f"{ACTIVITY_BASE}/{act_id}",
                     timeout=20,
                 )
                 if not resp.ok:
                     continue
                 detail = resp.json()
+                if not isinstance(detail, dict):
+                    log.warning("Onverwacht activity-detail formaat voor %s (%s)", act_id, type(detail).__name__)
+                    continue
 
                 if DEBUG_KEYS:
                     log.info("[DEBUG] activity detail keys (%s): %s", act_id, sorted(detail.keys()))
+                    log.info("[DEBUG] stream_types (%s): %s", act_id, detail.get("stream_types"))
 
                 # Running dynamics aanvullen vanuit activity-detail (heeft soms meer
                 # velden dan de lijst-respons). Bestaande waarden niet overschrijven.
                 for k, v in _extract_run_dynamics(detail).items():
                     act.setdefault(k, v)
 
-                # Stream-fallback: als running dynamics nog ontbreken, haal de streams
-                # op en middel ze. Alleen als er nog iets te winnen valt.
-                if not any(k in act for k in _RUN_DYNAMICS):
+                # Stream-fallback: GCT / verticale oscillatie / ratio staan niet op
+                # activity-niveau, alleen in de streams. Haal ze op en middel ze.
+                if not all(k in act for k in _RUN_DYNAMICS):
                     try:
                         s_resp = session.get(
-                            f"{BASE_URL}/{athlete_id}/activities/{act_id}/streams",
+                            f"{ACTIVITY_BASE}/{act_id}/streams",
                             params={"types": "ground_contact_time,vertical_oscillation,"
                                              "vertical_ratio,stride,watts"},
                             timeout=20,
