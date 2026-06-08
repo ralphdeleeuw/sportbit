@@ -636,7 +636,14 @@
       if (personalEventsFile) {
         try {
           const pe = JSON.parse(personalEventsFile.content);
-          personalEvents = pe.events || [];
+          const raw = pe.events || [];
+          const seenKeys = new Set();
+          personalEvents = raw.filter(e => {
+            const key = `${e.title}||${e.date}||${e.time || ''}`;
+            if (seenKeys.has(key)) return false;
+            seenKeys.add(key);
+            return true;
+          });
         } catch(e) { personalEvents = []; }
       } else {
         personalEvents = [];
@@ -3930,6 +3937,12 @@
       }
       if (!date) {
         if (statusEl) { statusEl.textContent = '⚠ Kies een datum'; statusEl.className = 'add-event-status err'; }
+        return;
+      }
+
+      const duplicate = personalEvents.find(e => e.title === title && e.date === date && (e.time || '') === time);
+      if (duplicate) {
+        if (statusEl) { statusEl.textContent = `⚠ Er staat al een ${title} op ${date}`; statusEl.className = 'add-event-status err'; }
         return;
       }
 
