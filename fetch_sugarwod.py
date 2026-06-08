@@ -3406,6 +3406,27 @@ def main() -> int:
             except Exception as exc:
                 log.warning("Intervals.icu fetch mislukt: %s", exc)
 
+        # Huidtemperatuur (Fenix 8) verrijken via directe Garmin Connect-fetch.
+        # intervals.icu synct skin temperature niet; Garmin bewaart het in de
+        # slaapdata. Alleen uitvoeren als Garmin-credentials aanwezig zijn; de
+        # waarde wordt niet-destructief in de intervals-wellness gemerged.
+        if os.environ.get("GARMIN_EMAIL") or os.environ.get("GARMIN_TOKENS") or os.environ.get("GARMIN_SESSION_ID"):
+            try:
+                from fetch_garmin import fetch_garmin_data  # noqa: PLC0415
+                garmin_data = fetch_garmin_data()
+                skin_temp = (garmin_data or {}).get("skin_temp")
+                g_date = (garmin_data or {}).get("date")
+                if skin_temp is not None and g_date:
+                    if intervals_data is None:
+                        intervals_data = {"wellness": {"by_date": {}}, "activities": {"by_date": {}}}
+                    intervals_data.setdefault("wellness", {}).setdefault("by_date", {})
+                    intervals_data["wellness"]["by_date"].setdefault(g_date, {})["skin_temp_c"] = skin_temp
+                    log.info("Garmin huidtemperatuur gemerged in wellness %s: %s °C", g_date, skin_temp)
+                else:
+                    log.info("Geen Garmin huidtemperatuur beschikbaar in slaapdata")
+            except Exception as exc:
+                log.warning("Garmin huidtemperatuur-fetch mislukt: %s", exc)
+
         # Verwijder geplande workout-events waarvan de activiteit al geregistreerd is
         _iv_id    = os.environ.get("INTERVALS_ATHLETE_ID", "").strip()
         _iv_key   = os.environ.get("INTERVALS_API_KEY", "").strip()

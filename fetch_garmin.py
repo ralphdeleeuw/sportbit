@@ -68,6 +68,39 @@ from typing import Any
 
 log = logging.getLogger(__name__)
 
+# Discovery: log de ruwe keys van de Garmin slaaprespons om vast te stellen
+# of/waar huidtemperatuur (skin temperature deviation tijdens slaap) erin zit.
+GARMIN_DEBUG_KEYS = os.environ.get("GARMIN_DEBUG_KEYS", "").strip() in ("1", "true", "yes")
+
+
+def _extract_skin_temp(sleep_raw: Any) -> float | None:
+    """
+    Probeer de huidtemperatuur(-afwijking) uit de Garmin slaaprespons te halen.
+
+    Garmin bewaart skin temperature als 'deviation tijdens slaap'; de exacte
+    veldnaam is niet gedocumenteerd, dus we proberen meerdere bekende varianten
+    (zowel directe velden als geneste objecten). Retourneert None als niet aanwezig.
+    """
+    if not isinstance(sleep_raw, dict):
+        return None
+    # Directe kandidaat-velden op topniveau
+    for k in ("avgSkinTemp", "averageSkinTemp", "skinTempDeviation",
+              "averageSkinTemperatureDeviation", "skinTemperatureDeviation"):
+        v = sleep_raw.get(k)
+        if isinstance(v, (int, float)):
+            return round(float(v), 2)
+    # Geneste objecten
+    for parent in ("skinTemperatureDataDTO", "skinTempData", "skinTemperature",
+                   "wellnessSkinTemp", "bodyTemperatureDTO"):
+        obj = sleep_raw.get(parent)
+        if isinstance(obj, dict):
+            for k in ("deviation", "avgDeviation", "averageDeviation",
+                      "value", "temperature", "avgSkinTemp"):
+                v = obj.get(k)
+                if isinstance(v, (int, float)):
+                    return round(float(v), 2)
+    return None
+
 
 def _restore_garth_tokens(tokens_b64: str, target_dir: str) -> bool:
     """Decode the base64 tarball and extract garth tokens to target_dir."""
@@ -240,6 +273,7 @@ def _fetch_metrics_web(session, user_id: str, query_date: date) -> dict | None:
         "date": date_str,
         "hrv": None,
         "sleep": None,
+        "skin_temp": None,
         "body_battery": None,
         "stress_avg": None,
         "resting_hr": None,
@@ -265,6 +299,13 @@ def _fetch_metrics_web(session, user_id: str, query_date: date) -> dict | None:
     # ── Slaap ─────────────────────────────────────────────────────────────
     sleep_raw = _web_get(session, f"sleep-service/sleep/{date_str}")
     if sleep_raw and isinstance(sleep_raw, dict):
+        if GARMIN_DEBUG_KEYS:
+            log.info("[DEBUG] sleep keys (%s): %s", date_str, sorted(sleep_raw.keys()))
+        skin_temp = _extract_skin_temp(sleep_raw)
+        if skin_temp is not None:
+            result["skin_temp"] = skin_temp
+            has_any_data = True
+            log.info("Huidtemperatuur (afwijking): %s °C", skin_temp)
         daily = sleep_raw.get("dailySleepDTO", {})
         scores = sleep_raw.get("sleepScores", {})
         score_value = None
@@ -625,6 +666,7 @@ def _fetch_garmin_via_playwright(target_date: date) -> dict | None:
         "date": date_str,
         "hrv": None,
         "sleep": None,
+        "skin_temp": None,
         "body_battery": None,
         "stress_avg": None,
         "resting_hr": None,
@@ -651,6 +693,13 @@ def _fetch_garmin_via_playwright(target_date: date) -> dict | None:
     if "sleep-service" in raw:
         sleep_raw = raw["sleep-service"]["data"]
         if isinstance(sleep_raw, dict):
+            if GARMIN_DEBUG_KEYS:
+                log.info("[DEBUG] sleep keys (%s): %s", date_str, sorted(sleep_raw.keys()))
+            skin_temp = _extract_skin_temp(sleep_raw)
+            if skin_temp is not None:
+                result["skin_temp"] = skin_temp
+                has_any_data = True
+                log.info("Huidtemperatuur (afwijking): %s °C", skin_temp)
             daily = sleep_raw.get("dailySleepDTO", {})
             scores = sleep_raw.get("sleepScores", {})
             score_value = None
@@ -827,6 +876,7 @@ def _fetch_metrics(garmin, query_date: date) -> dict | None:
         "date": date_str,
         "hrv": None,
         "sleep": None,
+        "skin_temp": None,
         "body_battery": None,
         "stress_avg": None,
         "resting_hr": None,
@@ -859,6 +909,13 @@ def _fetch_metrics(garmin, query_date: date) -> dict | None:
     try:
         sleep_raw = garmin.get_sleep_data(date_str)
         if sleep_raw:
+            if GARMIN_DEBUG_KEYS and isinstance(sleep_raw, dict):
+                log.info("[DEBUG] sleep keys (%s): %s", date_str, sorted(sleep_raw.keys()))
+            skin_temp = _extract_skin_temp(sleep_raw)
+            if skin_temp is not None:
+                result["skin_temp"] = skin_temp
+                has_any_data = True
+                log.info("Huidtemperatuur (afwijking): %s °C", skin_temp)
             daily = sleep_raw.get("dailySleepDTO", {})
             score_value = None
             # Sleep score can be nested under sleepScores

@@ -26,6 +26,11 @@ on:
         required: false
         default: 'false'
         type: boolean
+      debug_garmin_keys:
+        description: 'Garmin slaaprespons-keys loggen (discovery huidtemperatuur)'
+        required: false
+        default: 'false'
+        type: boolean
 
 jobs:
   refresh-health:
@@ -39,7 +44,7 @@ jobs:
           python-version: '3.12'
 
       - name: Install dependencies
-        run: pip install requests beautifulsoup4 lxml anthropic
+        run: pip install requests beautifulsoup4 lxml anthropic garth garminconnect
 
       - name: Refresh Strava / Intervals.icu / Withings / Environmental data + AI coach
         env:
@@ -51,6 +56,10 @@ jobs:
           STRAVA_REFRESH_TOKEN: ${{ secrets.STRAVA_REFRESH_TOKEN }}
           INTERVALS_ATHLETE_ID: ${{ secrets.INTERVALS_ATHLETE_ID }}
           INTERVALS_API_KEY: ${{ secrets.INTERVALS_API_KEY }}
+          GARMIN_EMAIL: ${{ secrets.GARMIN_EMAIL }}
+          GARMIN_PASSWORD: ${{ secrets.GARMIN_PASSWORD }}
+          GARMIN_TOKENS: ${{ secrets.GARMIN_TOKENS }}
+          GARMIN_SESSION_ID: ${{ secrets.GARMIN_SESSION_ID }}
           WITHINGS_CLIENT_ID: ${{ secrets.WITHINGS_CLIENT_ID }}
           WITHINGS_CLIENT_SECRET: ${{ secrets.WITHINGS_CLIENT_SECRET }}
           WITHINGS_REFRESH_TOKEN: ${{ secrets.WITHINGS_REFRESH_TOKEN }}
@@ -60,4 +69,5 @@ jobs:
           SKIP_WITHINGS: ${{ inputs.skip_withings || 'false' }}
           SKIP_INTERVALS: ${{ inputs.skip_intervals || 'false' }}
           INTERVALS_DEBUG_KEYS: ${{ inputs.debug_intervals_keys && '1' || '' }}
+          GARMIN_DEBUG_KEYS: ${{ inputs.debug_garmin_keys && '1' || '' }}
         run: python3 fetch_sugarwod.py
