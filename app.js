@@ -3712,7 +3712,7 @@
           method: 'PATCH', headers: { Authorization: `token ${token}`, 'Content-Type': 'application/json' },
           body: JSON.stringify({ files: { 'health_input.json': { content: JSON.stringify(h2, null, 2) } } })
         });
-        renderApp();
+        loadData();
         await _triggerRunGeneration(statusEl);
       } catch(e) {
         const statusEl2 = document.getElementById('run-freq-this-status');
@@ -3727,7 +3727,7 @@
       try {
         setStatus('Opslaan…');
         await _patchHealthInput({ sessions_next_week: n, run_days_next_week: defaultDaysForFreq(n) });
-        renderApp();
+        loadData();
         setStatus('✓ Opgeslagen — wordt maandag gebruikt', '#00c853');
         setTimeout(() => { const el = document.getElementById('run-freq-next-status'); if (el) el.textContent = ''; }, 4000);
       } catch(e) {
@@ -3755,7 +3755,7 @@
           method: 'PATCH', headers: { Authorization: `token ${token}`, 'Content-Type': 'application/json' },
           body: JSON.stringify({ files: { 'health_input.json': { content: JSON.stringify(h, null, 2) } } })
         });
-        renderApp();
+        loadData();
         setStatus('✓ Opgeslagen — hergeneer het plan', '#00c853');
         setTimeout(() => { const el = document.getElementById('run-freq-this-status'); if (el) el.textContent = ''; }, 5000);
       } catch(e) {
@@ -3770,7 +3770,7 @@
       try {
         setStatus('Opslaan…');
         await _patchHealthInput({ run_days_next_week: days, sessions_next_week: days.length });
-        renderApp();
+        loadData();
         setStatus('✓ Opgeslagen — wordt maandag gebruikt', '#00c853');
         setTimeout(() => { const el = document.getElementById('run-freq-next-status'); if (el) el.textContent = ''; }, 4000);
       } catch(e) {
