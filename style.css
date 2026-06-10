@@ -927,13 +927,19 @@
       vertical-align: middle;
     }
 
-    .run-freq-selector {
-      display: flex; align-items: center; gap: 6px;
+    .run-freq-wrapper {
+      display: flex; flex-direction: column; gap: 5px;
       margin: 0 0 0.75rem;
+    }
+    .run-freq-row {
+      display: flex; align-items: center; gap: 6px;
     }
     .run-freq-label {
       font-size: 0.72rem; color: var(--muted);
-      margin-right: 2px;
+      width: 90px; flex-shrink: 0;
+    }
+    .run-freq-btns {
+      display: flex; gap: 4px;
     }
     .run-freq-btn {
       font-size: 0.72rem; font-weight: 700;
@@ -946,6 +952,9 @@
     .run-freq-btn.active {
       background: #00c853; border-color: #00c853;
       color: #000;
+    }
+    .run-freq-status {
+      font-size: 0.68rem; color: var(--muted);
     }
 
     .run-5k-progress {
