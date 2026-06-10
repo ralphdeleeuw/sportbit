@@ -192,29 +192,37 @@ def _load_fitness_context(gist_id: str, token: str) -> dict:
     upcoming_signed_up = [w for w in upcoming_all if w.get("date", "") in signed_up_dates]
     upcoming_crossfit = upcoming_signed_up if upcoming_signed_up else upcoming_all
 
-    # Recent CrossFit: gebruik intervals.icu activiteiten om alleen daadwerkelijk
-    # bijgewoonde sessies te tonen, aangevuld met WOD-beschrijvingen.
+    # Recent CrossFit: signed_up_dates is de primaire bron — alleen sessies waarvoor
+    # de user zich daadwerkelijk heeft ingeschreven (en niet gecanceld). Intervals.icu
+    # wordt alleen gebruikt om HR/duur/TL toe te voegen, niet om sessies te selecteren.
     activities_by_date: dict = intervals_data.get("activities", {}).get("by_date", {})
     cf_activity_types = {"crossfit", "weight", "strength", "hiit", "weighttraining"}
-    cf_activity_dates: set[str] = {
-        d for d, acts in activities_by_date.items()
-        if any(
-            any(t in (a.get("type") or "").lower() for t in cf_activity_types)
-            for a in acts
-        )
-    }
-    # WOD-data voor recente sessies: alleen op dagen met een echte CF-activiteit
     wods_by_date: dict[str, dict] = {w.get("date", ""): w for w in all_wods if w.get("date")}
+
+    # Laad workout_overrides zodat door de user bewerkte beschrijvingen/notities
+    # worden meegenomen in de context voor de AI running coach.
+    overrides_raw = files.get("workout_overrides.json", "")
+    workout_overrides: dict = _parse_json(overrides_raw, "workout_overrides.json") or {}
+
     recent_crossfit: list[dict] = []
-    for d in sorted(cf_activity_dates):
+    for d in sorted(signed_up_dates):
         if not (cutoff_recent <= d < today_str):
             continue
+        entry: dict = dict(wods_by_date.get(d, {"date": d}))
+
+        # Merge door de user bewerkte WOD-secties (beschrijving en/of notities)
+        for _title, ov in workout_overrides.get(d, {}).items():
+            if not ov.get("deleted", False):
+                if ov.get("description"):
+                    entry["description"] = ov["description"]
+                if ov.get("athlete_notes"):
+                    entry["athlete_notes"] = ov["athlete_notes"]
+
+        # Voeg intervals.icu-statistieken toe (HR, duur, TL) als beschikbaar
         cf_acts = [
             a for a in activities_by_date.get(d, [])
             if any(t in (a.get("type") or "").lower() for t in cf_activity_types)
         ]
-        entry: dict = wods_by_date.get(d, {"date": d})
-        entry = dict(entry)  # kopie
         if cf_acts:
             act = cf_acts[0]
             if act.get("duration_min"):
@@ -225,13 +233,6 @@ def _load_fitness_context(gist_id: str, token: str) -> dict:
             if tl is not None:
                 entry["training_load"] = tl
         recent_crossfit.append(entry)
-    # Fallback als intervals.icu geen CF-activiteiten heeft: gebruik WOD-schema
-    if not recent_crossfit:
-        recent_crossfit = [
-            w for w in all_wods
-            if cutoff_recent <= w.get("date", "") < today_str
-            and w.get("date", "") not in cancelled
-        ]
 
     # Upcoming personal events (mountainbike, etc.) binnen de planningshorizon
     upcoming_personal_events = [

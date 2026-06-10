@@ -3756,8 +3756,7 @@
           body: JSON.stringify({ files: { 'health_input.json': { content: JSON.stringify(h, null, 2) } } })
         });
         loadData();
-        setStatus('✓ Opgeslagen — hergeneer het plan', '#00c853');
-        setTimeout(() => { const el = document.getElementById('run-freq-this-status'); if (el) el.textContent = ''; }, 5000);
+        await _triggerRunGeneration(statusEl);
       } catch(e) {
         setStatus(`Fout: ${e.message}`, 'var(--accent2)');
         console.error(e);
