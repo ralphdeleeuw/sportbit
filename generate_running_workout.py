@@ -1423,7 +1423,7 @@ def _build_garmin_native_workout(spec: dict) -> dict:
     }
 
 
-def _push_to_garmin_connect(specs: list[dict], garmin_email: str, garmin_password: str) -> None:
+def _push_to_garmin_connect(specs: list[dict], garmin_email: str, garmin_password: str, old_specs: list[dict] | None = None) -> None:
     """Push native running workouts with pace zone step targets to Garmin Connect."""
     try:
         from garminconnect import Garmin  # type: ignore[import]
@@ -1439,7 +1439,18 @@ def _push_to_garmin_connect(specs: list[dict], garmin_email: str, garmin_passwor
         log.error("Garmin Connect login mislukt: %s", exc)
         return
 
-    # Verwijder bestaande workouts met dezelfde naam om dubbeling te voorkomen
+    # Stap 1: verwijder vorige week's workouts op basis van opgeslagen garmin_workout_id.
+    # Dit ruimt werkelijk alle oude workouts op, ook als de naam veranderd is.
+    if old_specs:
+        old_ids = [s.get("garmin_workout_id") for s in old_specs if s.get("garmin_workout_id")]
+        for wid in old_ids:
+            try:
+                client.client.request("DELETE", "connectapi", f"/workout-service/workout/{wid}", api=True)
+                log.info("  Vorige Garmin workout verwijderd (id: %s)", wid)
+            except Exception as exc:
+                log.warning("  Verwijderen Garmin workout %s mislukt (al weg?): %s", wid, exc)
+
+    # Stap 2: verwijder ook eventuele dubbelen op naam (vangnet voor eerste keer / handmatig aangemaakt)
     spec_names = {s.get("name") for s in specs if s.get("name")}
     try:
         existing = client.connectapi("/workout-service/workouts", params={"limit": 100, "start": 0, "myWorkoutsOnly": True})
@@ -1449,9 +1460,9 @@ def _push_to_garmin_connect(specs: list[dict], garmin_email: str, garmin_passwor
                     wid = w.get("workoutId")
                     if wid:
                         client.client.request("DELETE", "connectapi", f"/workout-service/workout/{wid}", api=True)
-                        log.info("  Oude workout verwijderd: '%s' (id: %s)", w.get("workoutName"), wid)
+                        log.info("  Dubbele workout verwijderd op naam: '%s' (id: %s)", w.get("workoutName"), wid)
     except Exception as exc:
-        log.warning("Opruimen bestaande workouts mislukt: %s", exc)
+        log.warning("Opruimen dubbele workouts op naam mislukt: %s", exc)
 
     for spec in specs:
         try:
@@ -1463,6 +1474,8 @@ def _push_to_garmin_connect(specs: list[dict], garmin_email: str, garmin_passwor
                 json=workout,
             )
             workout_id = resp.get("workoutId") if isinstance(resp, dict) else None
+            if workout_id:
+                spec["garmin_workout_id"] = workout_id  # bewaar voor cleanup bij volgende generatie
             log.info("✓ Garmin native workout aangemaakt: '%s' (id: %s)", spec.get("name"), workout_id)
             if workout_id and spec.get("date"):
                 client.client.post(
@@ -1885,7 +1898,12 @@ def main() -> None:
             specs = plan.get("workouts", [])
             if specs:
                 log.info("Native Garmin workouts pushen (pace step-targets)...")
-                _push_to_garmin_connect(specs, garmin_email, garmin_password)
+                # Bij repush: verwijder huidige Garmin-workouts op ID en push opnieuw
+                _push_to_garmin_connect(specs, garmin_email, garmin_password, old_specs=specs)
+                # Sla bijgewerkte specs (nieuwe garmin_workout_ids) terug op
+                week_num = plan.get("week_number", 1)
+                plan_start = plan.get("plan_start_date")
+                _save_plan_to_gist(gist_id, github_token, specs, week_num, program_start_date=plan_start)
         return
 
     log.info("Laden fitnessdata uit Gist...")
@@ -1977,14 +1995,17 @@ def main() -> None:
     else:
         log.info("GOOGLE_CREDENTIALS / CALENDAR_ID niet ingesteld — Google Agenda sync overgeslagen")
 
+    if garmin_email and garmin_password:
+        log.info("Native Garmin workouts pushen (pace step-targets)...")
+        # Geef vorige specs mee zodat die op ID verwijderd worden (ook als naam veranderd)
+        old_plan_specs = ctx.get("running_plan", {}).get("workouts", [])
+        _push_to_garmin_connect(specs, garmin_email, garmin_password, old_specs=old_plan_specs)
+
+    # Sla NA Garmin-push op zodat garmin_workout_id in het gist-plan terechtkomt
     _save_plan_to_gist(gist_id, github_token, specs, week_number, program_start_date=plan_start_str or None)
 
     ical = _generate_ical(specs)
     _save_ical_to_gist(gist_id, github_token, ical)
-
-    if garmin_email and garmin_password:
-        log.info("Native Garmin workouts pushen (pace step-targets)...")
-        _push_to_garmin_connect(specs, garmin_email, garmin_password)
 
     _notify(specs)
 
