@@ -1486,27 +1486,29 @@
         <div class="run-freq-days-row">${renderDayBtns(nextWeekDays, false, 'toggleRunDayNextWeek')}</div>
       </div>`;
 
-      // 1500m / Cooper test voortgangsbalk
-      const goal1500Sec  = 390;  // 6:30 voor 1500m (realistisch doel)
-      const start1500Sec = 450;  // 7:30 voor 1500m (startpunt op basis van 5K @ 28 min)
-      const rawEst1500 = runningPlanData.estimated_1500m_seconds;
-      const est1500Sec = (rawEst1500 && rawEst1500 >= 300 && rawEst1500 <= 600) ? rawEst1500 : null;
+      // Defensie fitnesstest voortgangsbalk (12-min test: doel 2200m, trainsdoel 2400m)
+      const defStart = 2100; // baseline o.b.v. huidige 5K (~5:36/km × 12min)
+      const defMin   = 2200; // minimumeis defensie
+      const defGoal  = 2400; // comfortabel trainingsdoel
+      const rawEst12m = runningPlanData.estimated_12min_distance_m;
+      const est12m = (rawEst12m && rawEst12m >= 1500 && rawEst12m <= 3500) ? rawEst12m : null;
       let progressHtml = '';
-      if (est1500Sec) {
-        const clampedEst = Math.min(Math.max(est1500Sec, goal1500Sec), start1500Sec);
-        const pct = Math.round((start1500Sec - clampedEst) / (start1500Sec - goal1500Sec) * 100);
-        const estMins = Math.floor(est1500Sec / 60);
-        const estSecs = est1500Sec % 60;
-        const secLeft = Math.max(0, est1500Sec - goal1500Sec);
+      if (est12m) {
+        const clampedEst = Math.min(Math.max(est12m, defStart), defGoal);
+        const pct = Math.round((clampedEst - defStart) / (defGoal - defStart) * 100);
+        const minMarkerPct = Math.round((defMin - defStart) / (defGoal - defStart) * 100);
+        const mLeft = Math.max(0, defMin - est12m);
+        const statusText = est12m >= defMin ? `✓ Haalt de eis (+${est12m - defMin}m)` : `Nog ${mLeft}m tot eis`;
         progressHtml = `<div class="run-5k-progress">
           <div class="run-5k-labels">
-            <span>1500m doel: <strong>6:30</strong></span>
-            <span style="color:#e8ff3c">Huidig: <strong>${estMins}:${String(estSecs).padStart(2,'0')}</strong></span>
+            <span>Defensietest 12min: <strong>${defMin}m</strong></span>
+            <span style="color:#e8ff3c">Huidig: <strong>~${est12m}m</strong></span>
           </div>
-          <div class="run-5k-bar-track">
+          <div class="run-5k-bar-track" style="position:relative">
             <div class="run-5k-bar-fill" style="width:${pct}%"></div>
+            <div style="position:absolute;top:-8px;left:${minMarkerPct}%;transform:translateX(-50%);font-size:10px;color:#ff9800">▼eis</div>
           </div>
-          <div class="run-5k-sub">Coopertest prep · nog ~${Math.floor(secLeft)}s te verbeteren · ${pct}% naar doel</div>
+          <div class="run-5k-sub">${statusText} · trainsdoel: ${defGoal}m · ${pct}% naar trainsdoel</div>
         </div>`;
       }
 
@@ -1569,11 +1571,12 @@
     }
 
     function getRunPhaseInfo(w) {
-      if (w <= 4)  return { label: 'Basisopbouw',      color: '#4caf50', di: 'Lichte fartlek (Z2-Z3)',       vr: 'Easy progressive run (4km)' };
-      if (w <= 8)  return { label: 'Snelheidsopbouw',  color: '#2196f3', di: '400m/600m herhalingen',        vr: 'Threshold run 4-5km' };
-      if (w <= 12) return { label: 'Intensiteit',      color: '#ff9800', di: '200m/300m sprints + 1500m-pace', vr: 'Tempo run 5-6km' };
-      if (w % 4 === 0) return { label: 'Herstelweek',  color: '#9c27b0', di: 'Lichte easy run',              vr: 'Korte tempo (−30%)' };
-      return                { label: 'Consolidatie',   color: '#f44336', di: 'Gevarieerd snelheidswerk',      vr: 'Tempo/testinspanning' };
+      const test = w % 2 === 0 ? '12-min test 🎯' : 'Threshold run';
+      if (w <= 4)  return { label: 'Basisopbouw',      color: '#4caf50', di: 'Lichte fartlek (Z2-Z3)',         vr: test };
+      if (w <= 8)  return { label: 'Aëroob vermogen',  color: '#2196f3', di: '400m/600m herhalingen',          vr: test };
+      if (w <= 12) return { label: 'Intensiteit',      color: '#ff9800', di: '200m/300m sprints + testpace',   vr: test };
+      if (w % 4 === 0) return { label: 'Herstelweek',  color: '#9c27b0', di: 'Lichte easy run',                vr: w % 2 === 0 ? '12-min test 🎯' : 'Korte tempo (−30%)' };
+      return                { label: 'Consolidatie',   color: '#f44336', di: 'Gevarieerd snelheidswerk',        vr: test };
     }
 
     function renderRunningPhaseOverview(currentWeek) {
@@ -1909,29 +1912,33 @@
       });
       h += `</div>`;
 
-      // Running progress (1500m / Cooper test)
-      const rawEst1500 = runningPlanData?.estimated_1500m_seconds;
-      const est1500 = (rawEst1500 && rawEst1500 >= 300 && rawEst1500 <= 600) ? rawEst1500 : null;
-      const time1500 = est1500 ? `${Math.floor(est1500/60)}:${String(est1500%60).padStart(2,'0')}` : '—';
+      // Running progress (defensie fitnesstest)
+      const rawEst12m = runningPlanData?.estimated_12min_distance_m;
+      const est12m = (rawEst12m && rawEst12m >= 1500 && rawEst12m <= 3500) ? rawEst12m : null;
 
-      if (est1500) {
-        const goal=390, start=450;
-        const pct = Math.round((start - Math.min(Math.max(est1500,goal),start)) / (start-goal) * 100);
+      if (est12m) {
+        const dStart=2100, dMin=2200, dGoal=2400;
+        const pct = Math.round((Math.min(Math.max(est12m,dStart),dGoal) - dStart) / (dGoal-dStart) * 100);
+        const minPct = Math.round((dMin-dStart)/(dGoal-dStart)*100);
         const nextRun = (runningPlanData?.workouts||[]).find(s => isUpcoming(s.date, s.time||(s.session==='speed'?'20:00':'09:00')));
+        const statusLabel = est12m >= dMin ? `✓ Haalt de eis` : `Nog ${dMin-est12m}m tot eis`;
         h += `<div class="today-run-progress">
           <div class="run-progress-header">
-            <span class="run-progress-title">1500m Progressie</span>
-            <span class="run-progress-badge">Coopertest</span>
+            <span class="run-progress-title">Defensietest 12min</span>
+            <span class="run-progress-badge">~${est12m}m</span>
           </div>
           <div class="run-progress-bar-wrapper">
             <div class="run-progress-markers">
-              <span class="run-marker" style="left:0%">7:30</span>
-              <span class="run-marker accent" style="left:${pct}%">${time1500}</span>
-              <span class="run-marker" style="left:100%">6:30</span>
+              <span class="run-marker" style="left:0%">${dStart}m</span>
+              <span class="run-marker accent" style="left:${minPct}%">${dMin}m eis</span>
+              <span class="run-marker" style="left:100%">${dGoal}m</span>
             </div>
-            <div class="run-progress-track"><div class="run-progress-fill" style="width:${pct}%"></div></div>
+            <div class="run-progress-track" style="position:relative">
+              <div class="run-progress-fill" style="width:${pct}%"></div>
+              <div style="position:absolute;top:0;bottom:0;left:${minPct}%;width:2px;background:#ff9800;opacity:.7"></div>
+            </div>
           </div>
-          ${nextRun ? `<div class="run-next">Volgende run: <span class="run-next-label">${formatDate(nextRun.date)} — ${escapeHtml(nextRun.name||nextRun.type||'Run')}</span></div>` : ''}
+          <div class="run-next">${statusLabel} · ${nextRun ? `Volgende: <span class="run-next-label">${formatDate(nextRun.date)} — ${escapeHtml(nextRun.name||nextRun.type||'Run')}</span>` : 'Geen run gepland'}</div>
         </div>`;
       }
 

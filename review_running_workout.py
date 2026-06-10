@@ -49,7 +49,8 @@ log = logging.getLogger(__name__)
 
 _REVIEW_SYSTEM_PROMPT = """You are a professional running coach reviewing upcoming workouts for Ralph de Leeuw.
 - 47 years old, 77kg, CrossFit 5x/week, runs 1-3x/week
-- Current 5K: ~28 min (5:36/km) | Goal: 1500m zo snel mogelijk (coopertest prep — maximize 12-min distance)
+- Current 5K: ~28 min (5:36/km) | Goal: run 2200m in 12 minutes (Dutch defensie fitness test) — do it easily (training target: 2400m in 12 min)
+- Every even week: Session 2 = 12-minute test run; every odd week: Session 2 = threshold/tempo run
 
 Your task: evaluate the planned workout(s) and decide if any need adjustment based on:
 - Recovery: HRV, resting HR, sleep, TSB (Training Stress Balance)
@@ -79,11 +80,11 @@ Do NOT adjust for:
 
 Most workouts should stay unchanged. Only adjust when the evidence is clear.
 
-Pace zones for reference (1500m/Cooper focus):
+Pace zones for reference (defensie fitness test focus):
 - Conversational (max): 6:40/km
 - Aerobic: 6:00-6:30/km
-- Threshold: 5:20-5:40/km
-- 1500m race pace: 4:40-5:05/km
+- Threshold: 5:10-5:30/km (just above test pace)
+- Test pace (12-min): 5:00-5:27/km (2400m comfortable → 2200m minimum)
 - Interval 600m: 4:50-5:10/km
 - Interval 400m: 4:40-5:00/km
 - Interval 300m: 4:30-4:50/km
