@@ -1486,29 +1486,30 @@
         <div class="run-freq-days-row">${renderDayBtns(nextWeekDays, false, 'toggleRunDayNextWeek')}</div>
       </div>`;
 
-      // Defensie fitnesstest voortgangsbalk (12-min test: doel 2200m, trainsdoel 2400m)
-      const defStart = 2100; // baseline o.b.v. huidige 5K (~5:36/km × 12min)
-      const defMin   = 2200; // minimumeis defensie
-      const defGoal  = 2400; // comfortabel trainingsdoel
+      // Defensie fitnesstest voortgangsbalk — twee doelen: 2200m (eis) en 2700m (streef)
+      const defStart  = 2100; // baseline o.b.v. huidige 5K (~5:36/km × 12min)
+      const defEis    = 2200; // minimumeis defensie (fase 1)
+      const defStreef = 2700; // streefdoel defensie (fase 2)
       const rawEst12m = runningPlanData.estimated_12min_distance_m;
       const est12m = (rawEst12m && rawEst12m >= 1500 && rawEst12m <= 3500) ? rawEst12m : null;
       let progressHtml = '';
       if (est12m) {
-        const clampedEst = Math.min(Math.max(est12m, defStart), defGoal);
-        const pct = Math.round((clampedEst - defStart) / (defGoal - defStart) * 100);
-        const minMarkerPct = Math.round((defMin - defStart) / (defGoal - defStart) * 100);
-        const mLeft = Math.max(0, defMin - est12m);
-        const statusText = est12m >= defMin ? `✓ Haalt de eis (+${est12m - defMin}m)` : `Nog ${mLeft}m tot eis`;
+        const clampedEst = Math.min(Math.max(est12m, defStart), defStreef);
+        const pct      = Math.round((clampedEst - defStart) / (defStreef - defStart) * 100);
+        const eisPct   = Math.round((defEis   - defStart) / (defStreef - defStart) * 100);
+        const statusText = est12m >= defEis
+          ? `✓ Fase 1 gehaald${est12m >= defStreef ? ' · ✓ Fase 2 gehaald' : ` · nog ${defStreef - est12m}m tot fase 2`}`
+          : `Nog ${defEis - est12m}m tot eis (fase 1)`;
         progressHtml = `<div class="run-5k-progress">
           <div class="run-5k-labels">
-            <span>Defensietest 12min: <strong>${defMin}m</strong></span>
+            <span>Defensietest 12min</span>
             <span style="color:#e8ff3c">Huidig: <strong>~${est12m}m</strong></span>
           </div>
           <div class="run-5k-bar-track" style="position:relative">
             <div class="run-5k-bar-fill" style="width:${pct}%"></div>
-            <div style="position:absolute;top:-8px;left:${minMarkerPct}%;transform:translateX(-50%);font-size:10px;color:#ff9800">▼eis</div>
+            <div style="position:absolute;top:-8px;left:${eisPct}%;transform:translateX(-50%);font-size:10px;color:#ff9800" title="Fase 1 eis">▼${defEis}m</div>
           </div>
-          <div class="run-5k-sub">${statusText} · trainsdoel: ${defGoal}m · ${pct}% naar trainsdoel</div>
+          <div class="run-5k-sub">${statusText} · fase 2: ${defStreef}m</div>
         </div>`;
       }
 
@@ -1572,11 +1573,15 @@
 
     function getRunPhaseInfo(w) {
       const test = w % 2 === 0 ? '12-min test 🎯' : 'Threshold run';
-      if (w <= 4)  return { label: 'Basisopbouw',      color: '#4caf50', di: 'Lichte fartlek (Z2-Z3)',         vr: test };
-      if (w <= 8)  return { label: 'Aëroob vermogen',  color: '#2196f3', di: '400m/600m herhalingen',          vr: test };
-      if (w <= 12) return { label: 'Intensiteit',      color: '#ff9800', di: '200m/300m sprints + testpace',   vr: test };
-      if (w % 4 === 0) return { label: 'Herstelweek',  color: '#9c27b0', di: 'Lichte easy run',                vr: w % 2 === 0 ? '12-min test 🎯' : 'Korte tempo (−30%)' };
-      return                { label: 'Consolidatie',   color: '#f44336', di: 'Gevarieerd snelheidswerk',        vr: test };
+      // Fase 1: weken 1-10 (2200m doel)
+      if (w <= 4)  return { label: 'Fase 1 · Basis',     color: '#4caf50', di: 'Lichte fartlek (Z2-Z3)',           vr: test };
+      if (w <= 8)  return { label: 'Fase 1 · Aëroob',    color: '#2196f3', di: '400m/600m @ testpace',             vr: test };
+      if (w <= 10) return { label: 'Fase 1 · Intensiteit',color:'#ff9800', di: '200m/300m sprints',                vr: test };
+      // Fase 2: weken 11+ (2700m doel)
+      if (w <= 14) return { label: 'Fase 2 · Basis',     color: '#4caf50', di: 'Fartlek fase-2 paces',             vr: test };
+      if (w <= 18) return { label: 'Fase 2 · Aëroob',    color: '#2196f3', di: '400m/600m @ fase-2 paces',        vr: test };
+      if (w % 4 === 0) return { label: 'Herstelweek',    color: '#9c27b0', di: 'Lichte easy run',                  vr: w % 2 === 0 ? '12-min test 🎯' : 'Korte tempo (−30%)' };
+      return                 { label: 'Fase 2 · Intensiteit', color: '#f44336', di: '200m/300m fase-2 paces',      vr: test };
     }
 
     function renderRunningPhaseOverview(currentWeek) {
@@ -1912,16 +1917,18 @@
       });
       h += `</div>`;
 
-      // Running progress (defensie fitnesstest)
+      // Running progress (defensie fitnesstest — twee doelen)
       const rawEst12m = runningPlanData?.estimated_12min_distance_m;
       const est12m = (rawEst12m && rawEst12m >= 1500 && rawEst12m <= 3500) ? rawEst12m : null;
 
       if (est12m) {
-        const dStart=2100, dMin=2200, dGoal=2400;
-        const pct = Math.round((Math.min(Math.max(est12m,dStart),dGoal) - dStart) / (dGoal-dStart) * 100);
-        const minPct = Math.round((dMin-dStart)/(dGoal-dStart)*100);
+        const dStart=2100, dEis=2200, dStreef=2700;
+        const pct    = Math.round((Math.min(Math.max(est12m,dStart),dStreef) - dStart) / (dStreef-dStart) * 100);
+        const eisPct = Math.round((dEis-dStart)/(dStreef-dStart)*100);
         const nextRun = (runningPlanData?.workouts||[]).find(s => isUpcoming(s.date, s.time||(s.session==='speed'?'20:00':'09:00')));
-        const statusLabel = est12m >= dMin ? `✓ Haalt de eis` : `Nog ${dMin-est12m}m tot eis`;
+        const statusLabel = est12m >= dEis
+          ? (est12m >= dStreef ? `✓ Fase 1 + 2 gehaald` : `✓ Fase 1 · nog ${dStreef-est12m}m tot fase 2`)
+          : `Nog ${dEis-est12m}m tot fase 1 eis`;
         h += `<div class="today-run-progress">
           <div class="run-progress-header">
             <span class="run-progress-title">Defensietest 12min</span>
@@ -1930,12 +1937,12 @@
           <div class="run-progress-bar-wrapper">
             <div class="run-progress-markers">
               <span class="run-marker" style="left:0%">${dStart}m</span>
-              <span class="run-marker accent" style="left:${minPct}%">${dMin}m eis</span>
-              <span class="run-marker" style="left:100%">${dGoal}m</span>
+              <span class="run-marker accent" style="left:${eisPct}%;color:#ff9800">${dEis}m eis</span>
+              <span class="run-marker" style="left:100%">${dStreef}m</span>
             </div>
             <div class="run-progress-track" style="position:relative">
               <div class="run-progress-fill" style="width:${pct}%"></div>
-              <div style="position:absolute;top:0;bottom:0;left:${minPct}%;width:2px;background:#ff9800;opacity:.7"></div>
+              <div style="position:absolute;top:0;bottom:0;left:${eisPct}%;width:2px;background:#ff9800;opacity:.7"></div>
             </div>
           </div>
           <div class="run-next">${statusLabel} · ${nextRun ? `Volgende: <span class="run-next-label">${formatDate(nextRun.date)} — ${escapeHtml(nextRun.name||nextRun.type||'Run')}</span>` : 'Geen run gepland'}</div>

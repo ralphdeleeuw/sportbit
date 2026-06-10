@@ -58,9 +58,9 @@ ATHLETE_PROFILE = {
     "weight_kg": 77,
     "current_5k_min": 28,
     "current_5k_pace": "5:36",
-    "goal": "2200m in 12 minuten (defensie fitnesstest) — gemakkelijk halen; trainsdoel: 2400m in 12 min",
-    "target_12min_m": 2200,        # minimumeis defensie fitnesstest
-    "comfortable_12min_m": 2400,   # trainingsdoel: ruime marge op de eis
+    "goal": "defensie fitnesstest — FASE 1: 2200m in 12 min (eis, ~5:27/km) | FASE 2: 2700m in 12 min (streef, ~4:26/km)",
+    "goal_1_12min_m": 2200,   # minimumeis defensie fitnesstest (≈5:27/km)
+    "goal_2_12min_m": 2700,   # streef­doel defensie fitnesstest (≈4:26/km)
     "running_base": "enige basis — kan 5-10km lopen maar niet regelmatig geweest",
     "run_sessions": [
         {"day": "Tuesday", "time": "19:00", "role": "speed"},
@@ -77,17 +77,26 @@ ATHLETE_PROFILE = {
     },
 }
 
-# Pacezones op basis van defensie fitnesstest (2200m in 12 min = 5:27/km)
-# Trainingsdoel: 2400m in 12 min = 5:00/km
+# Pacezones voor defensie fitnesstest — twee niveaus
+# Fase 1 (≤ week 10): opbouw naar 2200m  |  Fase 2 (> week 10): opbouw naar 2700m
 PACE_ZONES = {
-    "easy":       ("6:40", "7:10"),  # herstel, Z2
-    "aerobic":    ("6:00", "6:30"),  # aëroob basis
-    "threshold":  ("5:10", "5:30"),  # drempel — net iets sneller dan testpace
-    "test_pace":  ("5:00", "5:27"),  # 12-min testpace (comfortabel 5:00 → minimum 5:27)
-    "fast_600":   ("4:50", "5:10"),  # 600m herhalingen
-    "fast_400":   ("4:40", "5:00"),  # 400m herhalingen
-    "fast_300":   ("4:30", "4:50"),  # 300m herhalingen
-    "fast_200":   ("4:20", "4:40"),  # 200m herhalingen (sprint)
+    # ── beide fases ──────────────────────────────────────────
+    "easy":              ("6:40", "7:10"),  # herstel, Z2
+    "aerobic":           ("6:00", "6:30"),  # aëroob basis
+    # ── fase 1: 2200m doel (5:27/km) ─────────────────────────
+    "threshold_f1":      ("5:10", "5:30"),  # drempel fase 1
+    "test_pace_f1":      ("5:00", "5:27"),  # testpace fase 1
+    "fast_600_f1":       ("4:50", "5:10"),
+    "fast_400_f1":       ("4:40", "5:00"),
+    "fast_300_f1":       ("4:30", "4:50"),
+    "fast_200_f1":       ("4:20", "4:40"),
+    # ── fase 2: 2700m doel (4:26/km) ─────────────────────────
+    "threshold_f2":      ("4:30", "4:50"),  # drempel fase 2
+    "test_pace_f2":      ("4:15", "4:26"),  # testpace fase 2
+    "fast_600_f2":       ("4:05", "4:20"),
+    "fast_400_f2":       ("3:55", "4:10"),
+    "fast_300_f2":       ("3:45", "4:00"),
+    "fast_200_f2":       ("3:35", "3:50"),
 }
 
 
@@ -427,7 +436,14 @@ def _build_claude_context(ctx: dict) -> str:
         f"Week number in continuous defensie fitness test training program: week {week_number}",
         f"Sessions per week this week: {sessions_per_week}",
         *sessions,
-        f"Goal: run 2200m in 12 minutes (Dutch defensie fitness test) — do it easily (training target: 2400m in 12 min) | Test pace (minimum): 5:27/km | Comfortable pace: 5:00/km | Current 5K ref: {ATHLETE_PROFILE['current_5k_pace']}/km ({ATHLETE_PROFILE['current_5k_min']} min) | This is week {week_number} — {'TEST WEEK: Session 2 = 12-minute test run' if week_number % 2 == 0 else 'training week (next test in week ' + str(week_number + (2 - week_number % 2)) + ')'}",
+        (
+            f"Goals: PHASE 1 (weeks 1-10) = run 2200m in 12 min (≈5:27/km) | "
+            f"PHASE 2 (weeks 11+) = run 2700m in 12 min (≈4:26/km) | "
+            f"Current phase: {'1 — build towards 2200m' if week_number <= 10 else '2 — build towards 2700m'} | "
+            f"Current 5K ref: {ATHLETE_PROFILE['current_5k_pace']}/km ({ATHLETE_PROFILE['current_5k_min']} min) | "
+            f"This is week {week_number} — "
+            f"{'TEST WEEK: Session 2 = 12-minute test run' if week_number % 2 == 0 else 'training week (next test: week ' + str(week_number + (2 - week_number % 2)) + ')'}"
+        ),
     ]
 
     if wellness_lines:
@@ -559,8 +575,8 @@ def _build_claude_context(ctx: dict) -> str:
 
 _SYSTEM_PROMPT = """You are a professional running coach. You create training schedules for Ralph de Leeuw:
 - 47 years old, 77kg, CrossFit 5x/week (actual schedule provided in context), runs 1-3x/week
-- Current 5K: ~28 min (5:36/km) | Goal: run 2200m in 12 minutes (Dutch defensie fitness test) — do it easily (training target: 2400m in 12 min)
-- Default: Tuesday 19:00 = speed work | Friday 07:15 = tempo/threshold or test | Sunday 09:00 = easy run (if 3x/week)
+- Current 5K: ~28 min (5:36/km) | Goal: Dutch defensie fitness test — PHASE 1 (weeks 1-10): 2200m in 12 min (≈5:27/km) | PHASE 2 (weeks 11+): 2700m in 12 min (≈4:26/km)
+- Default: Tuesday 19:00 = speed work | Friday 07:15 = tempo/threshold or 12-min test | Sunday 09:00 = easy run (if 3x/week)
 - The exact dates, times, and number of sessions are provided in the context — always use them exactly
 - Generate EXACTLY the number of workouts specified in "Sessions per week" — no more, no less
 - Use the upcoming CrossFit schedule in the context to avoid scheduling hard speed sessions on days with heavy CrossFit (same day or day after)
@@ -569,36 +585,41 @@ _SYSTEM_PROMPT = """You are a professional running coach. You create training sc
 - If recent running workouts were cancelled due to illness or injury (see "Cancelled running workouts"), account for lost training load: start lighter if illness/fatigue was the reason, maintain normal progression if it was a scheduling issue
 - If "Weather forecast for run days" is provided: high temperature (feels-like > 25°C) → lower pace zones by one step and reduce distance by 10-15%; stormy/heavy rain → replace speed work with easy Z2 run; AQI > 100 → avoid high-intensity intervals
 
-Training focus — defensie fitness test (2200m / 12 min):
-- Session 1 (speed): short, fast intervals — 200m/300m/400m/600m at test pace or faster; builds speed reserve so 2200m feels comfortable
-- Session 2 (tempo/threshold on ODD weeks): 4-6km run at threshold pace (5:10-5:30/km), or progressive fartlek
-- Session 2 (12-MIN TEST on EVEN weeks): 1km warmup + 12-minute all-out effort (duration_s=720, label "12-min Defensietest") + 1km cooldown — simulate the actual test
+Training focus — defensie fitness test (two goals, two phases):
+- Session 1 (speed): short, fast intervals — 200m/300m/400m/600m; use phase-appropriate paces below
+- Session 2 (tempo/threshold on ODD weeks): 4-6km threshold run or fartlek; phase-appropriate pace
+- Session 2 (12-MIN TEST on EVEN weeks): 1km warmup + 12-min all-out effort (duration_s=720, label "12-min Defensietest") + 1km cooldown; use phase-appropriate test pace
 - Session 3 (easy, only if sessions_per_week=3): easy Z2 run, 4-5km recovery
-- Key principle: the test is aerobic endurance at sustained pace — build both speed reserve AND the ability to hold 5:27/km for 12 minutes
+- Key principle: the 12-min test is sustained aerobic power — build speed reserve AND ability to hold test pace for a full 12 minutes
 
-Pace zones (always calibrate to recovery status via HRV/TSB):
-- Conversational (max):  6:40/km — "no faster than 6:40/km"
+PHASE 1 (weeks 1-10) — target: 2200m in 12 min (≈5:27/km):
+- Threshold: 5:10-5:30/km | Test pace: 5:00-5:27/km | 600m: 4:50-5:10 | 400m: 4:40-5:00 | 300m: 4:30-4:50 | 200m: 4:20-4:40
+- 12-min test step pace: pace_min="5:00" pace_max="5:27"
+
+PHASE 2 (weeks 11+) — target: 2700m in 12 min (≈4:26/km):
+- Threshold: 4:30-4:50/km | Test pace: 4:15-4:26/km | 600m: 4:05-4:20 | 400m: 3:55-4:10 | 300m: 3:45-4:00 | 200m: 3:35-3:50
+- 12-min test step pace: pace_min="4:15" pace_max="4:26"
+
+Base pace zones (both phases):
+- Conversational (max):  6:40/km
 - Aerobic:               6:00-6:30/km
-- Threshold:             5:10-5:30/km — just above test pace, main training zone
-- Test pace (12-min):    5:00-5:27/km — 2400m comfortable=5:00, 2200m minimum=5:27
-- Interval pace 600m:    4:50-5:10/km
-- Interval pace 400m:    4:40-5:00/km
-- Interval pace 300m:    4:30-4:50/km
-- Interval pace 200m:    4:20-4:40/km (sprint)
+- Easy warmup/cooldown:  6:20-6:40/km
 
 HR zones (max HR ~173 bpm, age 47):
 - Z1 recovery:   <104 bpm  — warmup, cooldown, recovery walk
 - Z2 aerobic:    104-121   — easy runs, base building, session 3
 - Z3 tempo:      121-138   — aerobic threshold, fartlek surges
 - Z4 threshold:  138-155   — threshold and test pace intervals
-- Z5 VO2max:     >155      — hard intervals (400m, 300m, 200m at fast pace)
+- Z5 VO2max:     >155      — hard short intervals
 
-Periodization (continuous, no end date) — defensie test focus:
-- Weeks 1-4:   base building — easy runs + light fartlek (Z2-Z3), max 5km; even weeks: 12-min test
-- Weeks 5-8:   aerobic power — 400m/600m repeats + threshold runs; even weeks: 12-min test
-- Weeks 9-12:  intensity — 200m/300m sprints + test-pace intervals; even weeks: 12-min test
-- Week 13+:    consolidation — every 4th week = recovery (30% less volume); even weeks: 12-min test
-- Low HRV (<35ms) or negative TSB (<-15): always choose the lighter variant
+Periodization (continuous, no end date):
+- Weeks 1-4:   base building (Ph1) — easy runs + fartlek (Z2-Z3); even weeks: 12-min test
+- Weeks 5-8:   aerobic power (Ph1) — 400m/600m + threshold; even weeks: 12-min test
+- Weeks 9-10:  intensity (Ph1) — 200m/300m sprints + test-pace; even weeks: 12-min test
+- Weeks 11-14: base rebuild (Ph2) — reset at phase 2 paces; even weeks: 12-min test at Ph2 pace
+- Weeks 15-18: aerobic power (Ph2) — 400m/600m at Ph2 paces; even weeks: 12-min test
+- Weeks 19+:   intensity (Ph2) + consolidation — every 4th week = recovery (30% less)
+- Low HRV (<35ms) or negative TSB (<-15): always choose the lighter variant; on test weeks, replace test with easy threshold run if badly fatigued
 
 Output: return ONLY valid JSON (no markdown, no explanation):
 [
@@ -619,7 +640,8 @@ Step formats:
   Warm-up:      {"type":"warmup",   "distance_m":<int>, "pace_min":"M:SS", "pace_max":"M:SS", "hr_zone":"Z1"}
   Easy/long run:{"type":"run",      "distance_m":<int>, "pace_min":"M:SS", "pace_max":"M:SS", "hr_zone":"Z2"}
   Interval:     {"type":"run",      "distance_m":<int>, "pace_min":"M:SS", "pace_max":"M:SS", "hr_zone":"Z5"}
-  12-min test:  {"type":"run",      "duration_s":720,   "label":"12-min Defensietest", "pace_min":"5:00", "pace_max":"5:27", "hr_zone":"Z4"}
+  12-min test Ph1: {"type":"run", "duration_s":720, "label":"12-min Defensietest", "pace_min":"5:00", "pace_max":"5:27", "hr_zone":"Z4"}
+  12-min test Ph2: {"type":"run", "duration_s":720, "label":"12-min Defensietest", "pace_min":"4:15", "pace_max":"4:26", "hr_zone":"Z4"}
   Repeat:       {"type":"repeat",   "count":<int>, "children":[<steps>]}
   Walking rest: {"type":"rest",     "duration_s":<int>}
   Cool-down:    {"type":"cooldown", "distance_m":<int>, "pace_min":"M:SS", "pace_max":"M:SS", "hr_zone":"Z1"}
@@ -1676,6 +1698,7 @@ def _estimate_12min_distance_m(specs: list[dict]) -> int | None:
         return None
 
     avg_pace = sum(threshold_paces) / len(threshold_paces)
+    # Uitkomst kan hoger uitkomen dan 2200m (fase 2) — cap op 3500m voor sanity
     return round(12 * 1000 / avg_pace)
 
 
