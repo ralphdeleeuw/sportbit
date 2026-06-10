@@ -1455,10 +1455,23 @@
         ? `<span class="run-badge">Week ${runningPlanData.week_number}</span>` : '';
 
       // Sessiefrequentie selector
-      const freq = parseInt(healthInput?.sessions_per_week || 2);
-      const freqHtml = `<div class="run-freq-selector">
-        <span class="run-freq-label">Sessies deze week:</span>
-        ${[1,2,3].map(n => `<button class="run-freq-btn${freq===n?' active':''}" onclick="setSessionsPerWeek(${n})">${n}×</button>`).join('')}
+      const freqThis = parseInt(healthInput?.sessions_per_week ?? 2);
+      const freqNext = parseInt(healthInput?.sessions_next_week ?? healthInput?.sessions_per_week ?? 2);
+      const freqHtml = `<div class="run-freq-wrapper">
+        <div class="run-freq-row">
+          <span class="run-freq-label">Deze week:</span>
+          <div class="run-freq-btns">
+            ${[1,2,3].map(n => `<button class="run-freq-btn${freqThis===n?' active':''}" onclick="setSessionsPerWeek(${n})">${n}×</button>`).join('')}
+          </div>
+          <span id="run-freq-this-status" class="run-freq-status"></span>
+        </div>
+        <div class="run-freq-row">
+          <span class="run-freq-label">Volgende week:</span>
+          <div class="run-freq-btns">
+            ${[1,2,3].map(n => `<button class="run-freq-btn${freqNext===n?' active':''}" onclick="setSessionsNextWeek(${n})">${n}×</button>`).join('')}
+          </div>
+          <span id="run-freq-next-status" class="run-freq-status"></span>
+        </div>
       </div>`;
 
       // 1500m / Cooper test voortgangsbalk
@@ -3628,7 +3641,10 @@
     async function setSessionsPerWeek(n) {
       const token = document.getElementById('githubToken').value.trim();
       if (!token || !currentGistId) { alert('GitHub token vereist'); return; }
+      const statusEl = document.getElementById('run-freq-this-status');
+      const setStatus = (msg, color) => { if (statusEl) { statusEl.textContent = msg; statusEl.style.color = color || 'var(--muted)'; } };
       try {
+        setStatus('Opslaan…');
         const resp = await fetch(`https://api.github.com/gists/${currentGistId}`, {
           headers: { Authorization: `token ${token}` }
         });
@@ -3643,8 +3659,53 @@
           body: JSON.stringify({ files: { 'health_input.json': { content: JSON.stringify(h, null, 2) } } })
         });
         renderApp();
+        setStatus('⏳ Plan hergeneren…');
+        const triggerTime = new Date();
+        const triggerResp = await fetch(
+          'https://api.github.com/repos/ralphdeleeuw/sportbit/actions/workflows/generate_running_workout.yml/dispatches',
+          {
+            method: 'POST',
+            headers: { Authorization: `token ${token}`, Accept: 'application/vnd.github+json', 'Content-Type': 'application/json' },
+            body: JSON.stringify({ ref: 'main', inputs: {} }),
+          }
+        );
+        if (triggerResp.status !== 204) {
+          const body = await triggerResp.json().catch(() => ({}));
+          setStatus(`Workflow fout ${triggerResp.status}: ${body.message || 'onbekend'}`, 'var(--accent2)');
+          return;
+        }
+        await pollWorkflowRun(token, triggerTime, statusEl, null, 'generate_running_workout.yml', `${n}× ingesteld`);
       } catch(e) {
-        alert(`Fout bij opslaan: ${e.message}`);
+        setStatus(`Fout: ${e.message}`, 'var(--accent2)');
+        console.error(e);
+      }
+    }
+
+    async function setSessionsNextWeek(n) {
+      const token = document.getElementById('githubToken').value.trim();
+      if (!token || !currentGistId) { alert('GitHub token vereist'); return; }
+      const statusEl = document.getElementById('run-freq-next-status');
+      const setStatus = (msg, color) => { if (statusEl) { statusEl.textContent = msg; statusEl.style.color = color || 'var(--muted)'; } };
+      try {
+        setStatus('Opslaan…');
+        const resp = await fetch(`https://api.github.com/gists/${currentGistId}`, {
+          headers: { Authorization: `token ${token}` }
+        });
+        const gist = await resp.json();
+        let h = {};
+        try { h = JSON.parse(gist.files['health_input.json']?.content || '{}'); } catch(e) {}
+        h.sessions_next_week = n;
+        healthInput = h;
+        await fetch(`https://api.github.com/gists/${currentGistId}`, {
+          method: 'PATCH',
+          headers: { Authorization: `token ${token}`, 'Content-Type': 'application/json' },
+          body: JSON.stringify({ files: { 'health_input.json': { content: JSON.stringify(h, null, 2) } } })
+        });
+        renderApp();
+        setStatus('✓ Opgeslagen — wordt maandag gebruikt', '#00c853');
+        setTimeout(() => { if (statusEl) statusEl.textContent = ''; }, 4000);
+      } catch(e) {
+        setStatus(`Fout: ${e.message}`, 'var(--accent2)');
         console.error(e);
       }
     }

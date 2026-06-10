@@ -1832,6 +1832,16 @@ def main() -> None:
     log.info("Laden fitnessdata uit Gist...")
     ctx = _load_fitness_context(gist_id, github_token)
 
+    # Promoteer sessions_next_week → sessions_per_week als die is ingesteld
+    health_input_mut = ctx.get("health_input") or {}
+    if "sessions_next_week" in health_input_mut:
+        sessions_next = health_input_mut.pop("sessions_next_week")
+        health_input_mut["sessions_per_week"] = sessions_next
+        ctx["health_input"] = health_input_mut
+        _save_to_gist(gist_id, github_token, "health_input.json",
+                      json.dumps(health_input_mut, indent=2, ensure_ascii=False))
+        log.info("sessions_next_week=%s gepromoveerd naar sessions_per_week", sessions_next)
+
     context_text = _build_claude_context(ctx)
     log.info("Context klaar:\n%s", context_text)
 
