@@ -1,14 +1,16 @@
 #!/usr/bin/env python3
 """
-generate_running_workout.py — Genereert een gepersonaliseerd 2x/week
+generate_running_workout.py — Genereert een gepersonaliseerd 1-3x/week
 hardloopschema via Claude en pusht dit naar intervals.icu.
 
-Standaard schema: dinsdag 19:00 (snelheidswerk) + vrijdag 07:15 (lange duurloop).
-De loopdag kan worden verschoven via health_input.json in de Gist:
+Standaard schema: dinsdag 19:00 (snelheidswerk) + vrijdag 07:15 (tempo run).
+De loopdag en het aantal sessies kan worden ingesteld via health_input.json in de Gist:
   "run_1": "2026-04-22T19:00"   — overschrijft dinsdag-sessie (datum+tijd)
   "run_2": "2026-04-24T07:15"   — overschrijft vrijdag-sessie (datum+tijd)
+  "run_3": "2026-04-27T09:00"   — extra sessie (standaard zondag) bij 3x/week
+  "sessions_per_week": 1|2|3     — aantal sessies (default 2)
 
-Doel: 5K verbeteren van 28 min naar 26 min. Geen einddatum — continu programma.
+Doel: 1500m zo snel mogelijk lopen (voorbereiding coopertest). Geen einddatum — continu programma.
 Workouts hebben Runna-stijl: specifieke pacedoelen per stap, gestructureerde
 herhalingen, walking rest. workout_doc zorgt voor grafiek in intervals.icu
 en gestructureerde workout op de Garmin Fenix.
@@ -56,14 +58,14 @@ ATHLETE_PROFILE = {
     "weight_kg": 77,
     "current_5k_min": 28,
     "current_5k_pace": "5:36",
-    "target_5k_min": 26,
-    "target_5k_pace": "5:12",
+    "goal": "1500m zo snel mogelijk — voorbereiding coopertest (12 min hardlopen)",
+    "estimated_1500m_pace": "4:50-5:10/km",  # schatting op basis van huidige 5K
     "running_base": "enige basis — kan 5-10km lopen maar niet regelmatig geweest",
     "run_sessions": [
         {"day": "Tuesday", "time": "19:00", "role": "speed"},
         {"day": "Friday",  "time": "07:15", "role": "long_run"},
     ],
-    "schedule_note": "Hardloopdagen zijn standaard dinsdag en vrijdag, maar kunnen via health_input.json worden verplaatst.",
+    "schedule_note": "Standaard dinsdag + vrijdag, optioneel zondag als 3e sessie. Aantal sessies en dagen instelbaar via health_input.json (sessions_per_week, run_1, run_2, run_3).",
     "max_hr_estimate": 173,  # 220 - 47 jaar
     "hr_zones": {
         "Z1": "recovery (<104 bpm, <60% max)",
@@ -74,16 +76,16 @@ ATHLETE_PROFILE = {
     },
 }
 
-# Pacezones op basis van huidig 5K (5:36/km) en doel (5:12/km)
+# Pacezones op basis van 1500m doel (coopertest) — sneller dan 5K-focus
 PACE_ZONES = {
-    "easy":       ("6:40", "7:10"),  # conversational, max 6:40/km
-    "aerobic":    ("6:00", "6:30"),  # comfortabel uitdagend
-    "threshold":  ("5:45", "5:55"),  # drempelintensiteit
-    "5k_current": ("5:30", "5:42"),  # huidig 5K race tempo
-    "5k_target":  ("5:08", "5:18"),  # doel 5K race tempo
-    "fast_400":   ("5:10", "5:25"),  # intervaltempo 400m
-    "fast_300":   ("5:20", "5:35"),  # intervaltempo 300m
-    "fast_200":   ("5:00", "5:15"),  # intervaltempo 200m
+    "easy":       ("6:40", "7:10"),  # herstel, Z2
+    "aerobic":    ("6:00", "6:30"),  # aëroob basis
+    "threshold":  ("5:20", "5:40"),  # drempel
+    "1500m_race": ("4:40", "5:05"),  # 1500m wedstrijdtempo
+    "fast_600":   ("4:50", "5:10"),  # 600m herhalingen
+    "fast_400":   ("4:40", "5:00"),  # 400m herhalingen
+    "fast_300":   ("4:30", "4:50"),  # 300m herhalingen
+    "fast_200":   ("4:20", "4:40"),  # 200m herhalingen (sprint)
 }
 
 
@@ -351,7 +353,11 @@ def _build_claude_context(ctx: dict) -> str:
     else:
         week_number = running_plan.get("week_number", 1)
 
-    # Optionele datumoverschrijvingen via health_input.json ("run_1", "run_2")
+    # Aantal sessies deze week (instelbaar via health_input.json "sessions_per_week")
+    sessions_per_week = int(health_input.get("sessions_per_week", 2))
+    sessions_per_week = max(1, min(3, sessions_per_week))  # clamp 1-3
+
+    # Optionele datumoverschrijvingen via health_input.json ("run_1", "run_2", "run_3")
     # Formaat: "YYYY-MM-DDTHH:MM" of "YYYY-MM-DD" (tijd valt terug op default)
     def _parse_run_override(key: str, default_date: date, default_time: str) -> tuple[date, str]:
         raw = health_input.get(key, "")
@@ -367,20 +373,32 @@ def _build_claude_context(ctx: dict) -> str:
 
     run1_date, run1_time = _parse_run_override("run_1", _next_weekday(1), "19:00")
     run2_date, run2_time = _parse_run_override("run_2", _next_weekday(4), "07:15")
+    run3_date, run3_time = _parse_run_override("run_3", _next_weekday(6), "09:00")
 
     health_lines = [
         f"  - {k}: {v}"
         for k, v in health_input.items()
-        if k not in ("date", "run_1", "run_2")
+        if k not in ("date", "run_1", "run_2", "run_3", "sessions_per_week")
     ]
+
+    sessions = [
+        f"Session 1 — speed work: {run1_date.isoformat()} at {run1_time} (use this date and time exactly)",
+    ]
+    if sessions_per_week >= 2:
+        sessions.append(
+            f"Session 2 — tempo/threshold run: {run2_date.isoformat()} at {run2_time} (use this date and time exactly)"
+        )
+    if sessions_per_week >= 3:
+        sessions.append(
+            f"Session 3 — easy aerobic run: {run3_date.isoformat()} at {run3_time} (use this date and time exactly)"
+        )
 
     sections = [
         f"Today's date: {today.isoformat()}",
-        f"Week number in continuous 5K program: week {week_number}",
-        f"Session 1 — speed work: {run1_date.isoformat()} at {run1_time} (use this date and time exactly)",
-        f"Session 2 — long run: {run2_date.isoformat()} at {run2_time} (use this date and time exactly)",
-        f"Current 5K pace: {ATHLETE_PROFILE['current_5k_pace']}/km ({ATHLETE_PROFILE['current_5k_min']} min)",
-        f"Target 5K pace: {ATHLETE_PROFILE['target_5k_pace']}/km ({ATHLETE_PROFILE['target_5k_min']} min)",
+        f"Week number in continuous 1500m/Cooper training program: week {week_number}",
+        f"Sessions per week this week: {sessions_per_week}",
+        *sessions,
+        f"Goal: fastest possible 1500m (Cooper test prep) | Estimated 1500m pace: ~{ATHLETE_PROFILE['estimated_1500m_pace']} | Current 5K ref: {ATHLETE_PROFILE['current_5k_pace']}/km ({ATHLETE_PROFILE['current_5k_min']} min)",
     ]
 
     if wellness_lines:
@@ -511,47 +529,54 @@ def _build_claude_context(ctx: dict) -> str:
 # ── Claude prompt ──────────────────────────────────────────────────────────────
 
 _SYSTEM_PROMPT = """You are a professional running coach. You create training schedules for Ralph de Leeuw:
-- 47 years old, 77kg, CrossFit 5x/week (actual schedule provided in context), runs 2x/week
-- Current 5K: ~28 min (5:36/km) | Goal: 26 min (5:12/km)
-- Default: Tuesday 19:00 = speed work | Friday 07:15 = long run
-- The exact dates and times are provided in the context — always use them exactly
+- 47 years old, 77kg, CrossFit 5x/week (actual schedule provided in context), runs 1-3x/week
+- Current 5K: ~28 min (5:36/km) | Goal: 1500m as fast as possible (Cooper test prep — maximize 12-min distance)
+- Default: Tuesday 19:00 = speed work | Friday 07:15 = tempo/threshold run | Sunday 09:00 = easy run (if 3x/week)
+- The exact dates, times, and number of sessions are provided in the context — always use them exactly
+- Generate EXACTLY the number of workouts specified in "Sessions per week" — no more, no less
 - Use the upcoming CrossFit schedule in the context to avoid scheduling hard speed sessions on days with heavy CrossFit (same day or day after)
 - Also check "Other planned activities" — avoid hard speed sessions the day before a physically demanding activity
 - CrossFit events (e.g. "The Murph", competitions, open workouts) in "Other planned activities" are extremely demanding: treat the day before AND the day after as recovery days — only easy runs (Z2) allowed
 - If recent running workouts were cancelled due to illness or injury (see "Cancelled running workouts"), account for lost training load: start lighter if illness/fatigue was the reason, maintain normal progression if it was a scheduling issue
 - If "Weather forecast for run days" is provided: high temperature (feels-like > 25°C) → lower pace zones by one step and reduce distance by 10-15%; stormy/heavy rain → replace speed work with easy Z2 run; AQI > 100 → avoid high-intensity intervals
 
+Training focus — 1500m/Cooper:
+- Session 1 (speed): short, fast intervals — 200m/300m/400m/600m at 1500m race pace or faster
+- Session 2 (tempo/threshold): 4-6km run at threshold pace, or fartlek — build aerobic engine
+- Session 3 (easy, only if sessions_per_week=3): easy Z2 run, 4-5km recovery
+- Key principle: quality over quantity — 1500m is won with speed endurance and VO2max, not long mileage
+
 Pace zones (always calibrate to recovery status via HRV/TSB):
 - Conversational (max):  6:40/km — "no faster than 6:40/km"
-- Aerobic:               6:00-6:20/km
-- Threshold:             5:45-5:55/km
-- 5K race pace (now):    5:30-5:42/km
-- Interval pace 800m:    5:20-5:30/km
-- Interval pace 400m:    5:10-5:25/km
-- Interval pace 300m:    5:20-5:35/km
-- Interval pace 200m:    5:00-5:15/km
+- Aerobic:               6:00-6:30/km
+- Threshold:             5:20-5:40/km
+- 1500m race pace:       4:40-5:05/km
+- Interval pace 600m:    4:50-5:10/km
+- Interval pace 400m:    4:40-5:00/km
+- Interval pace 300m:    4:30-4:50/km
+- Interval pace 200m:    4:20-4:40/km (sprint)
 
 HR zones (max HR ~173 bpm, age 47):
 - Z1 recovery:   <104 bpm  — warmup, cooldown, recovery walk
-- Z2 aerobic:    104-121   — easy runs, long runs, base building
+- Z2 aerobic:    104-121   — easy runs, base building, session 3
 - Z3 tempo:      121-138   — aerobic threshold, fartlek surges
 - Z4 threshold:  138-155   — tempo runs, threshold intervals
-- Z5 VO2max:     >155      — hard intervals (400m, 300m, 200m)
+- Z5 VO2max:     >155      — hard intervals (400m, 300m, 200m at 1500m pace)
 
-Periodization (continuous, no end date):
-- Weeks 1-4:   base building — easy long runs + light fartlek, max 6km Saturday
-- Weeks 5-8:   first structured work — rolling repeats (300m/400m), progressive long runs
-- Weeks 9-12:  intensity — Fast 8-4-2s style, threshold intervals, longer long runs
-- Week 13+:    consolidation + race prep — every 4th week recovery week (30% less volume)
+Periodization (continuous, no end date) — 1500m/Cooper focus:
+- Weeks 1-4:   base building — easy runs + light fartlek (Z2-Z3), max 5km total; session 2 = easy progressive run
+- Weeks 5-8:   speed foundation — 400m/600m repeats at 1500m pace; session 2 = threshold run 4-5km
+- Weeks 9-12:  intensity — 200m/300m sprints + race-pace intervals; session 2 = tempo run 4-6km
+- Week 13+:    consolidation — every 4th week = recovery (30% less volume + intensity); session 2 varies
 - Low HRV (<35ms) or negative TSB (<-15): always choose the lighter variant
 
 Output: return ONLY valid JSON (no markdown, no explanation):
 [
   {
     "date": "YYYY-MM-DD",
-    "session": "speed|long_run",
+    "session": "speed|long_run|easy",
     "type": "easy_run|fartlek|interval_run|progressive_run|tempo_run",
-    "name": "Short English session name (like Runna: 'Rolling 300s', 'Progressive long run')",
+    "name": "Short English session name (like Runna: 'Rolling 300s', 'Threshold 5K', 'Easy 4K')",
     "description": "1-2 sentences about the goal of this session",
     "total_distance_km": <float>,
     "steps": [
@@ -563,33 +588,35 @@ Output: return ONLY valid JSON (no markdown, no explanation):
 Step formats:
   Warm-up:      {"type":"warmup",   "distance_m":<int>, "pace_min":"M:SS", "pace_max":"M:SS", "hr_zone":"Z1"}
   Easy/long run:{"type":"run",      "distance_m":<int>, "pace_min":"M:SS", "pace_max":"M:SS", "hr_zone":"Z2"}
-  Interval:     {"type":"run",      "distance_m":<int>, "pace_min":"M:SS", "pace_max":"M:SS", "hr_zone":"Z4"}
+  Interval:     {"type":"run",      "distance_m":<int>, "pace_min":"M:SS", "pace_max":"M:SS", "hr_zone":"Z5"}
   Repeat:       {"type":"repeat",   "count":<int>, "children":[<steps>]}
   Walking rest: {"type":"rest",     "duration_s":<int>}
   Cool-down:    {"type":"cooldown", "distance_m":<int>, "pace_min":"M:SS", "pace_max":"M:SS", "hr_zone":"Z1"}
 
-pace_min = fastest allowed pace (lower M:SS value, e.g. "6:20"), pace_max = slowest allowed pace (higher M:SS value, e.g. "6:40").
+pace_min = fastest allowed pace (lower M:SS value, e.g. "4:30"), pace_max = slowest allowed pace (higher M:SS value, e.g. "4:50").
 Always provide both pace_min and pace_max as a range — this shows a needle gauge on Garmin instead of a fixed marker.
 Use the pace zone ranges from the table above directly as pace_min/pace_max:
   warmup/cooldown:  pace_min="6:20", pace_max="6:40"  (~20s spread, conversational)
-  easy/long run:    use the aerobic zone range, e.g. pace_min="6:00", pace_max="6:20"
-  interval 400m:    pace_min="5:10", pace_max="5:25"
-  interval 300m:    pace_min="5:20", pace_max="5:35"
-  interval 800m:    pace_min="5:20", pace_max="5:30"
+  easy run:         pace_min="6:00", pace_max="6:30"
+  threshold run:    pace_min="5:20", pace_max="5:40"
+  interval 600m:    pace_min="4:50", pace_max="5:10"
+  interval 400m:    pace_min="4:40", pace_max="5:00"
+  interval 300m:    pace_min="4:30", pace_max="4:50"
+  interval 200m:    pace_min="4:20", pace_max="4:40"
 
 HR zone guidance per step:
   warmup/cooldown → always "Z1"
-  easy/long run   → "Z2" (base), "Z2-Z3" (aerobic push)
+  easy run        → "Z2"
   fartlek surge   → "Z3" or "Z3-Z4"
   tempo/threshold → "Z4"
-  hard interval   → "Z4-Z5"
+  1500m intervals → "Z4-Z5"
+  sprint 200m     → "Z5"
 
-IMPORTANT: Always use distance_m for every run step — warmup, cooldown, easy runs, and long runs alike.
+IMPORTANT: Always use distance_m for every run step — warmup, cooldown, easy runs alike.
 Never use duration_min. The athlete sees distance remaining on their Garmin, not a countdown timer.
-Pace: write as "M:SS" (e.g. "6:40", "5:35").
-Walking rest after the entire repeat block (not per repeat) if it is a long break.
-Saturday session: always progressive_run or easy_run. Structure as warmup (1km) + main run + cooldown (1km).
-Total distance 5-9km depending on week number.
+Pace: write as "M:SS" (e.g. "4:40", "5:35").
+Walking rest after the entire repeat block (not per repeat) if it is a long break (>90s).
+Session 1 total distance: 4-6km including warmup/cooldown. Session 2 total: 4-6km. Session 3 total: 4-5km easy.
 
 CRITICAL OUTPUT RULE: Your response must consist of ONLY the JSON array. Begin your response with '[' — no analysis, no explanation, no reasoning, no markdown."""
 
@@ -1567,13 +1594,12 @@ def _save_ical_to_gist(gist_id: str, token: str, ical_content: str) -> None:
             log.info("iCal opgeslagen → Google Agenda-abonnement URL: %s", raw_url)
 
 
-def _estimate_5k_seconds(specs: list[dict]) -> int | None:
+def _estimate_1500m_seconds(specs: list[dict]) -> int | None:
     """
-    Schat de huidige 5K-tijd op basis van de intervaltempo's in de speed-sessie.
+    Schat de huidige 1500m-tijd op basis van de intervaltempo's in de speed-sessie.
 
-    Gebruikt alleen de speed-sessie (niet de lange duurloop) en alleen
-    pace_target velden (niet pace_max, die gelden voor easy runs).
-    Intervaltempos voor 300-400m zijn ~6% sneller dan 5K race pace.
+    Gebruikt alleen de speed-sessie en pace_min/pace_max van intervalstappen.
+    400m intervaltempo is ~3% sneller dan 1500m race pace.
     """
     interval_paces_spm: list[float] = []
     for spec in specs:
@@ -1583,25 +1609,37 @@ def _estimate_5k_seconds(specs: list[dict]) -> int | None:
             if step.get("type") == "repeat":
                 for child in step.get("children", []):
                     if child.get("type") == "run":
-                        pace_str = child.get("pace_target")  # alleen expliciete intervaltargets
-                        if pace_str:
+                        # Gebruik midpoint van pace range; val terug op pace_target
+                        pace_min = child.get("pace_min")
+                        pace_max = child.get("pace_max")
+                        pace_str = child.get("pace_target")
+                        if pace_min and pace_max:
                             try:
-                                mins, secs = pace_str.split(":")
-                                spm = int(mins) * 60 + int(secs)
-                                # Filter out easy paces (> 6:10/km) — die horen niet in een interval
-                                if spm <= 370:
-                                    interval_paces_spm.append(spm)
+                                def to_spm(p: str) -> int:
+                                    m, s = p.split(":")
+                                    return int(m) * 60 + int(s)
+                                spm = (to_spm(pace_min) + to_spm(pace_max)) // 2
                             except (ValueError, AttributeError):
-                                pass
+                                spm = None
+                        elif pace_str:
+                            try:
+                                m, s = pace_str.split(":")
+                                spm = int(m) * 60 + int(s)
+                            except (ValueError, AttributeError):
+                                spm = None
+                        else:
+                            spm = None
+                        if spm is not None and spm <= 310:  # sneller dan 5:10/km = 1500m-intensiteit
+                            interval_paces_spm.append(float(spm))
 
     if not interval_paces_spm:
         return None
 
     interval_paces_spm.sort()
     median_pace = interval_paces_spm[len(interval_paces_spm) // 2]
-    # 300-400m intervaltempo is ~6% sneller dan 5K race pace
-    race_pace_spm = median_pace * 1.06
-    return round(race_pace_spm * 5)  # 5 km
+    # 400m intervaltempo is ~3% sneller dan 1500m race pace
+    race_pace_spm = median_pace * 1.03
+    return round(race_pace_spm * 1.5)  # 1500m = 1.5 km
 
 
 def _save_plan_to_gist(
@@ -1610,17 +1648,17 @@ def _save_plan_to_gist(
     # Bewaar de originele programma-startdatum zodat het weeknummer correct blijft accumuleren.
     # Gebruik alleen de eerste workoutdatum als er nog geen programma-startdatum is.
     plan_start = program_start_date or (specs[0]["date"] if specs else date.today().isoformat())
-    estimated_5k = _estimate_5k_seconds(specs)
+    estimated_1500m = _estimate_1500m_seconds(specs)
     plan = {
         "generated_at": datetime.now(timezone.utc).isoformat(),
         "week_number": week_number,
         "plan_start_date": plan_start,
         "workouts": specs,
     }
-    if estimated_5k is not None:
-        plan["estimated_5k_seconds"] = estimated_5k
-        mins, secs = divmod(estimated_5k, 60)
-        log.info("Geschatte 5K tijd: %d:%02d", mins, secs)
+    if estimated_1500m is not None:
+        plan["estimated_1500m_seconds"] = estimated_1500m
+        mins, secs = divmod(estimated_1500m, 60)
+        log.info("Geschatte 1500m tijd: %d:%02d", mins, secs)
     _save_to_gist(gist_id, token, "running_plan.json", json.dumps(plan, indent=2, ensure_ascii=False))
     log.info("running_plan.json opgeslagen in Gist (week %d)", week_number)
 

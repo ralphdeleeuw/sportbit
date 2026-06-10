@@ -1454,27 +1454,34 @@
       const weekBadge = runningPlanData.week_number
         ? `<span class="run-badge">Week ${runningPlanData.week_number}</span>` : '';
 
-      // 5K progress bar
-      const goal5kSec  = 26 * 60;
-      const start5kSec = 28 * 60;
-      const rawEst = runningPlanData.estimated_5k_seconds;
-      const est5kSec = (rawEst && rawEst <= 32 * 60) ? rawEst : null;
+      // Sessiefrequentie selector
+      const freq = parseInt(healthInput?.sessions_per_week || 2);
+      const freqHtml = `<div class="run-freq-selector">
+        <span class="run-freq-label">Sessies deze week:</span>
+        ${[1,2,3].map(n => `<button class="run-freq-btn${freq===n?' active':''}" onclick="setSessionsPerWeek(${n})">${n}×</button>`).join('')}
+      </div>`;
+
+      // 1500m / Cooper test voortgangsbalk
+      const goal1500Sec  = 390;  // 6:30 voor 1500m (realistisch doel)
+      const start1500Sec = 450;  // 7:30 voor 1500m (startpunt op basis van 5K @ 28 min)
+      const rawEst1500 = runningPlanData.estimated_1500m_seconds;
+      const est1500Sec = (rawEst1500 && rawEst1500 >= 300 && rawEst1500 <= 600) ? rawEst1500 : null;
       let progressHtml = '';
-      if (est5kSec) {
-        const clampedEst = Math.min(Math.max(est5kSec, goal5kSec), start5kSec);
-        const pct = Math.round((start5kSec - clampedEst) / (start5kSec - goal5kSec) * 100);
-        const estMins = Math.floor(est5kSec / 60);
-        const estSecs = est5kSec % 60;
-        const secLeft = Math.max(0, est5kSec - goal5kSec);
+      if (est1500Sec) {
+        const clampedEst = Math.min(Math.max(est1500Sec, goal1500Sec), start1500Sec);
+        const pct = Math.round((start1500Sec - clampedEst) / (start1500Sec - goal1500Sec) * 100);
+        const estMins = Math.floor(est1500Sec / 60);
+        const estSecs = est1500Sec % 60;
+        const secLeft = Math.max(0, est1500Sec - goal1500Sec);
         progressHtml = `<div class="run-5k-progress">
           <div class="run-5k-labels">
-            <span>5K doel: <strong>26:00</strong></span>
+            <span>1500m doel: <strong>6:30</strong></span>
             <span style="color:#e8ff3c">Huidig: <strong>${estMins}:${String(estSecs).padStart(2,'0')}</strong></span>
           </div>
           <div class="run-5k-bar-track">
             <div class="run-5k-bar-fill" style="width:${pct}%"></div>
           </div>
-          <div class="run-5k-sub">Nog ~${Math.floor(secLeft)}s te verbeteren · ${pct}% naar doel</div>
+          <div class="run-5k-sub">Coopertest prep · nog ~${Math.floor(secLeft)}s te verbeteren · ${pct}% naar doel</div>
         </div>`;
       }
 
@@ -1530,17 +1537,18 @@
       return `<div class="run-plan-header">
           <span class="run-plan-label">Hardloopplan</span>${weekBadge}
         </div>
+        ${freqHtml}
         ${progressHtml}
         ${phaseOverviewHtml}
         <div class="cards">${cardsHtml}</div>`;
     }
 
     function getRunPhaseInfo(w) {
-      if (w <= 4)  return { label: 'Basisopbouw', color: '#4caf50', di: 'Lichte fartlek', vr: 'Easy long run (max 6km)' };
-      if (w <= 8)  return { label: 'Opbouw',      color: '#2196f3', di: 'Rolling repeats (300/400m)', vr: 'Progressieve long run' };
-      if (w <= 12) return { label: 'Intensiteit', color: '#ff9800', di: 'Fast 8-4-2s / threshold',    vr: 'Langere long run' };
-      if (w % 4 === 0) return { label: 'Herstelweek', color: '#9c27b0', di: 'Lichte easy run', vr: 'Korte run (−30%)' };
-      return { label: 'Consolidatie', color: '#f44336', di: 'Gevarieerd intensiteitswerk', vr: 'Race prep long run' };
+      if (w <= 4)  return { label: 'Basisopbouw',      color: '#4caf50', di: 'Lichte fartlek (Z2-Z3)',       vr: 'Easy progressive run (4km)' };
+      if (w <= 8)  return { label: 'Snelheidsopbouw',  color: '#2196f3', di: '400m/600m herhalingen',        vr: 'Threshold run 4-5km' };
+      if (w <= 12) return { label: 'Intensiteit',      color: '#ff9800', di: '200m/300m sprints + 1500m-pace', vr: 'Tempo run 5-6km' };
+      if (w % 4 === 0) return { label: 'Herstelweek',  color: '#9c27b0', di: 'Lichte easy run',              vr: 'Korte tempo (−30%)' };
+      return                { label: 'Consolidatie',   color: '#f44336', di: 'Gevarieerd snelheidswerk',      vr: 'Tempo/testinspanning' };
     }
 
     function renderRunningPhaseOverview(currentWeek) {
@@ -1876,26 +1884,25 @@
       });
       h += `</div>`;
 
-      // Stats row
-      const rawEst = runningPlanData?.estimated_5k_seconds;
-      const est5k = (rawEst && rawEst <= 32*60) ? rawEst : null;
-      const fiveK = est5k ? `${Math.floor(est5k/60)}:${String(est5k%60).padStart(2,'0')}` : '—';
+      // Running progress (1500m / Cooper test)
+      const rawEst1500 = runningPlanData?.estimated_1500m_seconds;
+      const est1500 = (rawEst1500 && rawEst1500 >= 300 && rawEst1500 <= 600) ? rawEst1500 : null;
+      const time1500 = est1500 ? `${Math.floor(est1500/60)}:${String(est1500%60).padStart(2,'0')}` : '—';
 
-      // Running progress
-      if (est5k) {
-        const goal=26*60, start=32*60;
-        const pct = Math.round((start - Math.min(Math.max(est5k,goal),start)) / (start-goal) * 100);
+      if (est1500) {
+        const goal=390, start=450;
+        const pct = Math.round((start - Math.min(Math.max(est1500,goal),start)) / (start-goal) * 100);
         const nextRun = (runningPlanData?.workouts||[]).find(s => isUpcoming(s.date, s.time||(s.session==='speed'?'20:00':'09:00')));
         h += `<div class="today-run-progress">
           <div class="run-progress-header">
-            <span class="run-progress-title">5K Progressie</span>
-            <span class="run-progress-badge">Hardlopen</span>
+            <span class="run-progress-title">1500m Progressie</span>
+            <span class="run-progress-badge">Coopertest</span>
           </div>
           <div class="run-progress-bar-wrapper">
             <div class="run-progress-markers">
-              <span class="run-marker" style="left:0%">32:00</span>
-              <span class="run-marker accent" style="left:${pct}%">${fiveK}</span>
-              <span class="run-marker" style="left:100%">26:00</span>
+              <span class="run-marker" style="left:0%">7:30</span>
+              <span class="run-marker accent" style="left:${pct}%">${time1500}</span>
+              <span class="run-marker" style="left:100%">6:30</span>
             </div>
             <div class="run-progress-track"><div class="run-progress-fill" style="width:${pct}%"></div></div>
           </div>
@@ -3616,6 +3623,30 @@
       e.stopPropagation();
       e.preventDefault();
       toggleReschedule(cardId);
+    }
+
+    async function setSessionsPerWeek(n) {
+      const token = document.getElementById('githubToken').value.trim();
+      if (!token || !currentGistId) { alert('GitHub token vereist'); return; }
+      try {
+        const resp = await fetch(`https://api.github.com/gists/${currentGistId}`, {
+          headers: { Authorization: `token ${token}` }
+        });
+        const gist = await resp.json();
+        let h = {};
+        try { h = JSON.parse(gist.files['health_input.json']?.content || '{}'); } catch(e) {}
+        h.sessions_per_week = n;
+        healthInput = h;
+        await fetch(`https://api.github.com/gists/${currentGistId}`, {
+          method: 'PATCH',
+          headers: { Authorization: `token ${token}`, 'Content-Type': 'application/json' },
+          body: JSON.stringify({ files: { 'health_input.json': { content: JSON.stringify(h, null, 2) } } })
+        });
+        renderApp();
+      } catch(e) {
+        alert(`Fout bij opslaan: ${e.message}`);
+        console.error(e);
+      }
     }
 
     async function _patchRescheduleToGist(token, sessionKey, newDatetime) {
