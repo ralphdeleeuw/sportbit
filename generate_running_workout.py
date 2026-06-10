@@ -371,14 +371,40 @@ def _build_claude_context(ctx: dict) -> str:
         except ValueError:
             return default_date, default_time
 
-    run1_date, run1_time = _parse_run_override("run_1", _next_weekday(1), "19:00")
-    run2_date, run2_time = _parse_run_override("run_2", _next_weekday(4), "07:15")
-    run3_date, run3_time = _parse_run_override("run_3", _next_weekday(6), "09:00")
+    # run_days_this_week: lijst weekdagnrs (0=ma…6=zo) → bepaalt de standaarddatums.
+    # Heeft prioriteit boven de vaste defaults (di/vr/zo); expliciete run_1/run_2/run_3
+    # overschrijvingen nemen altijd de hoogste prioriteit.
+    run_days_cfg = health_input.get("run_days_this_week")
+    if run_days_cfg and len(run_days_cfg) >= 1:
+        monday = today - timedelta(days=today.weekday())
+        day_defaults = [
+            (monday + timedelta(days=int(wd)), "09:00" if int(wd) >= 5 else "19:00")
+            for wd in run_days_cfg[:3]
+        ]
+    else:
+        day_defaults = [
+            (_next_weekday(1), "19:00"),
+            (_next_weekday(4), "07:15"),
+            (_next_weekday(6), "09:00"),
+        ]
+
+    run1_date, run1_time = _parse_run_override("run_1", day_defaults[0][0], day_defaults[0][1])
+    run2_date, run2_time = _parse_run_override(
+        "run_2",
+        day_defaults[1][0] if len(day_defaults) > 1 else _next_weekday(4),
+        day_defaults[1][1] if len(day_defaults) > 1 else "07:15",
+    )
+    run3_date, run3_time = _parse_run_override(
+        "run_3",
+        day_defaults[2][0] if len(day_defaults) > 2 else _next_weekday(6),
+        day_defaults[2][1] if len(day_defaults) > 2 else "09:00",
+    )
 
     health_lines = [
         f"  - {k}: {v}"
         for k, v in health_input.items()
-        if k not in ("date", "run_1", "run_2", "run_3", "sessions_per_week")
+        if k not in ("date", "run_1", "run_2", "run_3", "sessions_per_week",
+                      "run_days_this_week", "run_days_next_week", "sessions_next_week")
     ]
 
     sessions = [
@@ -1832,15 +1858,26 @@ def main() -> None:
     log.info("Laden fitnessdata uit Gist...")
     ctx = _load_fitness_context(gist_id, github_token)
 
-    # Promoteer sessions_next_week → sessions_per_week als die is ingesteld
+    # Promoteer volgende-week-instellingen → deze-week bij start nieuwe generatie
     health_input_mut = ctx.get("health_input") or {}
+    needs_gist_save = False
     if "sessions_next_week" in health_input_mut:
-        sessions_next = health_input_mut.pop("sessions_next_week")
-        health_input_mut["sessions_per_week"] = sessions_next
+        promoted = health_input_mut.pop("sessions_next_week")
+        health_input_mut["sessions_per_week"] = promoted
+        needs_gist_save = True
+        log.info("sessions_next_week=%s gepromoveerd naar sessions_per_week", promoted)
+    if "run_days_next_week" in health_input_mut:
+        days_next = health_input_mut.pop("run_days_next_week")
+        health_input_mut["run_days_this_week"] = days_next
+        # Verwijder eventueel verouderde run_X datumoverrides van vorige week
+        for k in ("run_1", "run_2", "run_3"):
+            health_input_mut.pop(k, None)
+        needs_gist_save = True
+        log.info("run_days_next_week=%s gepromoveerd naar run_days_this_week", days_next)
+    if needs_gist_save:
         ctx["health_input"] = health_input_mut
         _save_to_gist(gist_id, github_token, "health_input.json",
                       json.dumps(health_input_mut, indent=2, ensure_ascii=False))
-        log.info("sessions_next_week=%s gepromoveerd naar sessions_per_week", sessions_next)
 
     context_text = _build_claude_context(ctx)
     log.info("Context klaar:\n%s", context_text)
