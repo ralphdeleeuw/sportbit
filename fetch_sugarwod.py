@@ -2631,7 +2631,7 @@ Focus areas:
 Barbell maxima (kg):
 {barbell_text}{barbell_trend_text}
 
-Weight notation: The workout description may use lbs (American notation). The "Coach-/athlete notes" section ALWAYS uses KILOGRAMS — treat every number there as kg, never as lbs. If weights in the description are noted as "X/Y lbs" or "X/Y kg", always use the first number (X) — that is the men's weight. When coach notes specify different weights than the workout description, the coach notes always take priority (and are in kg).
+Weight notation: The workout description may use lbs (American notation). The "Coach-/athlete notes" section ALWAYS uses KILOGRAMS — treat every number there as kg, never as lbs. In both sections, "X/Y" means X kg for men and Y kg for women — always use X (the men's weight) for this athlete. When coach notes specify different weights than the workout description, the coach notes always take priority (and are in kg).
 
 Past CrossFit box sessions the athlete ACTUALLY attended (most recent first).
 These are all real CrossFit WODs — even if the WOD description is missing or empty.
@@ -2951,7 +2951,7 @@ Personal focus areas (movements where improvement is desired):
 Barbell maxima (kg):
 {barbell_text}{barbell_trend_text}
 {withings_block}{pr_text}{recent_log_text}{running_plan_text}{personal_event_context}
-Weight notation: The workout description may use lbs (American notation). The "Coach-/athlete notes" section ALWAYS uses KILOGRAMS — treat every number there as kg, never as lbs. If weights in the description are noted as "X/Y lbs" or "X/Y kg", always use the first number (X) — that is the men's weight. When coach notes specify different weights than the workout description, the coach notes always take priority (and are in kg).
+Weight notation: The workout description may use lbs (American notation). The "Coach-/athlete notes" section ALWAYS uses KILOGRAMS — treat every number there as kg, never as lbs. In both sections, "X/Y" means X kg for men and Y kg for women — always use X (the men's weight) for this athlete. When coach notes specify different weights than the workout description, the coach notes always take priority (and are in kg).
 
 Main workout ({_nl_date(date)} — {title}):
 {description}{notes_context}{accessory_context}
