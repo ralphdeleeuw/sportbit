@@ -1452,17 +1452,35 @@ def _push_to_garmin_connect(specs: list[dict], garmin_email: str, garmin_passwor
 
     # Stap 2: verwijder ook eventuele dubbelen op naam (vangnet voor eerste keer / handmatig aangemaakt)
     spec_names = {s.get("name") for s in specs if s.get("name")}
+    # Stap 3: verwijder alle workouts gepland op dezelfde datum als de nieuwe sessies
+    # (vangt door intervals.icu gesynchroniseerde workouts op — die komen NAAST de native push).
+    target_dates = {s.get("date", "")[:10] for s in specs if s.get("date")}
     try:
-        existing = client.connectapi("/workout-service/workouts", params={"limit": 100, "start": 0, "myWorkoutsOnly": True})
+        existing = client.connectapi("/workout-service/workouts", params={"limit": 200, "start": 0, "myWorkoutsOnly": True})
         if isinstance(existing, list):
             for w in existing:
-                if w.get("workoutName") in spec_names:
-                    wid = w.get("workoutId")
-                    if wid:
+                wid = w.get("workoutId")
+                if not wid:
+                    continue
+                name_match = w.get("workoutName") in spec_names
+                # Haal scheduled date op per workout (best-effort)
+                date_match = False
+                try:
+                    detail = client.connectapi(f"/workout-service/workout/{wid}")
+                    if isinstance(detail, dict):
+                        sched = detail.get("schedule") or detail.get("workoutScheduleDate") or ""
+                        date_match = bool(sched and str(sched)[:10] in target_dates)
+                except Exception:
+                    pass
+                if name_match or date_match:
+                    try:
                         client.client.request("DELETE", "connectapi", f"/workout-service/workout/{wid}", api=True)
-                        log.info("  Dubbele workout verwijderd op naam: '%s' (id: %s)", w.get("workoutName"), wid)
+                        reason = "naam" if name_match else "datum"
+                        log.info("  Bestaande workout verwijderd op %s: '%s' (id: %s)", reason, w.get("workoutName"), wid)
+                    except Exception as exc:
+                        log.warning("  Verwijderen workout %s mislukt: %s", wid, exc)
     except Exception as exc:
-        log.warning("Opruimen dubbele workouts op naam mislukt: %s", exc)
+        log.warning("Opruimen bestaande workouts mislukt: %s", exc)
 
     for spec in specs:
         try:
