@@ -576,8 +576,14 @@ def _apply_adjustments(
 
     for adj in adjusted_specs:
         adj_date = adj.get("date", "")
-        # Zoek originele workout op datum
-        orig = next((w for w in original_workouts if w.get("date") == adj_date), None)
+        adj_session = adj.get("session", "")
+        # Zoek originele workout op datum + sessie (voorkomt foute meta-kopie als
+        # beide sessies op dezelfde dag staan)
+        orig = next(
+            (w for w in original_workouts
+             if w.get("date") == adj_date and (not adj_session or w.get("session") == adj_session)),
+            next((w for w in original_workouts if w.get("date") == adj_date), None),
+        )
         if orig is None:
             log.warning("Aanpassing voor onbekende datum %s — overgeslagen", adj_date)
             continue
@@ -621,11 +627,21 @@ def _apply_adjustments(
             if "workout_doc" in event:
                 adj["workout_doc"] = event["workout_doc"]
 
-        # Vervang in plan
-        for i, w in enumerate(updated):
-            if w.get("date") == adj_date:
-                updated[i] = adj
-                break
+        # Vervang in plan (match op datum + sessie om duplicaten te voorkomen als
+        # beide sessies op dezelfde dag staan)
+        adj_session = adj.get("session", "")
+        replaced = False
+        if adj_session:
+            for i, w in enumerate(updated):
+                if w.get("date") == adj_date and w.get("session") == adj_session:
+                    updated[i] = adj
+                    replaced = True
+                    break
+        if not replaced:
+            for i, w in enumerate(updated):
+                if w.get("date") == adj_date:
+                    updated[i] = adj
+                    break
 
     # Sla bijgewerkt plan op
     plan["workouts"] = updated
