@@ -3823,7 +3823,7 @@
       try { plan = JSON.parse(gist.files['running_plan.json']?.content || '{}'); } catch(e) {}
       const sessionRole = sessionKey === 'run_1' ? 'speed' : 'long_run';
       if (plan.workouts) {
-        const w = plan.workouts.find(w => w.session === sessionRole);
+        const w = plan.workouts.find(w => w.session === sessionRole && !w.cancelled);
         if (w) { w.date = newDate; w.time = newTime; }
       }
       await fetch(`https://api.github.com/gists/${currentGistId}`, {

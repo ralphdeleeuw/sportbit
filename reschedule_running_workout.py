@@ -191,7 +191,7 @@ def main() -> None:
 
         for key, new_datetime in overrides.items():
             session_role = "speed" if key == "run_1" else "long_run"
-            workout = next((w for w in workouts if w.get("session") == session_role), None)
+            workout = next((w for w in workouts if w.get("session") == session_role and not w.get("cancelled")), None)
             if not workout:
                 log.warning("Geen %s workout in running_plan.json — overslaan", session_role)
                 continue
