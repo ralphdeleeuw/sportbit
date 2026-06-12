@@ -633,13 +633,13 @@ def _apply_adjustments(
         replaced = False
         if adj_session:
             for i, w in enumerate(updated):
-                if w.get("date") == adj_date and w.get("session") == adj_session:
+                if w.get("date") == adj_date and w.get("session") == adj_session and not w.get("cancelled"):
                     updated[i] = adj
                     replaced = True
                     break
         if not replaced:
             for i, w in enumerate(updated):
-                if w.get("date") == adj_date:
+                if w.get("date") == adj_date and not w.get("cancelled"):
                     updated[i] = adj
                     break
 
