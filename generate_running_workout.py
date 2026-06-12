@@ -419,12 +419,13 @@ def _build_claude_context(ctx: dict) -> str:
                       "run_days_this_week", "run_days_next_week", "sessions_next_week")
     ]
 
+    session2_label = "12-minute defensie test run" if week_number % 2 == 0 else "tempo/threshold run"
     sessions = [
         f"Session 1 — speed work: {run1_date.isoformat()} at {run1_time} (use this date and time exactly)",
     ]
     if sessions_per_week >= 2:
         sessions.append(
-            f"Session 2 — tempo/threshold run: {run2_date.isoformat()} at {run2_time} (use this date and time exactly)"
+            f"Session 2 — {session2_label}: {run2_date.isoformat()} at {run2_time} (use this date and time exactly)"
         )
     if sessions_per_week >= 3:
         sessions.append(
