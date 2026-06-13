@@ -280,6 +280,7 @@
     let deloadAlert = false;    // true als overtraining risico gedetecteerd
     let environmentalData = null; // {training_conditions: {...}, aqi: {...}, fetched_at}
     let runningPlanData = null; // {generated_at, week_number, workouts: [{date, type, name, description, total_duration_min}]}
+    let runningAnalysisData = null; // {version, updated_at, by_date: {date: {completed, metrics, coach, verdict}}, pending_adjustments: [{id, target_date, status, workout}]}
     let openGymProgram = null; // {generated_at, for_date, for_time, event_title, program_markdown}
     let openGymProgramsByEventId = {}; // event_id → {program_markdown, focus_summary, generated_at}
     let homeWorkoutLog = {}; // {date: entry} from home_workout_log.json
@@ -653,6 +654,14 @@
       const runningPlanFile = files['running_plan.json'];
       if (runningPlanFile) {
         try { runningPlanData = JSON.parse(runningPlanFile.content); } catch(e) {}
+      }
+
+      // running_analysis.json
+      const runningAnalysisFile = files['running_analysis.json'];
+      if (runningAnalysisFile) {
+        try { runningAnalysisData = JSON.parse(runningAnalysisFile.content); } catch(e) { runningAnalysisData = null; }
+      } else {
+        runningAnalysisData = null;
       }
 
       // open_gym_program.json
@@ -2097,6 +2106,7 @@
         { btnId:'openGymBtn', statusId:'openGymStatus', lastRunId:'openGymLastRun', workflowFile:'generate_open_gym_program.yml', icon:'🏋️', title:'Open Gym Programma', desc:'Genereer een persoonlijk programma voor je eerstvolgende Open Gym sessie', fn:'triggerOpenGymProgram()', cls:'info' },
         { btnId:'reviewRunBtn', statusId:'reviewRunStatus', lastRunId:'reviewRunLastRun', workflowFile:'review_running_workout.yml', icon:'🔍', title:'Review Hardloopplan', desc:'Beoordeel en pas hardloopworkouts aan op basis van herstel & belasting', fn:'triggerReviewRunning()', cls:'success',
           extras:[{id:'reviewModeDaily',label:'Dagelijkse review'},{id:'reviewModePrerun',label:'Pre-run briefing'}] },
+        { btnId:'analyzeRunBtn', statusId:'analyzeRunStatus', lastRunId:'analyzeRunLastRun', workflowFile:'analyze_running_workout.yml', icon:'📊', title:'Analyseer Runs', desc:'Koppel voltooide runs aan het plan, gepland-vs-werkelijk analyse + voorstellen', fn:'triggerAnalyzeRunning()', cls:'success' },
       ];
 
       // Toon cleanup knop alleen als er geannuleerde workouts met events zijn
@@ -2444,6 +2454,59 @@
         statusEl.style.color = 'var(--accent2)';
         btn.disabled = false;
         btn.textContent = '↑ Sync naar Garmin';
+      }
+    }
+
+    async function triggerAnalyzeRunning() {
+      const token = document.getElementById('githubToken').value.trim();
+      const statusEl = document.getElementById('analyzeRunStatus');
+      const btn = document.getElementById('analyzeRunBtn');
+
+      if (!token) {
+        statusEl.textContent = 'Vul eerst je GitHub Token in (nodig om workflow te starten)';
+        statusEl.style.color = 'var(--accent2)';
+        return;
+      }
+
+      btn.disabled = true;
+      btn.textContent = '📊 Bezig…';
+      statusEl.textContent = 'Analyse workflow starten…';
+      statusEl.style.color = 'var(--muted)';
+
+      const triggerTime = new Date();
+
+      try {
+        const resp = await fetch(
+          'https://api.github.com/repos/ralphdeleeuw/sportbit/actions/workflows/analyze_running_workout.yml/dispatches',
+          {
+            method: 'POST',
+            headers: {
+              Authorization: `token ${token}`,
+              Accept: 'application/vnd.github+json',
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({ ref: 'main', inputs: { mode: 'analyze' } }),
+          }
+        );
+
+        if (resp.status !== 204) {
+          const body = await resp.json().catch(() => ({}));
+          statusEl.textContent = `Fout ${resp.status}: ${body.message || 'onbekend'}`;
+          statusEl.style.color = 'var(--accent2)';
+          btn.disabled = false;
+          btn.textContent = '📊 Analyseer Runs';
+          return;
+        }
+
+        statusEl.textContent = '⏳ In wachtrij…';
+        statusEl.style.color = 'var(--muted)';
+        await pollWorkflowRun(token, triggerTime, statusEl, btn, 'analyze_running_workout.yml', '📊 Analyseer Runs');
+
+      } catch (e) {
+        statusEl.textContent = `Netwerkfout: ${e.message}`;
+        statusEl.style.color = 'var(--accent2)';
+        btn.disabled = false;
+        btn.textContent = '📊 Analyseer Runs';
       }
     }
 
@@ -3533,6 +3596,199 @@
         ✅ Uitgevoerd: ${parts.join(' · ')}${lapsHtml}</div>`;
     }
 
+    // ── Run-analyse (gepland vs werkelijk) ─────────────────────────────────────
+    function _analysisForDate(date) {
+      return ((runningAnalysisData || {}).by_date || {})[date] || null;
+    }
+
+    function _pendingAdjustmentsForDate(date) {
+      return ((runningAnalysisData || {}).pending_adjustments || [])
+        .filter(a => (a.target_date || '').slice(0, 10) === date && a.status === 'pending');
+    }
+
+    const _VERDICT_BADGE = {
+      on_target: { label: '✅ Volgens plan', color: '#4caf50', bg: 'rgba(76,175,80,0.15)' },
+      faster:    { label: '⚡ Sneller', color: '#42a5f5', bg: 'rgba(66,165,245,0.15)' },
+      slower:    { label: '🐢 Trager', color: '#ffa726', bg: 'rgba(255,167,38,0.15)' },
+      partial:   { label: '◑ Deels', color: '#ffb300', bg: 'rgba(255,179,0,0.15)' },
+      missed:    { label: '✕ Gemist', color: '#ff6b6b', bg: 'rgba(255,107,107,0.15)' },
+    };
+
+    function _stepBriefLine(s) {
+      if (s.type === 'repeat') {
+        return `${s.count}× (${(s.children || []).map(_stepBriefLine).filter(Boolean).join(', ')})`;
+      }
+      if (s.type === 'rest') return `${s.duration_s || '?'}s rust`;
+      const dist = s.distance_m ? `${s.distance_m}m` : (s.duration_s ? `${Math.round(s.duration_s/60)}min` : '');
+      const pace = s.pace_min && s.pace_max ? `${s.pace_min}-${s.pace_max}` : (s.pace_target || '');
+      const label = s.type === 'warmup' ? 'WU ' : s.type === 'cooldown' ? 'CD ' : '';
+      return `${label}${dist}${pace ? ' @ ' + pace : ''}`.trim();
+    }
+
+    function renderWorkoutAnalysis(session, entry) {
+      if (!entry) return '';
+
+      // Gemiste run
+      if (entry.missed || entry.completed === false) {
+        return `<div style="margin-top:0.6rem;padding:0.5rem 0.7rem;background:rgba(255,107,107,0.08);border-radius:6px;font-size:0.8rem;color:#ffb0b0">
+          ✕ Geen activiteit gekoppeld — workout lijkt gemist.</div>`;
+      }
+
+      const m = entry.metrics || {};
+      const coach = entry.coach || {};
+      const v = _VERDICT_BADGE[entry.verdict || m.overall_verdict] || _VERDICT_BADGE.on_target;
+
+      // Overall-regels
+      const overall = [];
+      if (m.distance_pct != null) overall.push(`Afstand <strong>${m.distance_pct}%</strong>`);
+      if (m.planned_avg_pace && m.actual_avg_pace) {
+        const d = m.pace_delta_sec;
+        const ds = d != null ? ` (${d >= 0 ? '+' : ''}${d}s/km)` : '';
+        overall.push(`Tempo <strong>${m.actual_avg_pace}</strong> vs ${m.planned_avg_pace}${ds}`);
+      }
+      if (m.hr_zone_adherence_pct != null) overall.push(`HR-zone <strong>${m.hr_zone_adherence_pct}%</strong> in doel`);
+      if (coach.execution_score != null) overall.push(`Score <strong>${coach.execution_score}/10</strong>`);
+
+      // Per-interval tabel (alleen bij uitgelijnde laps)
+      let tableHtml = '';
+      const ivs = (m.intervals || []).filter(i => i.planned_pace || i.actual_pace);
+      if (ivs.length) {
+        const rows = ivs.map(i => {
+          const badge = i.in_band === true ? '<span style="color:#4caf50">✓</span>'
+                      : i.in_band === false ? '<span style="color:#ff6b6b">✗</span>' : '';
+          const dist = i.planned_distance_m ? `${i.planned_distance_m}m` : '';
+          return `<tr>
+            <td style="padding:0.15rem 0.4rem;color:#6a9a7a">${i.interval}</td>
+            <td style="padding:0.15rem 0.4rem">${dist}</td>
+            <td style="padding:0.15rem 0.4rem">${i.planned_pace || '–'}</td>
+            <td style="padding:0.15rem 0.4rem"><strong>${i.actual_pace || '–'}</strong></td>
+            <td style="padding:0.15rem 0.4rem;text-align:center">${badge}</td>
+          </tr>`;
+        }).join('');
+        const note = m.lap_alignment === 'partial'
+          ? '<div style="font-size:0.68rem;color:#8a9a8a;margin-top:0.2rem">≈ benaderde uitlijning (laps ≠ stappen)</div>'
+          : '';
+        tableHtml = `<table style="width:100%;border-collapse:collapse;font-size:0.74rem;color:#c0e8d0;margin-top:0.4rem">
+          <tr style="color:#6a9a7a;text-align:left">
+            <th style="padding:0.15rem 0.4rem;font-weight:500">#</th>
+            <th style="padding:0.15rem 0.4rem;font-weight:500">afst.</th>
+            <th style="padding:0.15rem 0.4rem;font-weight:500">doel</th>
+            <th style="padding:0.15rem 0.4rem;font-weight:500">actual</th>
+            <th style="padding:0.15rem 0.4rem;font-weight:500;text-align:center">band</th>
+          </tr>${rows}</table>${note}`;
+      }
+
+      const obs = (coach.key_observations || []).length
+        ? `<ul style="margin:0.3rem 0 0;padding-left:1.1rem;font-size:0.75rem;color:#a0c8b0">${
+            coach.key_observations.map(o => `<li>${escapeHtml(o)}</li>`).join('')}</ul>`
+        : '';
+      const summaryHtml = coach.summary
+        ? `<div class="run-analysis-summary" style="font-size:0.78rem;color:#b8e0c8;margin-top:0.4rem;line-height:1.5">${safeMarkdown(coach.summary)}</div>`
+        : '';
+
+      return `<div style="margin-top:0.6rem;padding:0.55rem 0.7rem;background:rgba(0,200,83,0.06);border:1px solid rgba(0,200,83,0.18);border-radius:8px">
+        <div style="display:flex;align-items:center;gap:0.5rem;flex-wrap:wrap">
+          <span style="font-size:0.7rem;letter-spacing:0.04em;color:#6a9a7a;text-transform:uppercase">Analyse · gepland vs werkelijk</span>
+          <span style="font-size:0.72rem;padding:0.1rem 0.45rem;border-radius:10px;color:${v.color};background:${v.bg}">${v.label}</span>
+        </div>
+        ${overall.length ? `<div style="font-size:0.8rem;color:#a0e8b0;margin-top:0.4rem;line-height:1.6">${overall.join(' · ')}</div>` : ''}
+        ${tableHtml}
+        ${obs}
+        ${summaryHtml}
+      </div>`;
+    }
+
+    function renderAdjustmentProposals(session) {
+      const pending = _pendingAdjustmentsForDate(session.date);
+      if (!pending.length) return '';
+      return pending.map(adj => {
+        const w = adj.workout || {};
+        const steps = (w.steps || []).map(_stepBriefLine).filter(Boolean).join(' · ');
+        const dist = w.total_distance_km ? `${w.total_distance_km} km` : '';
+        return `<div id="adj-${adj.id}" style="margin-top:0.6rem;padding:0.55rem 0.7rem;background:rgba(255,179,0,0.07);border:1px solid rgba(255,179,0,0.22);border-radius:8px" onclick="event.stopPropagation()">
+          <div style="font-size:0.7rem;letter-spacing:0.04em;color:#d4a017;text-transform:uppercase">💡 Coach stelt aanpassing voor</div>
+          <div style="font-size:0.82rem;color:#ffd966;margin-top:0.3rem"><strong>${escapeHtml(w.name || 'Aangepaste workout')}</strong>${dist ? ' · ' + dist : ''}</div>
+          ${adj.rationale ? `<div style="font-size:0.76rem;color:#c8c0a0;margin-top:0.25rem;line-height:1.5">${escapeHtml(adj.rationale)}</div>` : ''}
+          ${steps ? `<div style="font-size:0.73rem;color:#a0a890;margin-top:0.3rem">${escapeHtml(steps)}</div>` : ''}
+          <div style="display:flex;gap:0.5rem;margin-top:0.5rem;flex-wrap:wrap">
+            <button class="run-reschedule-btn" style="color:#4caf50;border-color:rgba(76,175,80,0.3)"
+              onclick="applyAdjustment('${adj.id}')">✓ Toepassen</button>
+            <button class="run-reschedule-btn" style="color:#ff9800;border-color:rgba(255,152,0,0.3)"
+              onclick="dismissAdjustment('${adj.id}')">✕ Negeren</button>
+          </div>
+          <div id="adjstatus-${adj.id}" style="font-size:0.72rem;color:var(--muted);margin-top:0.4rem"></div>
+        </div>`;
+      }).join('');
+    }
+
+    async function _patchAnalysisStatus(token, adjId, status) {
+      const resp = await fetch(`https://api.github.com/gists/${currentGistId}`, {
+        headers: { Authorization: `token ${token}` }
+      });
+      const gist = await resp.json();
+      let analysis = {};
+      try { analysis = JSON.parse(gist.files['running_analysis.json']?.content || '{}'); } catch(e) {}
+      const adj = (analysis.pending_adjustments || []).find(a => a.id === adjId);
+      if (!adj) throw new Error('Voorstel niet gevonden');
+      adj.status = status;
+      adj[status === 'applied' ? 'applied_at' : 'dismissed_at'] = new Date().toISOString();
+      analysis.updated_at = new Date().toISOString();
+      runningAnalysisData = analysis;
+      const patch = await fetch(`https://api.github.com/gists/${currentGistId}`, {
+        method: 'PATCH',
+        headers: { Authorization: `token ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ files: { 'running_analysis.json': { content: JSON.stringify(analysis, null, 2) } } })
+      });
+      if (!patch.ok) throw new Error(`Opslaan mislukt ${patch.status}`);
+    }
+
+    async function applyAdjustment(adjId) {
+      const token = document.getElementById('githubToken').value.trim();
+      if (!token || !currentGistId) { alert('GitHub token vereist'); return; }
+      const statusEl = document.getElementById('adjstatus-' + adjId);
+      const setStatus = (msg, color) => { if (statusEl) { statusEl.textContent = msg; statusEl.style.color = color || 'var(--muted)'; } };
+      try {
+        setStatus('Opslaan…');
+        await _patchAnalysisStatus(token, adjId, 'applied');
+        setStatus('✓ Goedgekeurd — intervals.icu bijwerken…', '#4caf50');
+        const triggerTime = new Date();
+        const triggerResp = await fetch(
+          'https://api.github.com/repos/ralphdeleeuw/sportbit/actions/workflows/analyze_running_workout.yml/dispatches',
+          {
+            method: 'POST',
+            headers: { Authorization: `token ${token}`, Accept: 'application/vnd.github+json', 'Content-Type': 'application/json' },
+            body: JSON.stringify({ ref: 'main', inputs: { mode: 'apply' } }),
+          }
+        );
+        if (triggerResp.status !== 204) {
+          const body = await triggerResp.json().catch(() => ({}));
+          setStatus(`Workflow fout ${triggerResp.status}: ${body.message || 'onbekend'}`, 'var(--accent2)');
+          return;
+        }
+        setStatus('⏳ Workout pushen naar Garmin/intervals.icu…');
+        const btnHost = { disabled: false, textContent: '' };
+        await pollWorkflowRun(token, triggerTime, statusEl, btnHost, 'analyze_running_workout.yml', '');
+      } catch(e) {
+        setStatus(`❌ ${e.message}`, '#ff6b6b');
+      }
+    }
+
+    async function dismissAdjustment(adjId) {
+      const token = document.getElementById('githubToken').value.trim();
+      if (!token || !currentGistId) { alert('GitHub token vereist'); return; }
+      const statusEl = document.getElementById('adjstatus-' + adjId);
+      const setStatus = (msg, color) => { if (statusEl) { statusEl.textContent = msg; statusEl.style.color = color || 'var(--muted)'; } };
+      try {
+        setStatus('Opslaan…');
+        await _patchAnalysisStatus(token, adjId, 'dismissed');
+        setStatus('✓ Voorstel genegeerd', '#4caf50');
+        const card = document.getElementById('adj-' + adjId);
+        if (card) setTimeout(() => { card.style.display = 'none'; }, 800);
+      } catch(e) {
+        setStatus(`❌ ${e.message}`, '#ff6b6b');
+      }
+    }
+
     function renderRunEventCard(session, delay, idPrefix) {
       const today = new Date().toISOString().slice(0, 10);
       const isUpcoming = session.date >= today;
@@ -3577,8 +3833,11 @@
       }
 
       const descText = session.full_description || session.description || '';
+      const analysisEntry = !isUpcoming && !isCancelled ? _analysisForDate(session.date) : null;
+      const analysisHtml = analysisEntry ? renderWorkoutAnalysis(session, analysisEntry) : '';
+      const proposalHtml = renderAdjustmentProposals(session);
       const wodContent = (descText ? `<div style="font-size:0.82rem;color:#a0e8b0;white-space:pre-wrap;line-height:1.6">${escapeHtml(descText)}</div>` : '')
-                       + actualHtml;
+                       + actualHtml + analysisHtml + proposalHtml;
 
       const scheduledOverride = (healthInput || {})[sessionKey];
       const overrideNote = scheduledOverride
