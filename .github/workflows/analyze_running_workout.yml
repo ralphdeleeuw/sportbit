@@ -1,0 +1,46 @@
+name: Analyze Running Workout
+
+on:
+  # Draai na het verversen van de health-data (verse activiteiten uit intervals.icu/Strava)
+  workflow_run:
+    workflows: ["Refresh Health Data"]
+    types:
+      - completed
+  # Handmatig vanuit de Acties-tab of vanuit de app (analyze | apply)
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: 'Modus: analyze (default) of apply'
+        required: false
+        default: 'analyze'
+        type: choice
+        options:
+          - analyze
+          - apply
+
+jobs:
+  analyze:
+    runs-on: ubuntu-latest
+    # Bij workflow_run: alleen draaien als de health-refresh slaagde
+    if: ${{ github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success' }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Analyze running workout
+        env:
+          INTERVALS_ATHLETE_ID: ${{ secrets.INTERVALS_ATHLETE_ID }}
+          INTERVALS_API_KEY: ${{ secrets.INTERVALS_API_KEY }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          GIST_ID: ${{ secrets.GIST_ID }}
+          GITHUB_TOKEN: ${{ secrets.GIST_TOKEN }}
+          VAPID_PRIVATE_KEY: ${{ secrets.VAPID_PRIVATE_KEY }}
+          VAPID_CLAIMS_EMAIL: ${{ secrets.VAPID_CLAIMS_EMAIL }}
+        run: python3 analyze_running_workout.py --mode=${{ github.event.inputs.mode || 'analyze' }}

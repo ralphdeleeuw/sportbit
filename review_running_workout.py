@@ -131,6 +131,8 @@ def _load_review_context(gist_id: str, token: str) -> dict:
         else []
     )
 
+    analysis_data = _parse_json(files.get("running_analysis.json", ""), "running_analysis.json") or {}
+
     intervals_data = wod_data.get("intervals_data") or {}
     all_wods: list[dict] = wod_data.get("workouts") or []
     activities_by_date: dict = intervals_data.get("activities", {}).get("by_date", {})
@@ -184,6 +186,7 @@ def _load_review_context(gist_id: str, token: str) -> dict:
         "personal_events": upcoming_personal_events,
         "cancelled_runs": cancelled_runs,
         "environmental_data": wod_data.get("environmental_data"),
+        "execution_analysis": analysis_data.get("by_date", {}) if isinstance(analysis_data, dict) else {},
     }
 
 
@@ -273,6 +276,7 @@ def _build_review_context(
     personal_events: list[dict] | None = None,
     cancelled_runs: list[dict] | None = None,
     environmental_data: dict | None = None,
+    execution_analysis: dict | None = None,
 ) -> str:
     now_ams = datetime.now(AMS)
     today_str = date.today().isoformat()
@@ -373,6 +377,39 @@ def _build_review_context(
                 run_lines.append(" ".join(lp))
     if run_lines:
         sections.append("Recent running activities (last 14 days):\n" + "\n".join(run_lines))
+
+    # Recent execution adherence — uit running_analysis.json (gepland-vs-werkelijk).
+    # Informeert het UP/DOWN-besluit met de daadwerkelijke uitvoering van eerdere runs.
+    exec_analysis = execution_analysis or {}
+    adherence_lines = []
+    for d in sorted(exec_analysis.keys(), reverse=True)[:3]:
+        entry = exec_analysis[d]
+        if not entry.get("completed"):
+            if entry.get("missed"):
+                adherence_lines.append(f"  {d}: missed (no activity recorded)")
+            continue
+        m = entry.get("metrics", {})
+        coach = entry.get("coach", {})
+        parts = [f"  {d}:"]
+        verdict = entry.get("verdict") or m.get("overall_verdict")
+        if verdict:
+            parts.append(f"verdict={verdict}")
+        if coach.get("execution_score") is not None:
+            parts.append(f"score={coach['execution_score']}/10")
+        if m.get("distance_pct") is not None:
+            parts.append(f"dist={m['distance_pct']}%")
+        if m.get("pace_delta_sec") is not None:
+            parts.append(f"pace_delta={m['pace_delta_sec']:+d}s/km")
+        if m.get("hr_zone_adherence_pct") is not None:
+            parts.append(f"HRzone_adh={m['hr_zone_adherence_pct']}%")
+        adherence_lines.append(" ".join(parts))
+        if coach.get("summary"):
+            adherence_lines.append(f"    {coach['summary'][:160]}")
+    if adherence_lines:
+        sections.append(
+            "Recent execution adherence (planned vs actual — base UP/DOWN on real execution):\n"
+            + "\n".join(adherence_lines)
+        )
 
     # CrossFit sessions relevant voor de run(s) — gebruik ingeschreven sessies
     run_dates = {w.get("date", "")[:10] for w in target_workouts if w.get("date")}
@@ -762,6 +799,7 @@ def main() -> None:
         personal_events=ctx.get("personal_events"),
         cancelled_runs=ctx.get("cancelled_runs"),
         environmental_data=ctx.get("environmental_data"),
+        execution_analysis=ctx.get("execution_analysis"),
     )
     log.info("Review context:\n%s", context_text)
 
