@@ -2101,8 +2101,20 @@
       border-radius: 8px;
     }
     .hw-recommendations span { font-size: 0.72rem; color: var(--info); line-height: 1.4; }
-    .hw-mob-rationale { display: block; font-size: 0.68rem; color: var(--muted); margin-top: 2px; font-style: italic; }
     .hw-ai-note { font-size: 0.68rem; color: var(--muted); font-style: italic; }
+    .hw-info-btn {
+      background: none; border: none; cursor: pointer;
+      color: var(--info); font-size: 0.82rem; line-height: 1;
+      padding: 0 3px; margin-left: 3px; vertical-align: middle; opacity: 0.75;
+    }
+    .hw-info-btn:hover { opacity: 1; }
+    .hw-mob-info {
+      display: none;
+      padding: 4px 12px 8px 36px;
+      font-size: 0.7rem; color: var(--muted); line-height: 1.5;
+    }
+    .hw-mob-item.info-open .hw-mob-info { display: block; }
+    .hw-mob-info-why { margin-top: 3px; color: var(--info); font-style: italic; }
     .hw-card .card-wod { display: none; margin-top: 12px; }
     .hw-card.open .card-wod { display: block; }
     .hw-card.open .wod-chevron { transform: rotate(180deg); }
