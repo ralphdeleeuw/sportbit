@@ -2103,3 +2103,24 @@
     .hw-card .card-wod { display: none; margin-top: 12px; }
     .hw-card.open .card-wod { display: block; }
     .hw-card.open .wod-chevron { transform: rotate(180deg); }
+
+    .family-badges {
+      display: flex;
+      gap: 3px;
+      justify-content: flex-end;
+      margin-top: 3px;
+    }
+    .family-badge {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 18px;
+      height: 18px;
+      border-radius: 50%;
+      font-size: 10px;
+      font-weight: 700;
+      color: #1a1a1a;
+      opacity: 0.8;
+    }
+    .family-badge-laura { background: #e67e22; }
+    .family-badge-eva   { background: #27ae60; }
