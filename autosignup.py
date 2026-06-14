@@ -212,7 +212,9 @@ class GistStateManager:
         self.state.setdefault("class_capacity", {})
         checked_at = datetime.now().isoformat(timespec="seconds")
         for key, data in capacity_updates.items():
+            existing = self.state["class_capacity"].get(key, {})
             self.state["class_capacity"][key] = {
+                **existing,
                 **data,
                 "checked_at": checked_at,
             }
@@ -301,17 +303,20 @@ class HuppaClient:
             dt = datetime.fromisoformat(s.replace("Z", "+00:00"))
             return dt.astimezone(AMS).strftime("%Y-%m-%d %H:%M")
 
+        trainers = [t.get("name") for t in (evt.get("trainers") or []) if t.get("name")]
         return {
             "id": evt.get("id"),
             "name": evt.get("name", "CrossFit WOD"),
             "starts_at": parse_utc(evt.get("startsAt", "")),
             "ends_at": parse_utc(evt.get("endsAt", "")),
             "available_slots": evt.get("availableSlots", 0),
+            "booked_slots": evt.get("bookedSlots", 0),
             "is_full": evt.get("isFull", False),
             "is_booked": (evt.get("occurrenceUser") or {}).get("status") == "confirmed",
             "is_on_waitlist": evt.get("occurrenceWaitlistId") is not None,
             "is_eligible_to_book": evt.get("isEligibleToBook", True),
             "organization_id": (evt.get("category") or {}).get("organizationId"),
+            "trainers": trainers,
         }
 
     def get_events(self, date: str) -> list[dict]:
@@ -665,10 +670,12 @@ def run(email: str, password: str, subdomain: str, dry_run: bool, days_ahead: in
         spots = f"{available_slots} vrij" if not is_full else "vol"
         already = event.get("is_booked", False)
         on_waitlist = event.get("is_on_waitlist", False)
-        # Track capacity for the dashboard
+        # Track capacity + trainer for the dashboard
         capacity_updates[f"{date_str}_{target_time}"] = {
             "available": available_slots,
+            "booked": event.get("booked_slots", 0),
             "is_full": is_full,
+            "trainers": event.get("trainers", []),
         }
 
         if state and state.is_cancelled(eid):
