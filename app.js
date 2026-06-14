@@ -101,6 +101,15 @@
       return `<span class="capacity-badge ${cls}">${cap.available} vrij</span>`;
     }
 
+    function renderFamilyBadges(date, time) {
+      const members = familyBookings[`${date}_${time}`];
+      if (!members || members.length === 0) return '';
+      const badges = members.map(name =>
+        `<span class="family-badge family-badge-${name.toLowerCase()}" title="${name}">${name[0]}</span>`
+      ).join('');
+      return `<div class="family-badges">${badges}</div>`;
+    }
+
     function renderCard(item, type, delay, wods) {
       const cancelled = type === 'cancelled';
       const metaHtml = `<div class="card-meta">
@@ -144,6 +153,7 @@
                 <div class="card-right">
                   <div class="card-date">${formatDate(item.date)}</div>
                   <div class="card-relative-day">${relativeDay(item.date)}</div>
+                  ${renderFamilyBadges(item.date, item.time)}
                   <div class="wod-chevron">▾</div>
                 </div>
               </div>
@@ -168,6 +178,7 @@
                 <div class="card-right">
                   <div class="card-date">${formatDate(item.date)}</div>
                   <div class="card-relative-day">${relativeDay(item.date)}</div>
+                  ${renderFamilyBadges(item.date, item.time)}
                   <div class="wod-chevron">▾</div>
                 </div>
               </div>
@@ -195,6 +206,7 @@
           <div class="card-right">
             <div class="card-date ${cancelled ? 'cancelled-date' : ''}">${formatDate(item.date)}</div>
             <div class="card-relative-day">${relativeDay(item.date)}</div>
+            ${renderFamilyBadges(item.date, item.time)}
           </div>
         </div>`;
     }
@@ -274,6 +286,7 @@
     let healthHistory = []; // [{date, slaap, energie, spierpijn, stress}]
     let classCapacity = {}; // {"YYYY-MM-DD_HH:MM": {available, is_full, checked_at}}
     let exclusions = {};   // {"YYYY-MM-DD_HH:MM": {excluded_at}}
+    let familyBookings = {}; // {"YYYY-MM-DD_HH:MM": ["Laura", "Eva"]}
     let personalEvents = []; // [{id, title, date, time?, location?, notes?, created_at}]
     let intervalsData = null;   // {wellness: {by_date: {...}}, activities: {by_date: {...}}, fetched_at}
     let withingsData = null;    // {measurements: [...], fetched_at}
@@ -629,6 +642,7 @@
           const st = JSON.parse(stateFile.content);
           classCapacity = st.class_capacity || {};
           exclusions = st.exclusions || {};
+          familyBookings = st.family_bookings || {};
         } catch(e) {}
       }
 

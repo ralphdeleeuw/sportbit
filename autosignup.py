@@ -50,6 +50,12 @@ DAY_NAMES = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday",
 # Lessen die nooit automatisch geboekt worden
 EXCLUDED_CLASS_NAMES = {"Open Gym"}
 
+# Familieleden waarvan inschrijvingen zichtbaar moeten zijn in de PWA
+FAMILY_MEMBERS = [
+    {"name": "Laura", "email_env": "HUPPA_EMAIL_LAURA", "password_env": "HUPPA_PASSWORD_LAURA"},
+    {"name": "Eva",   "email_env": "HUPPA_EMAIL_EVA",   "password_env": "HUPPA_PASSWORD_EVA"},
+]
+
 # Gist filename for state storage
 GIST_FILENAME = "sportbit_state.json"
 
@@ -132,10 +138,15 @@ class GistStateManager:
                     k: v for k, v in self.state["cancelled"].items()
                     if not k.isdigit() or v.get("date", "") < HUPPA_MIGRATION_DATE
                 }
-                # Prune stale exclusions (past dates)
+                # Prune stale exclusions and family bookings (past dates)
                 today_str = datetime.now(AMS).date().isoformat()
                 self.state["exclusions"] = {
                     k: v for k, v in self.state["exclusions"].items()
+                    if k[:10] >= today_str
+                }
+                self.state.setdefault("family_bookings", {})
+                self.state["family_bookings"] = {
+                    k: v for k, v in self.state["family_bookings"].items()
                     if k[:10] >= today_str
                 }
                 log.info(
@@ -213,6 +224,12 @@ class GistStateManager:
         }
         self._save()
         log.info("Capacity data updated for %d slots.", len(capacity_updates))
+
+    def update_family_bookings(self, bookings: dict[str, list[str]]) -> None:
+        """Sla family bookings op in state en persist naar gist."""
+        self.state["family_bookings"] = bookings
+        self._save()
+        log.info("Family bookings opgeslagen: %d slots.", len(bookings))
 
     def detect_manual_cancellations(self, events: list[dict]):
         newly_cancelled = []
@@ -427,6 +444,51 @@ def delete_calendar_event(occurrence_id: str, sync_calendar: bool) -> bool:
 # ──────────────────────────────────────────────────────────────
 # Core Logic
 # ──────────────────────────────────────────────────────────────
+
+def fetch_family_bookings(subdomain: str, days_ahead: int) -> dict[str, list[str]]:
+    """Haal inschrijvingen op van familieleden via hun eigen Huppa accounts.
+
+    Geeft een dict terug: {"YYYY-MM-DD_HH:MM": ["Laura", "Eva"]}
+    """
+    family_bookings: dict[str, list[str]] = {}
+    today = datetime.now(AMS).date()
+
+    for member in FAMILY_MEMBERS:
+        email = os.environ.get(member["email_env"])
+        password = os.environ.get(member["password_env"])
+        if not email or not password:
+            log.debug("Familie-inschrijvingen voor %s overgeslagen: geen credentials.", member["name"])
+            continue
+        try:
+            client = HuppaClient(email, password, subdomain)
+            if not client.login():
+                log.warning("Login mislukt voor %s; inschrijvingen overgeslagen.", member["name"])
+                continue
+            for offset in range(0, days_ahead + 1):
+                date = today + timedelta(days=offset)
+                date_str = date.isoformat()
+                try:
+                    events = client.get_events(date_str)
+                except Exception as exc:
+                    log.warning("Kon events niet ophalen voor %s op %s: %s", member["name"], date_str, exc)
+                    continue
+                for evt in events:
+                    if not evt.get("is_booked", False):
+                        continue
+                    starts_at = evt.get("starts_at", "")
+                    time_str = starts_at[11:16] if len(starts_at) > 15 else ""
+                    if not time_str:
+                        continue
+                    key = f"{date_str}_{time_str}"
+                    family_bookings.setdefault(key, [])
+                    if member["name"] not in family_bookings[key]:
+                        family_bookings[key].append(member["name"])
+            log.info("Familie-inschrijvingen opgehaald voor %s.", member["name"])
+        except Exception as exc:
+            log.error("Fout bij ophalen inschrijvingen voor %s: %s", member["name"], exc)
+
+    return family_bookings
+
 
 def find_target_slots(days_ahead: int) -> list[tuple]:
     """Return (date, time) pairs for scheduled classes within the look-ahead window."""
@@ -749,6 +811,10 @@ def main():
         log.info("DRY RUN mode - no sign-ups will be made. Use --live to actually sign up.")
 
     run(email, password, subdomain, dry_run, args.days, args.sync_calendar, state)
+
+    if not dry_run and state:
+        family = fetch_family_bookings(subdomain, args.days)
+        state.update_family_bookings(family)
 
 
 if __name__ == "__main__":

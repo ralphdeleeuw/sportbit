@@ -35,6 +35,10 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GIST_TOKEN }}
           VAPID_PRIVATE_KEY: ${{ secrets.VAPID_PRIVATE_KEY }}
           VAPID_CLAIMS_EMAIL: ${{ secrets.VAPID_CLAIMS_EMAIL }}
+          HUPPA_EMAIL_LAURA: ${{ secrets.HUPPA_EMAIL_LAURA }}
+          HUPPA_PASSWORD_LAURA: ${{ secrets.HUPPA_PASSWORD_LAURA }}
+          HUPPA_EMAIL_EVA: ${{ secrets.HUPPA_EMAIL_EVA }}
+          HUPPA_PASSWORD_EVA: ${{ secrets.HUPPA_PASSWORD_EVA }}
         run: python3 autosignup.py --live --sync-calendar
 
       - name: Stuur weekoverzicht
