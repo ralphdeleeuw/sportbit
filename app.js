@@ -1374,6 +1374,31 @@
       }).join('');
     }
 
+    // Herbruikbare zone-verdeling balk (HR- of tempozones): seconden per zone.
+    const _PACE_ZONE_COLORS = ['#bbdefb','#90caf9','#64b5f6','#42a5f5','#1e88e5','#1565c0'];
+    const _PACE_ZONE_LABELS = ['Z1','Z2','Z3','Z4','Z5','Z6'];
+    function _renderZoneBar(times, labels, colors, heading) {
+      if (!Array.isArray(times) || times.length < 2) return '';
+      const total = times.reduce((s, v) => s + (v || 0), 0);
+      if (total <= 0) return '';
+      const bars = times.map((s, i) => {
+        const pct = Math.round((s || 0) / total * 100);
+        if (pct < 1) return '';
+        const mins = Math.floor((s || 0) / 60);
+        return `<div title="${labels[i]}: ${mins}min (${pct}%)" style="width:${pct}%;background:${colors[i] || '#888'};height:100%;display:inline-block;vertical-align:top"></div>`;
+      }).join('');
+      const lab = times.map((s, i) => {
+        const pct = Math.round((s || 0) / total * 100);
+        if (pct < 5) return '';
+        return `<span style="color:${colors[i] || '#888'};font-size:0.7rem">${labels[i]} ${pct}%</span>`;
+      }).filter(Boolean).join(' ');
+      const head = heading ? `<div style="font-size:0.68rem;color:#6a9a7a;margin-bottom:0.15rem">${heading}</div>` : '';
+      return `<div style="margin-top:0.4rem">${head}
+        <div style="height:6px;border-radius:3px;overflow:hidden;background:rgba(255,255,255,0.1)">${bars}</div>
+        <div style="margin-top:0.2rem;display:flex;gap:0.5rem;flex-wrap:wrap">${lab}</div>
+      </div>`;
+    }
+
     function renderIntervalsBlock(date, typeFilter, keywords) {
       if (!intervalsData) return '';
       const runTypes = ['run', 'running', 'trailrun', 'treadmill', 'jog'];
@@ -1434,6 +1459,11 @@
           }
         }
 
+        // Tempozone balk: [Z1..Z6] in seconden (intervals.icu "Tempozones")
+        const paceZoneHtml = (isRun && act.pace_zone_times)
+          ? _renderZoneBar(act.pace_zone_times, _PACE_ZONE_LABELS, _PACE_ZONE_COLORS, 'Tempozones')
+          : '';
+
         let lapsHtml = '';
         if (isRun && act.laps && act.laps.length > 1) {
           const lapRows = act.laps.map((lap, i) => {
@@ -1450,7 +1480,7 @@
 
         return `<div class="strava-block">
           <div class="strava-block-label">Intervals — ${name}${flags ? ' ' + flags : ''}</div>
-          ${dist}${dur}${pace}${power}${cadence}${stride}${gct}${vosc}${vratio}${hr}${hrMax}${elev}${cal}${rpe}${tl}${trimp}${temp}${hrZoneHtml}${lapsHtml}
+          ${dist}${dur}${pace}${power}${cadence}${stride}${gct}${vosc}${vratio}${hr}${hrMax}${elev}${cal}${rpe}${tl}${trimp}${temp}${hrZoneHtml}${paceZoneHtml}${lapsHtml}
         </div>`;
       }).join('');
     }
@@ -3704,6 +3734,10 @@
           </tr>${rows}</table>${note}`;
       }
 
+      const paceZonesHtml = m.pace_zone_times
+        ? _renderZoneBar(m.pace_zone_times, _PACE_ZONE_LABELS, _PACE_ZONE_COLORS, 'Tempozones')
+        : '';
+
       const obs = (coach.key_observations || []).length
         ? `<ul style="margin:0.3rem 0 0;padding-left:1.1rem;font-size:0.75rem;color:#a0c8b0">${
             coach.key_observations.map(o => `<li>${escapeHtml(o)}</li>`).join('')}</ul>`
@@ -3720,6 +3754,7 @@
         ${testHtml}
         ${overall.length ? `<div style="font-size:0.8rem;color:#a0e8b0;margin-top:0.4rem;line-height:1.6">${overall.join(' · ')}</div>` : ''}
         ${tableHtml}
+        ${paceZonesHtml}
         ${obs}
         ${summaryHtml}
       </div>`;
