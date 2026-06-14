@@ -3573,8 +3573,14 @@
         const spm = 1000 / act.avg_speed_ms / 60;
         parts.push(`pace <strong>${Math.floor(spm)}:${String(Math.round((spm % 1) * 60)).padStart(2,'0')}/km</strong>`);
       }
+      if (act.gap_speed_ms > 0) {
+        const g = 1000 / act.gap_speed_ms / 60;
+        parts.push(`GAP <strong>${Math.floor(g)}:${String(Math.round((g % 1) * 60)).padStart(2,'0')}/km</strong>`);
+      }
       if (act.avg_hr) parts.push(`gem.HR <strong>${act.avg_hr} bpm</strong>`);
-      if (act.avg_watts) parts.push(`⚡ <strong>${Math.round(act.avg_watts)} W</strong>`);
+      if (act.max_hr) parts.push(`max.HR <strong>${act.max_hr} bpm</strong>`);
+      if (act.avg_watts) parts.push(`⚡ <strong>${Math.round(act.avg_watts)} W</strong>${act.max_watts ? ` (max ${Math.round(act.max_watts)} W)` : ''}`);
+      if (act.aerobic_te) parts.push(`TE <strong>${act.aerobic_te}</strong>${act.anaerobic_te ? `/${act.anaerobic_te}` : ''}`);
       if (act.stride_length_m) parts.push(`stap <strong>${act.stride_length_m.toFixed(2)} m</strong>`);
       if (act.ground_contact_ms) parts.push(`GCT <strong>${Math.round(act.ground_contact_ms)} ms</strong>`);
       if (act.rpe) parts.push(`RPE <strong>${act.rpe}</strong>`);
@@ -3647,7 +3653,26 @@
         overall.push(`Tempo <strong>${m.actual_avg_pace}</strong> vs ${m.planned_avg_pace}${ds}`);
       }
       if (m.hr_zone_adherence_pct != null) overall.push(`HR-zone <strong>${m.hr_zone_adherence_pct}%</strong> in doel`);
+      if (m.gap_pace) overall.push(`GAP <strong>${m.gap_pace}</strong>`);
+      if (m.max_hr) overall.push(`max HR <strong>${m.max_hr}</strong>`);
+      if (m.avg_watts || m.max_watts) overall.push(`⚡ <strong>${m.avg_watts || '?'}W</strong>${m.max_watts ? ` (max ${m.max_watts}W)` : ''}`);
+      if (m.aerobic_te) overall.push(`TE <strong>${m.aerobic_te}</strong>${m.anaerobic_te ? `/${m.anaerobic_te}` : ''}`);
       if (coach.execution_score != null) overall.push(`Score <strong>${coach.execution_score}/10</strong>`);
+
+      // 12-min defensietest — opvallend resultaat-blok
+      let testHtml = '';
+      if (m.test_result) {
+        const t = m.test_result;
+        const badge = (ok, label) => `<span style="font-size:0.72rem;padding:0.1rem 0.45rem;border-radius:10px;color:${ok ? '#4caf50' : '#9a9a9a'};background:${ok ? 'rgba(76,175,80,0.18)' : 'rgba(150,150,150,0.12)'}">${ok ? '✓' : '✗'} ${label}</span>`;
+        const statusText = t.goal_met
+          ? (t.phase2_met ? '🏆 Streefdoel (fase 2) gehaald!' : `Nog ${t.phase2_goal_m - t.projected_12min_m} m tot fase 2`)
+          : `Nog ${-t.delta_vs_goal_m} m tot de eis (fase 1)`;
+        testHtml = `<div style="margin-top:0.5rem;padding:0.55rem 0.7rem;background:rgba(0,200,83,0.12);border:1px solid rgba(0,200,83,0.3);border-radius:8px">
+          <div style="font-size:0.86rem;color:#d0f8d8">🎯 <strong>12-min testresultaat: ${t.test_distance_m} m</strong>${t.avg_pace ? ` @ ${t.avg_pace}/km` : ''}${t.avg_hr ? ` · ${t.avg_hr} bpm` : ''}</div>
+          <div style="display:flex;gap:0.4rem;margin-top:0.4rem;flex-wrap:wrap">${badge(t.phase1_met, `Fase 1 · ${t.phase1_goal_m}m`)} ${badge(t.phase2_met, `Fase 2 · ${t.phase2_goal_m}m`)}</div>
+          <div style="font-size:0.76rem;color:#a0c8b0;margin-top:0.35rem">${statusText}</div>
+        </div>`;
+      }
 
       // Per-interval tabel (alleen bij uitgelijnde laps)
       let tableHtml = '';
@@ -3691,6 +3716,7 @@
           <span style="font-size:0.7rem;letter-spacing:0.04em;color:#6a9a7a;text-transform:uppercase">Analyse · gepland vs werkelijk</span>
           <span style="font-size:0.72rem;padding:0.1rem 0.45rem;border-radius:10px;color:${v.color};background:${v.bg}">${v.label}</span>
         </div>
+        ${testHtml}
         ${overall.length ? `<div style="font-size:0.8rem;color:#a0e8b0;margin-top:0.4rem;line-height:1.6">${overall.join(' · ')}</div>` : ''}
         ${tableHtml}
         ${obs}
