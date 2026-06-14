@@ -116,6 +116,47 @@ def _extract_run_dynamics(source: dict) -> dict:
     return found
 
 
+def _extract_extra_metrics(source: dict) -> dict:
+    """Extra activity-metrics met kandidaat-keys: vermogen (max/gewogen), max snelheid,
+    GAP, intensiteit en Training Effect. Net als de run-dynamics hanteert intervals.icu
+    hier geen vaste veldnamen — verkeerde gokken blijven simpelweg leeg.
+    """
+    out: dict = {}
+
+    def first(keys: tuple[str, ...]) -> float | None:
+        for k in keys:
+            v = source.get(k)
+            if isinstance(v, (int, float)) and v > 0:
+                return float(v)
+        return None
+
+    mw = first(("max_watts",))
+    if mw:
+        out["max_watts"] = round(mw)
+    ww = first(("icu_weighted_avg_watts", "normalized_watts"))
+    if ww:
+        out["weighted_watts"] = round(ww)
+    ms = first(("max_speed",))
+    if ms:
+        out["max_speed_ms"] = round(ms, 2)
+    # GAP (gradient adjusted pace): intervals.icu levert dit als snelheid in m/s.
+    gap = first(("gap", "gradient_adjusted_pace"))
+    if gap:
+        out["gap_speed_ms"] = round(gap, 2)
+    # Intensiteit: fractie van drempel (bijv. 0.73) → percentage.
+    inten = first(("icu_intensity",))
+    if inten:
+        out["intensity_pct"] = round(inten * 100)
+    # Training Effect (komt soms mee uit Garmin via intervals.icu).
+    ate = first(("icu_aerobic_te", "aerobic_training_effect", "aerobicTrainingEffect"))
+    if ate:
+        out["aerobic_te"] = round(ate, 1)
+    nte = first(("icu_anaerobic_te", "anaerobic_training_effect", "anaerobicTrainingEffect"))
+    if nte:
+        out["anaerobic_te"] = round(nte, 1)
+    return out
+
+
 def fetch_intervals_data() -> dict | None:
     """
     Haal wellness en activiteiten op van intervals.icu.
@@ -390,6 +431,9 @@ def fetch_intervals_data() -> dict | None:
             # detail/stream fetch aangevuld (zie laps-sectie).
             entry.update(_extract_run_dynamics(act))
 
+            # Extra metrics: max/gewogen vermogen, max snelheid, GAP, intensiteit, TE.
+            entry.update(_extract_extra_metrics(act))
+
             # TRIMP (traditionele trainingsbelasting op basis van HR)
             trimp = act.get("trimp")
             if trimp is not None and trimp > 0:
@@ -482,6 +526,10 @@ def fetch_intervals_data() -> dict | None:
                 for k, v in _extract_run_dynamics(detail).items():
                     act.setdefault(k, v)
 
+                # Extra metrics komen soms alléén in de activity-detail voor.
+                for k, v in _extract_extra_metrics(detail).items():
+                    act.setdefault(k, v)
+
                 # Stream-fallback: GCT / verticale oscillatie / ratio staan niet op
                 # activity-niveau, alleen in de streams. Haal de streams alleen op
                 # als ze er volgens 'stream_types' ook echt in zitten — anders is het
@@ -540,6 +588,15 @@ def fetch_intervals_data() -> dict | None:
                     lap_cadence = lap.get("average_cadence")
                     if lap_cadence and lap_cadence > 0:
                         lap_entry["avg_cadence"] = round(float(lap_cadence), 1)
+                    lap_maxhr = lap.get("max_heartrate")
+                    if lap_maxhr and lap_maxhr > 0:
+                        lap_entry["max_hr"] = int(lap_maxhr)
+                    lap_watts = lap.get("average_watts") or lap.get("icu_average_watts")
+                    if lap_watts and lap_watts > 0:
+                        lap_entry["avg_watts"] = round(float(lap_watts))
+                    lap_maxw = lap.get("max_watts")
+                    if lap_maxw and lap_maxw > 0:
+                        lap_entry["max_watts"] = round(float(lap_maxw))
                     if lap_entry:
                         laps.append(lap_entry)
                 if laps:

@@ -52,6 +52,11 @@ log = logging.getLogger(__name__)
 RUN_TYPES = {"run", "running", "jog", "trailrun", "treadmill"}
 ANALYSIS_FILE = "running_analysis.json"
 
+# Defensie fitnesstest — twee fasen (gelijk aan generate_running_workout.py:62-63)
+TEST_DURATION_S = 720          # 12 minuten
+PHASE1_GOAL_M = 2200           # fase 1 (weken 1-10): minimumeis
+PHASE2_GOAL_M = 2700           # fase 2 (weken 11+): streefdoel
+
 _ANALYSIS_SYSTEM_PROMPT = """You are a professional running coach analysing how Ralph de Leeuw executed a planned workout.
 - 47 years old, 77kg, CrossFit 5x/week, runs 1-3x/week
 - Current 5K: ~28 min (5:36/km) | Goal: Dutch defensie fitness test — Phase 1 (weeks 1-10): 2200m in 12 min (≈5:27/km) | Phase 2 (weeks 11+): 2700m in 12 min (≈4:26/km)
@@ -292,7 +297,58 @@ def _lap_pace_sec(lap: dict) -> int | None:
     return None
 
 
-def _compute_metrics(workout: dict, activity: dict, source: str) -> dict:
+def _detect_test_step(workout: dict) -> dict | None:
+    """Vind de 12-min defensietest-stap (duration_s≈720 of label/naam)."""
+    for s in workout.get("steps") or []:
+        if s.get("type") == "run":
+            label = (s.get("label") or "").lower()
+            dur = s.get("duration_s")
+            if (dur and int(dur) == TEST_DURATION_S) or "12-min" in label or "defensie" in label:
+                return s
+    return None
+
+
+def _test_result(workout: dict, activity: dict, week_number: int | None) -> dict | None:
+    """Bereken het 12-min testresultaat: afstand in de testlap vs fase-doel.
+
+    Kiest de activiteit-lap met duur het dichtst bij 720s (tiebreak: grootste afstand)
+    en normaliseert die naar exact 12 minuten. Geen geschikte lap → None (val terug
+    op de generieke metrics).
+    """
+    if not _detect_test_step(workout):
+        return None
+    cands = [lap for lap in (activity.get("laps") or []) if lap.get("duration_s") and lap.get("distance_m")]
+    if not cands:
+        return None
+    test_lap = min(cands, key=lambda l: (abs(l["duration_s"] - TEST_DURATION_S), -(l.get("distance_m") or 0)))
+    # Sanity: testlap moet qua duur in de buurt van 12 min liggen
+    if abs(test_lap["duration_s"] - TEST_DURATION_S) > TEST_DURATION_S * 0.35:
+        return None
+
+    test_dist = float(test_lap["distance_m"])
+    test_dur = float(test_lap["duration_s"])
+    projected = round(test_dist / test_dur * TEST_DURATION_S)
+
+    phase = 2 if (week_number or 0) >= 11 else 1
+    goal = PHASE2_GOAL_M if phase == 2 else PHASE1_GOAL_M
+    return {
+        "test_distance_m": round(test_dist),
+        "test_duration_s": round(test_dur),
+        "projected_12min_m": projected,
+        "phase": phase,
+        "goal_distance_m": goal,
+        "phase1_goal_m": PHASE1_GOAL_M,
+        "phase2_goal_m": PHASE2_GOAL_M,
+        "goal_met": projected >= goal,
+        "phase1_met": projected >= PHASE1_GOAL_M,
+        "phase2_met": projected >= PHASE2_GOAL_M,
+        "delta_vs_goal_m": projected - goal,
+        "avg_pace": _sec_to_pace(test_dur / (test_dist / 1000)),
+        "avg_hr": test_lap.get("avg_hr"),
+    }
+
+
+def _compute_metrics(workout: dict, activity: dict, source: str, week_number: int | None = None) -> dict:
     """Bereken deterministische gepland-vs-werkelijk metrics."""
     flat = _flatten_planned_steps(workout)
     planned_total_m = (workout.get("total_distance_km") or 0) * 1000
@@ -336,6 +392,21 @@ def _compute_metrics(workout: dict, activity: dict, source: str) -> dict:
 
     # Lap-uitlijning op de werk-intervallen
     metrics.update(_align_laps(flat, activity))
+
+    # 12-min defensietest: afstand-in-12-min vs fase-doel
+    tr = _test_result(workout, activity, week_number)
+    if tr:
+        metrics["test_result"] = tr
+
+    # Extra werkelijke metrics (alleen meenemen als de fetcher ze leverde)
+    for fld in ("max_hr", "avg_watts", "max_watts", "weighted_watts",
+                "intensity_pct", "aerobic_te", "anaerobic_te"):
+        if activity.get(fld) is not None:
+            metrics[fld] = activity[fld]
+    if activity.get("gap_speed_ms"):
+        metrics["gap_pace"] = _sec_to_pace(1000.0 / activity["gap_speed_ms"])
+    if activity.get("max_speed_ms"):
+        metrics["best_pace"] = _sec_to_pace(1000.0 / activity["max_speed_ms"])
 
     metrics["overall_verdict"] = _overall_verdict(metrics)
     return metrics
@@ -498,6 +569,29 @@ def _build_analysis_context(
             f"  Intervals in pace band: {metrics.get('intervals_in_band', 0)}/"
             f"{metrics['intervals_total']} (alignment: {metrics.get('lap_alignment')})"
         )
+    tr = metrics.get("test_result")
+    if tr:
+        status = "MET" if tr["goal_met"] else "MISSED"
+        metric_lines.append(
+            f"  12-MIN TEST: {tr['test_distance_m']}m in {tr['test_duration_s']}s "
+            f"({tr.get('avg_pace', '?')}/km) — phase {tr['phase']} goal {tr['goal_distance_m']}m "
+            f"{status} ({tr['delta_vs_goal_m']:+d}m); phase1(2200) {'✓' if tr['phase1_met'] else '✗'}, "
+            f"phase2(2700) {'✓' if tr['phase2_met'] else '✗'}"
+        )
+    if metrics.get("gap_pace"):
+        metric_lines.append(f"  GAP (gradient-adjusted pace): {metrics['gap_pace']}/km")
+    if metrics.get("max_hr"):
+        metric_lines.append(f"  Max HR: {metrics['max_hr']}bpm")
+    if metrics.get("avg_watts") or metrics.get("max_watts"):
+        metric_lines.append(
+            f"  Power: avg {metrics.get('avg_watts', '?')}W, max {metrics.get('max_watts', '?')}W"
+            + (f", weighted {metrics['weighted_watts']}W" if metrics.get('weighted_watts') else "")
+        )
+    if metrics.get("aerobic_te") or metrics.get("anaerobic_te"):
+        metric_lines.append(
+            f"  Training Effect: aerobic {metrics.get('aerobic_te', '?')}, "
+            f"anaerobic {metrics.get('anaerobic_te', '?')}"
+        )
     metric_lines.append(f"  Deterministic verdict: {metrics.get('overall_verdict')}")
     sections.append("Computed metrics:\n" + "\n".join(metric_lines))
 
@@ -600,6 +694,14 @@ def _notify_analysis(workout: dict, metrics: dict, coach: dict, has_proposal: bo
     verdict = coach.get("verdict") or metrics.get("overall_verdict") or "on_target"
     lines = [f"{date_str} — {verdict_nl.get(verdict, verdict)}"]
 
+    tr = metrics.get("test_result")
+    if tr:
+        if tr["goal_met"]:
+            extra = "✓ fase 2 gehaald!" if tr["phase2_met"] else f"nog {PHASE2_GOAL_M - tr['projected_12min_m']}m tot fase 2"
+        else:
+            extra = f"nog {-tr['delta_vs_goal_m']}m tot eis"
+        lines.append(f"🎯 12-min test: {tr['test_distance_m']}m — {extra}")
+
     if metrics.get("actual_distance_m"):
         km = metrics["actual_distance_m"] / 1000
         pace = metrics.get("actual_avg_pace")
@@ -676,7 +778,8 @@ def _run_analyze(gist_id: str, github_token: str) -> None:
             continue
 
         log.info("Match: workout %s ↔ %s-activiteit (%s)", w_date, source, activity.get("name"))
-        metrics = _compute_metrics(workout, activity, source)
+        week_number = workout.get("week_number") or plan.get("week_number")
+        metrics = _compute_metrics(workout, activity, source, week_number)
 
         context_text = _build_analysis_context(
             workout, activity, source, metrics, upcoming, ctx["wellness_by_date"]
