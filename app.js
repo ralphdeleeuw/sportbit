@@ -1868,7 +1868,6 @@
         pendingSlots.sort((a, b) => a.date.localeCompare(b.date) || a.time.localeCompare(b.time));
 
         // Bereken slots waar alleen familie ingeschreven is (niet Ralph zelf)
-        const todayStr = new Date().toISOString().slice(0, 10);
         const familyOnlySlots = Object.entries(familyBookings)
           .filter(([key]) => key.slice(0, 10) >= todayStr && !signedUpKeys.has(key))
           .map(([key, members]) => ({ date: key.slice(0, 10), time: key.slice(11), members }))
