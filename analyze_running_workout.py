@@ -57,6 +57,11 @@ TEST_DURATION_S = 720          # 12 minuten
 PHASE1_GOAL_M = 2200           # fase 1 (weken 1-10): minimumeis
 PHASE2_GOAL_M = 2700           # fase 2 (weken 11+): streefdoel
 
+# Versie van de deterministische metrics. Verhoog dit zodra _compute_metrics
+# nieuwe velden produceert; bestaande entries met een lagere versie worden dan
+# automatisch (zonder Claude) herberekend zodat nieuwe data retroactief verschijnt.
+METRICS_VERSION = 2
+
 _ANALYSIS_SYSTEM_PROMPT = """You are a professional running coach analysing how Ralph de Leeuw executed a planned workout.
 - 47 years old, 77kg, CrossFit 5x/week, runs 1-3x/week
 - Current 5K: ~28 min (5:36/km) | Goal: Dutch defensie fitness test — Phase 1 (weeks 1-10): 2200m in 12 min (≈5:27/km) | Phase 2 (weeks 11+): 2700m in 12 min (≈4:26/km)
@@ -297,15 +302,28 @@ def _lap_pace_sec(lap: dict) -> int | None:
     return None
 
 
-def _detect_test_step(workout: dict) -> dict | None:
-    """Vind de 12-min defensietest-stap (duration_s≈720 of label/naam)."""
+def _workout_snapshot(workout: dict) -> dict:
+    """Bewaar het minimale geplande workout zodat (her)analyse niet afhangt van het
+    wekelijks overschreven running_plan.json."""
+    return {
+        k: workout.get(k)
+        for k in ("date", "session", "name", "type", "description",
+                  "week_number", "total_distance_km", "steps")
+        if workout.get(k) is not None
+    }
+
+
+def _is_test_workout(workout: dict) -> bool:
+    """12-min defensietest herkennen via stap (duration_s≈720/label) of naam/omschrijving."""
     for s in workout.get("steps") or []:
         if s.get("type") == "run":
             label = (s.get("label") or "").lower()
             dur = s.get("duration_s")
             if (dur and int(dur) == TEST_DURATION_S) or "12-min" in label or "defensie" in label:
-                return s
-    return None
+                return True
+    text = f"{workout.get('name', '')} {workout.get('description', '')}".lower()
+    return ("12-min" in text or "12 min" in text or "defensietest" in text
+            or ("test" in text and "12" in text))
 
 
 def _test_result(workout: dict, activity: dict, week_number: int | None) -> dict | None:
@@ -315,7 +333,7 @@ def _test_result(workout: dict, activity: dict, week_number: int | None) -> dict
     en normaliseert die naar exact 12 minuten. Geen geschikte lap → None (val terug
     op de generieke metrics).
     """
-    if not _detect_test_step(workout):
+    if not _is_test_workout(workout):
         return None
     cands = [lap for lap in (activity.get("laps") or []) if lap.get("duration_s") and lap.get("distance_m")]
     if not cands:
@@ -742,13 +760,24 @@ def _run_analyze(gist_id: str, github_token: str) -> None:
     today = date.today().isoformat()
     upcoming = _upcoming_workouts(plan, today)
 
-    run_workouts = [
-        w for w in plan.get("workouts", [])
+    # Kandidaat-workouts gekeyd op datum: eerst eerder bewaarde snapshots, dan het
+    # huidige plan eroverheen. running_plan.json bevat alleen de huidige week en wordt
+    # wekelijks overschreven — zonder de snapshots zou een run uit een vorige week niet
+    # meer gematcht (of herberekend) kunnen worden.
+    workouts_by_date: dict[str, dict] = {}
+    for entry in by_date.values():
+        snap = entry.get("workout")
+        if snap and snap.get("date"):
+            workouts_by_date[snap["date"][:10]] = snap
+    for w in plan.get("workouts", []):
+        d = w.get("date", "")[:10]
+        if not d or w.get("cancelled"):
+            continue
         if (w.get("type") in RUN_TYPES or w.get("session") in ("speed", "long_run", "easy")
-            or (w.get("steps") or w.get("total_distance_km")))
-        and not w.get("cancelled")
-        and w.get("date", "")[:10] <= today
-    ]
+                or w.get("steps") or w.get("total_distance_km")):
+            workouts_by_date[d] = w
+
+    run_workouts = [w for d, w in sorted(workouts_by_date.items()) if d <= today]
 
     changed = False
     notified = 0
@@ -816,6 +845,8 @@ def _run_analyze(gist_id: str, github_token: str) -> None:
             "activity_source": source,
             "activity_id": activity_id,
             "metrics": metrics,
+            "metrics_version": METRICS_VERSION,
+            "workout": _workout_snapshot(workout),
             "coach": coach,
             "verdict": coach["verdict"],
             "analyzed_at": datetime.now(timezone.utc).isoformat(),
@@ -857,6 +888,32 @@ def _run_analyze(gist_id: str, github_token: str) -> None:
             notified += 1
         except Exception as exc:
             log.warning("Notificatie mislukt voor %s: %s", w_date, exc)
+
+    # Herbereken-pass: bestaande voltooide entries met een verouderde metrics-versie
+    # opnieuw doorrekenen (deterministisch, zónder Claude) zodat nieuwe metrics —
+    # zoals het 12-min testresultaat, GAP en de tempozones — retroactief verschijnen.
+    # Coach-tekst en voorstellen blijven ongemoeid; geen notificatie/dubbele suggesties.
+    for d, entry in by_date.items():
+        if not entry.get("completed") or entry.get("metrics_version") == METRICS_VERSION:
+            continue
+        workout = workouts_by_date.get(d) or entry.get("workout")
+        if not workout:
+            continue
+        activity, source = _match_activity_to_workout(
+            workout, ctx["intervals_by_date"], ctx["strava_by_date"]
+        )
+        if not activity:
+            continue  # activiteit niet meer in de data — oude metrics behouden
+        week_number = workout.get("week_number") or plan.get("week_number")
+        entry["metrics"] = _compute_metrics(workout, activity, source, week_number)
+        entry["activity_source"] = source
+        entry.setdefault("workout", _workout_snapshot(workout))
+        if not (entry.get("coach") or {}).get("verdict"):
+            entry["verdict"] = entry["metrics"].get("overall_verdict")
+        entry["metrics_version"] = METRICS_VERSION
+        entry["metrics_refreshed_at"] = datetime.now(timezone.utc).isoformat()
+        changed = True
+        log.info("Metrics herberekend voor %s (versie → %d)", d, METRICS_VERSION)
 
     if changed:
         analysis["updated_at"] = datetime.now(timezone.utc).isoformat()
