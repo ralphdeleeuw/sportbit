@@ -332,20 +332,34 @@
     };
 
     const MOBILITY_CATALOG = [
-      { id: 'mob_hip_flexor',  name: 'Heupbuiger Stretch',       duration: '45s/kant', keywords: ['squat', 'lunge', 'thruster', 'wallball', 'wall ball', 'run'] },
-      { id: 'mob_pigeon',      name: 'Duif Pose (Pigeon)',        duration: '60s/kant', keywords: ['squat', 'hip', 'run', 'deadlift', 'kettlebell'] },
-      { id: 'mob_ankle',       name: 'Enkel Mobiliteit',          duration: '10r/kant', keywords: ['squat', 'run', 'box jump', 'double under'] },
-      { id: 'mob_quad',        name: 'Quad Stretch (staand)',     duration: '45s/kant', keywords: ['squat', 'lunge', 'run', 'bike'] },
-      { id: 'mob_glute_bridge',name: 'Glute Bridge',              duration: '15 reps',  keywords: ['squat', 'deadlift', 'run', 'hip', 'lunge'] },
-      { id: 'mob_chest',       name: 'Deurpost Borststretch',     duration: '30s/kant', keywords: ['push', 'bench', 'dip', 'handstand'] },
-      { id: 'mob_shoulder',    name: 'Schouder Openingsstretch',  duration: '30s/kant', keywords: ['shoulder', 'press', 'snatch', 'overhead', 'thruster', 'jerk'] },
-      { id: 'mob_wrist',       name: 'Pols Mobiliteit',           duration: '1 min',    keywords: ['push', 'clean', 'snatch', 'front squat', 'handstand'] },
-      { id: 'mob_lat',         name: 'Lat Stretch aan Deur',      duration: '30s/kant', keywords: ['pull', 'row', 'rope climb', 'muscle'] },
-      { id: 'mob_hamstring',   name: 'Hamstring Stretch',         duration: '45s/kant', keywords: ['deadlift', 'rdl', 'run', 'swing', 'good morning'] },
-      { id: 'mob_cat_cow',     name: 'Cat-Cow',                   duration: '10 reps',  keywords: ['deadlift', 'back', 'situp', 'sit-up', 'ghd'] },
-      { id: 'mob_thoracic',    name: 'Thoracale Rotatie',         duration: '10r/kant', keywords: ['row', 'press', 'snatch', 'back', 'shoulder'] },
-      { id: 'mob_calf',        name: 'Kuit Stretch',              duration: '45s/kant', keywords: ['run', 'box jump', 'double under', 'jump rope'] },
-      { id: 'mob_t_spine',     name: 'Foam Roller Ruggengraat',   duration: '1 min',    keywords: ['deadlift', 'row', 'back squat', 'bench'] },
+      { id: 'mob_hip_flexor',   name: 'Heupbuiger Stretch',       duration: '45s/kant', keywords: ['squat', 'lunge', 'thruster', 'wallball', 'wall ball', 'run'],
+        desc: 'Stap naar voren in een uitvalspas, achterste knie op de grond. Kantel het bekken naar voren en duw de heup naar de vloer tot je rek voelt in de voorkant van de heup. Verlost de heupbuigers na squats, lunges en hardlopen.' },
+      { id: 'mob_pigeon',       name: 'Duif Pose (Pigeon)',        duration: '60s/kant', keywords: ['squat', 'hip', 'run', 'deadlift', 'kettlebell'],
+        desc: 'Voorste been horizontaal voor je, achterste been gestrekt naar achter. Laat de heupen zakken en leun zo nodig voorover op je onderarmen. Opent de diepe heupspieren (piriformis) na squats en hardlopen.' },
+      { id: 'mob_ankle',        name: 'Enkel Mobiliteit',          duration: '10r/kant', keywords: ['squat', 'run', 'box jump', 'double under'],
+        desc: 'Voet plat op de grond, duw de knie langzaam over de teen naar voren, hak blijft de grond raken. Vergroot enkeldorsiflexie voor diepere squats en soepeler afwikkeling bij het lopen.' },
+      { id: 'mob_quad',         name: 'Quad Stretch (staand)',     duration: '45s/kant', keywords: ['squat', 'lunge', 'run', 'bike'],
+        desc: 'Staand één been naar achter buigen, enkel vasthouden. Rechte rug, knieën naast elkaar. Rekt de quadriceps en het kniegewricht na squats, lunges en fietsen.' },
+      { id: 'mob_glute_bridge', name: 'Glute Bridge',              duration: '15 reps',  keywords: ['squat', 'deadlift', 'run', 'hip', 'lunge'],
+        desc: 'Op rug liggen, knieën gebogen, voeten plat. Duw de heupen omhoog, knijp bovenaan de bilspieren samen, houd 1 seconde vast. Activeert en versterkt de gluteus voor betere hip-extensie en looploophouding.' },
+      { id: 'mob_chest',        name: 'Deurpost Borststretch',     duration: '30s/kant', keywords: ['push', 'bench', 'dip', 'handstand'],
+        desc: 'Onderarm verticaal tegen de deurpost, elleboog op schouderhoogte. Draai langzaam weg van de muur tot je rek voelt in de borst en schouder. Opent de borstkas na push-oefeningen.' },
+      { id: 'mob_shoulder',     name: 'Schouder Openingsstretch',  duration: '30s/kant', keywords: ['shoulder', 'press', 'snatch', 'overhead', 'thruster', 'jerk'],
+        desc: 'Arm horizontaal, gebruik een deurpost of muur voor weerstand terwijl je de romp wegdraait. Rekt de achterste schouderkapsel na persen en overhead-werk.' },
+      { id: 'mob_wrist',        name: 'Pols Mobiliteit',           duration: '1 min',    keywords: ['push', 'clean', 'snatch', 'front squat', 'handstand'],
+        desc: 'Vingers naar voren én naar achter op de vloer leunen, cirkels maken met de pols. Verbetert polsflexie/-extensie — essentieel voor front squats, handstands en clean.' },
+      { id: 'mob_lat',          name: 'Lat Stretch aan Deur',      duration: '30s/kant', keywords: ['pull', 'row', 'rope climb', 'muscle'],
+        desc: 'Houd de deurpost vast op schouderhoogte, laat het gewicht van je romp de lat uitrekken terwijl je de heup naar buiten duwt. Verlost de brede rugspier na pull-ups en roeien.' },
+      { id: 'mob_hamstring',    name: 'Hamstring Stretch',         duration: '45s/kant', keywords: ['deadlift', 'rdl', 'run', 'swing', 'good morning'],
+        desc: 'Leg zittend één been gestrekt, teen naar je toe, leun recht naar voren over het been. Rekt de hamstrings na deadlifts, kettlebell swings en hardlopen.' },
+      { id: 'mob_cat_cow',      name: 'Cat-Cow',                   duration: '10 reps',  keywords: ['deadlift', 'back', 'situp', 'sit-up', 'ghd'],
+        desc: 'Op handen en knieën: afwisselend de rug bollen (Cat) en hol trekken met hoofd omhoog (Cow), gelijkmatig adem. Mobiliseert de gehele wervelkolom na sit-ups en rug-belastend werk.' },
+      { id: 'mob_thoracic',     name: 'Thoracale Rotatie',         duration: '10r/kant', keywords: ['row', 'press', 'snatch', 'back', 'shoulder'],
+        desc: 'Zijligging, knieën 90°, onderste arm gestrekt. Draai de bovenste arm en schouder zo ver mogelijk naar achter zonder de heupen mee te draaien. Verbetert rotatie in de borstwervelkolom voor persen en roeien.' },
+      { id: 'mob_calf',         name: 'Kuit Stretch',              duration: '45s/kant', keywords: ['run', 'box jump', 'double under', 'jump rope'],
+        desc: 'Handen tegen de muur, één been naar achter met gestrekte knie en hak op de grond. Houd aan. Rekt de kuitspier (gastrocnemius) na hardlopen en springoefeningen.' },
+      { id: 'mob_t_spine',      name: 'Foam Roller Ruggengraat',   duration: '1 min',    keywords: ['deadlift', 'row', 'back squat', 'bench'],
+        desc: 'Foam roller dwars onder de borstwervelkolom, armen gekruist voor de borst. Laat segment voor segment de rug over de roller vallen. Mobiliseert de thoracale wervelkolom en verlicht spanning na zwaar rugwerk.' },
     ];
 
     function getProgramWeek() {
@@ -539,6 +553,16 @@
       const result   = relevant.length > 0 ? relevant : scored.filter(m => defaults.includes(m.id));
       result.sort((a, b) => b.priority - a.priority || b.matchCount - a.matchCount);
       return result.slice(0, 6);
+    }
+
+    function getMobilityDesc(id) {
+      return MOBILITY_CATALOG.find(x => x.id === id)?.desc || '';
+    }
+
+    function toggleMobInfo(e, btn) {
+      e.preventDefault();
+      e.stopPropagation();
+      btn.closest('.hw-mob-item')?.classList.toggle('info-open');
     }
 
     // Load saved token
@@ -4786,23 +4810,29 @@
           : m.priority === 1
           ? `<span class="hw-mob-badge hw-mob-badge-1">★ Aanbevolen</span>`
           : '';
-        const rationaleHtml = (aiPlan && m.rationale)
-          ? `<span class="hw-mob-rationale">${escapeHtml(m.rationale)}</span>`
-          : '';
-        return `<label class="hw-exercise-row hw-mob-row${priorityClass}${isChecked ? ' checked' : ''}">
-          <input type="checkbox" id="hwmob-${m.id}" value="${m.id}"${isChecked ? ' checked' : ''}
-                 onchange="this.closest('.hw-exercise-row').classList.toggle('checked', this.checked)">
-          <div class="hw-exercise-info">
-            <div class="hw-exercise-left">
-              <span class="hw-exercise-name">${escapeHtml(m.name)}</span>
-              ${badge}
-              ${rationaleHtml}
+        const desc = getMobilityDesc(m.id);
+        const why  = (aiPlan && m.rationale) ? m.rationale : '';
+        const hasInfo = !!(desc || why);
+        return `<div class="hw-mob-item">
+          <label class="hw-exercise-row hw-mob-row${priorityClass}${isChecked ? ' checked' : ''}">
+            <input type="checkbox" id="hwmob-${m.id}" value="${m.id}"${isChecked ? ' checked' : ''}
+                   onchange="this.closest('.hw-exercise-row').classList.toggle('checked', this.checked)">
+            <div class="hw-exercise-info">
+              <div class="hw-exercise-left">
+                <span class="hw-exercise-name">${escapeHtml(m.name)}</span>
+                ${badge}
+                ${hasInfo ? `<button type="button" class="hw-info-btn" aria-label="Uitleg" onclick="toggleMobInfo(event, this)">ⓘ</button>` : ''}
+              </div>
+              <div class="hw-reps-block">
+                <span class="hw-reps-num">${escapeHtml(m.duration)}</span>
+              </div>
             </div>
-            <div class="hw-reps-block">
-              <span class="hw-reps-num">${escapeHtml(m.duration)}</span>
-            </div>
-          </div>
-        </label>`;
+          </label>
+          ${hasInfo ? `<div class="hw-mob-info">
+            ${desc ? `<div class="hw-mob-info-desc">${escapeHtml(desc)}</div>` : ''}
+            ${why ? `<div class="hw-mob-info-why">Vandaag: ${escapeHtml(why)}</div>` : ''}
+          </div>` : ''}
+        </div>`;
       }).join('');
 
       const durationMin  = aiPlan?.estimated_duration_min ?? HOME_WORKOUT.duration_min;
