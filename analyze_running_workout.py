@@ -60,7 +60,7 @@ PHASE2_GOAL_M = 2700           # fase 2 (weken 11+): streefdoel
 # Versie van de deterministische metrics. Verhoog dit zodra _compute_metrics
 # nieuwe velden produceert; bestaande entries met een lagere versie worden dan
 # automatisch (zonder Claude) herberekend zodat nieuwe data retroactief verschijnt.
-METRICS_VERSION = 2
+METRICS_VERSION = 3
 
 _ANALYSIS_SYSTEM_PROMPT = """You are a professional running coach analysing how Ralph de Leeuw executed a planned workout.
 - 47 years old, 77kg, CrossFit 5x/week, runs 1-3x/week
@@ -338,10 +338,17 @@ def _test_result(workout: dict, activity: dict, week_number: int | None) -> dict
     cands = [lap for lap in (activity.get("laps") or []) if lap.get("duration_s") and lap.get("distance_m")]
     if not cands:
         return None
-    test_lap = min(cands, key=lambda l: (abs(l["duration_s"] - TEST_DURATION_S), -(l.get("distance_m") or 0)))
-    # Sanity: testlap moet qua duur in de buurt van 12 min liggen
-    if abs(test_lap["duration_s"] - TEST_DURATION_S) > TEST_DURATION_S * 0.35:
-        return None
+    # Prefereer een lap waarvan het label op de test wijst; anders de lap met duur
+    # het dichtst bij 720s (tiebreak: grootste afstand).
+    labelled = [l for l in cands if any(k in (l.get("label") or "").lower()
+                                        for k in ("12 min", "12-min", "test", "defensie"))]
+    if labelled:
+        test_lap = max(labelled, key=lambda l: l.get("distance_m") or 0)
+    else:
+        test_lap = min(cands, key=lambda l: (abs(l["duration_s"] - TEST_DURATION_S), -(l.get("distance_m") or 0)))
+        # Sanity: testlap moet qua duur in de buurt van 12 min liggen
+        if abs(test_lap["duration_s"] - TEST_DURATION_S) > TEST_DURATION_S * 0.35:
+            return None
 
     test_dist = float(test_lap["distance_m"])
     test_dur = float(test_lap["duration_s"])

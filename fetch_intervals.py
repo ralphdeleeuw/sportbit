@@ -571,10 +571,26 @@ def fetch_intervals_data() -> dict | None:
                     except Exception as exc:
                         log.warning("Streams fetch mislukt voor activiteit %s: %s", act_id, exc)
 
-                laps_raw = detail.get("laps") or []
+                # intervals.icu geeft de laps NIET in de activity-detail terug, maar via
+                # een apart endpoint: /activity/{id}/intervals → icu_intervals (de
+                # auto-gedetecteerde work/recovery-segmenten, incl. het 12-min testblok).
+                laps_raw = []
+                try:
+                    iv_resp = session.get(f"{ACTIVITY_BASE}/{act_id}/intervals", timeout=20)
+                    if iv_resp.ok:
+                        iv_data = iv_resp.json()
+                        if isinstance(iv_data, dict):
+                            laps_raw = iv_data.get("icu_intervals") or []
+                except Exception as exc:
+                    log.warning("Intervals-endpoint fetch mislukt voor activiteit %s: %s", act_id, exc)
+                if not laps_raw:
+                    laps_raw = detail.get("laps") or []  # fallback (bijv. Strava-sync)
                 laps = []
                 for lap in laps_raw:
                     lap_entry: dict = {}
+                    label = lap.get("label") or lap.get("name")
+                    if label:
+                        lap_entry["label"] = str(label)
                     lap_dist = lap.get("distance")
                     if lap_dist and lap_dist > 0:
                         lap_entry["distance_m"] = round(float(lap_dist))
