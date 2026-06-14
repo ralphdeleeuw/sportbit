@@ -3579,8 +3579,8 @@
       }
       if (act.avg_hr) parts.push(`gem.HR <strong>${act.avg_hr} bpm</strong>`);
       if (act.max_hr) parts.push(`max.HR <strong>${act.max_hr} bpm</strong>`);
-      if (act.avg_watts) parts.push(`⚡ <strong>${Math.round(act.avg_watts)} W</strong>${act.max_watts ? ` (max ${Math.round(act.max_watts)} W)` : ''}`);
-      if (act.aerobic_te) parts.push(`TE <strong>${act.aerobic_te}</strong>${act.anaerobic_te ? `/${act.anaerobic_te}` : ''}`);
+      if (act.avg_watts) parts.push(`⚡ <strong>${Math.round(act.avg_watts)} W</strong>${act.weighted_watts ? ` (gew. ${Math.round(act.weighted_watts)} W)` : ''}`);
+      if (act.decoupling_pct != null) parts.push(`drift <strong>${act.decoupling_pct}%</strong>`);
       if (act.stride_length_m) parts.push(`stap <strong>${act.stride_length_m.toFixed(2)} m</strong>`);
       if (act.ground_contact_ms) parts.push(`GCT <strong>${Math.round(act.ground_contact_ms)} ms</strong>`);
       if (act.rpe) parts.push(`RPE <strong>${act.rpe}</strong>`);
@@ -3655,8 +3655,9 @@
       if (m.hr_zone_adherence_pct != null) overall.push(`HR-zone <strong>${m.hr_zone_adherence_pct}%</strong> in doel`);
       if (m.gap_pace) overall.push(`GAP <strong>${m.gap_pace}</strong>`);
       if (m.max_hr) overall.push(`max HR <strong>${m.max_hr}</strong>`);
-      if (m.avg_watts || m.max_watts) overall.push(`⚡ <strong>${m.avg_watts || '?'}W</strong>${m.max_watts ? ` (max ${m.max_watts}W)` : ''}`);
-      if (m.aerobic_te) overall.push(`TE <strong>${m.aerobic_te}</strong>${m.anaerobic_te ? `/${m.anaerobic_te}` : ''}`);
+      if (m.avg_watts) overall.push(`⚡ <strong>${m.avg_watts}W</strong>${m.weighted_watts ? ` (gew. ${m.weighted_watts}W)` : ''}`);
+      if (m.decoupling_pct != null) overall.push(`drift <strong>${m.decoupling_pct}%</strong>`);
+      if (m.efficiency_factor) overall.push(`EF <strong>${m.efficiency_factor}</strong>`);
       if (coach.execution_score != null) overall.push(`Score <strong>${coach.execution_score}/10</strong>`);
 
       // 12-min defensietest — opvallend resultaat-blok
