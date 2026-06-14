@@ -2124,3 +2124,13 @@
     }
     .family-badge-laura { background: #e67e22; }
     .family-badge-eva   { background: #27ae60; }
+
+    .family-only-card { opacity: 0.6; }
+    .family-only-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      border: 2px solid var(--border);
+      background: transparent;
+      flex-shrink: 0;
+    }
