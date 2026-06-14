@@ -112,8 +112,11 @@
 
     function renderCard(item, type, delay, wods) {
       const cancelled = type === 'cancelled';
+      const _cap = classCapacity[`${item.date}_${item.time}`];
+      const _coach = _cap && _cap.trainers && _cap.trainers[0] ? _cap.trainers[0].split(' ')[0] : '';
       const metaHtml = `<div class="card-meta">
         <span class="card-time">${item.time}</span>
+        ${_coach ? `<span class="card-coach">· ${escapeHtml(_coach)}</span>` : ''}
       </div>`;
 
       // Open Gym: toon gegenereerd programma als beschikbaar
