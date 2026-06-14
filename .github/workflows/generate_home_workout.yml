@@ -1,0 +1,38 @@
+name: Genereer Thuistraining Plan
+
+on:
+  schedule:
+    - cron: '30 5 * * *'  # 05:30 UTC = 07:30 CEST / 06:30 CET — vóór ochtendwekker
+  workflow_dispatch:
+    inputs:
+      date:
+        description: 'Datum (YYYY-MM-DD) — leeg = vandaag'
+        required: false
+        default: ''
+
+permissions:
+  contents: read
+
+jobs:
+  generate:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Installeer dependencies
+        run: pip install -r requirements.txt
+
+      - name: Genereer thuistraining plan
+        env:
+          GIST_ID:            ${{ secrets.GIST_ID }}
+          GITHUB_TOKEN:       ${{ secrets.GIST_TOKEN }}
+          ANTHROPIC_API_KEY:  ${{ secrets.ANTHROPIC_API_KEY }}
+          VAPID_PRIVATE_KEY:  ${{ secrets.VAPID_PRIVATE_KEY }}
+          VAPID_CLAIMS_EMAIL: ${{ secrets.VAPID_CLAIMS_EMAIL }}
+          TARGET_DATE:        ${{ github.event.inputs.date }}
+        run: python3 generate_home_workout.py
