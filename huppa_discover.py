@@ -145,7 +145,29 @@ def main():
         log.warning("Geen geboekte les gevonden in de komende 8 dagen.")
         results["note"] = "Geen geboekte les gevonden — probe endpoints overgeslagen."
 
-    # Stap 3: Opslaan
+    # Stap 3: Print compacte samenvatting naar stdout (leesbaar in Actions logs)
+    print("\n" + "="*60)
+    print("HUPPA DISCOVERY SAMENVATTING")
+    print("="*60)
+
+    print("\n[RAW OCCURRENCE VELDEN - eerste geboekte les]")
+    if booked_event:
+        for k, v in booked_event.items():
+            preview = str(v)[:200]
+            print(f"  {k}: {preview}")
+
+    print("\n[ENDPOINT RESULTATEN]")
+    for key, result in results["endpoints"].items():
+        status = result["status"]
+        body = result["body"]
+        body_preview = str(body)[:300].replace("\n", " ")
+        marker = "✅" if status == 200 else "❌"
+        print(f"  {marker} [{status}] {key}")
+        if status == 200:
+            print(f"      → {body_preview}")
+    print("="*60 + "\n")
+
+    # Stap 4: Opslaan in gist
     if gist_id and github_token:
         save_to_gist(gist_id, github_token, results)
     else:
