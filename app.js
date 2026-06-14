@@ -1867,9 +1867,16 @@
         }
         pendingSlots.sort((a, b) => a.date.localeCompare(b.date) || a.time.localeCompare(b.time));
 
+        // Bereken slots waar alleen familie ingeschreven is (niet Ralph zelf)
+        const todayStr = new Date().toISOString().slice(0, 10);
+        const familyOnlySlots = Object.entries(familyBookings)
+          .filter(([key]) => key.slice(0, 10) >= todayStr && !signedUpKeys.has(key))
+          .map(([key, members]) => ({ date: key.slice(0, 10), time: key.slice(11), members }))
+          .sort((a, b) => a.date.localeCompare(b.date) || a.time.localeCompare(b.time));
+
         // Render each tab
         renderTodayTab(upcoming, past, allUpcoming);
-        renderSchemaTab(allUpcoming, recentCancelled, pastItems, pendingSlots);
+        renderSchemaTab(allUpcoming, recentCancelled, pastItems, pendingSlots, familyOnlySlots);
         renderStatsTab();
         renderPlanTab();
         renderActiesTab(gist.updated_at);
@@ -2005,7 +2012,7 @@
       el.innerHTML = h;
     }
 
-    function renderSchemaTab(allUpcoming, recentCancelled, pastItems, pendingSlots = []) {
+    function renderSchemaTab(allUpcoming, recentCancelled, pastItems, pendingSlots = [], familyOnlySlots = []) {
       const el = document.getElementById('schema-content');
       if (!el) return;
       let h = `<div class="tab-page-header">
@@ -2062,6 +2069,31 @@
             <div class="card-right">
               <div class="card-date${isExcl?' cancelled-date':''}">${dateLabel}</div>
               <div class="card-relative-day">${dayName}</div>
+            </div>
+          </div>`;
+        });
+        h += `</div>`;
+      }
+      if (familyOnlySlots.length > 0) {
+        h += `<div class="section-title">Familie</div><div class="cards">`;
+        const dayNlFull = ['Zondag','Maandag','Dinsdag','Woensdag','Donderdag','Vrijdag','Zaterdag'];
+        familyOnlySlots.forEach((slot, i) => {
+          const badges = slot.members.map(name =>
+            `<span class="family-badge family-badge-${name.toLowerCase()}" title="${name}">${name[0]}</span>`
+          ).join('');
+          const d = new Date(slot.date + 'T00:00:00');
+          const dateLabel = `${d.getDate()} ${MONTH_NL[d.getMonth()]}`;
+          const dayName = dayNlFull[d.getDay()];
+          h += `<div class="card family-only-card" style="animation-delay:${i*0.05}s">
+            <div class="card-dot family-only-dot"></div>
+            <div class="card-info">
+              <div class="card-title">CrossFit WOD</div>
+              <div class="card-meta"><span class="card-time">${slot.time}</span></div>
+            </div>
+            <div class="card-right">
+              <div class="card-date">${dateLabel}</div>
+              <div class="card-relative-day">${dayName}</div>
+              <div class="family-badges">${badges}</div>
             </div>
           </div>`;
         });
