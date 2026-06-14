@@ -399,8 +399,8 @@ def _compute_metrics(workout: dict, activity: dict, source: str, week_number: in
         metrics["test_result"] = tr
 
     # Extra werkelijke metrics (alleen meenemen als de fetcher ze leverde)
-    for fld in ("max_hr", "avg_watts", "max_watts", "weighted_watts",
-                "intensity_pct", "aerobic_te", "anaerobic_te"):
+    for fld in ("max_hr", "avg_watts", "weighted_watts", "intensity_pct",
+                "decoupling_pct", "efficiency_factor", "pace_zone_times"):
         if activity.get(fld) is not None:
             metrics[fld] = activity[fld]
     if activity.get("gap_speed_ms"):
@@ -517,6 +517,11 @@ def _format_activity_brief(activity: dict, source: str) -> list[str]:
         total = sum(hz)
         zone_str = " ".join(f"Z{i+1}:{round(v/total*100)}%" for i, v in enumerate(hz[:5]) if v > 0)
         lines.append(f"  HR zones: {zone_str}")
+    pz = activity.get("pace_zone_times")
+    if pz and isinstance(pz, list) and sum(pz) > 0:
+        total = sum(pz)
+        zone_str = " ".join(f"Z{i+1}:{round(v/total*100)}%" for i, v in enumerate(pz) if v > 0)
+        lines.append(f"  Pace zones: {zone_str}")
     for i, lap in enumerate(activity.get("laps", []), 1):
         lp = [f"    lap {i}:"]
         if lap.get("distance_m"):
@@ -582,16 +587,15 @@ def _build_analysis_context(
         metric_lines.append(f"  GAP (gradient-adjusted pace): {metrics['gap_pace']}/km")
     if metrics.get("max_hr"):
         metric_lines.append(f"  Max HR: {metrics['max_hr']}bpm")
-    if metrics.get("avg_watts") or metrics.get("max_watts"):
-        metric_lines.append(
-            f"  Power: avg {metrics.get('avg_watts', '?')}W, max {metrics.get('max_watts', '?')}W"
-            + (f", weighted {metrics['weighted_watts']}W" if metrics.get('weighted_watts') else "")
-        )
-    if metrics.get("aerobic_te") or metrics.get("anaerobic_te"):
-        metric_lines.append(
-            f"  Training Effect: aerobic {metrics.get('aerobic_te', '?')}, "
-            f"anaerobic {metrics.get('anaerobic_te', '?')}"
-        )
+    if metrics.get("avg_watts"):
+        line = f"  Power: avg {metrics['avg_watts']}W"
+        if metrics.get("weighted_watts"):
+            line += f", weighted {metrics['weighted_watts']}W"
+        metric_lines.append(line)
+    if metrics.get("decoupling_pct") is not None:
+        metric_lines.append(f"  Aerobic decoupling (cardiac drift): {metrics['decoupling_pct']}%")
+    if metrics.get("efficiency_factor"):
+        metric_lines.append(f"  Efficiency factor (pace/HR): {metrics['efficiency_factor']}")
     metric_lines.append(f"  Deterministic verdict: {metrics.get('overall_verdict')}")
     sections.append("Computed metrics:\n" + "\n".join(metric_lines))
 

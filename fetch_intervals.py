@@ -117,43 +117,40 @@ def _extract_run_dynamics(source: dict) -> dict:
 
 
 def _extract_extra_metrics(source: dict) -> dict:
-    """Extra activity-metrics met kandidaat-keys: vermogen (max/gewogen), max snelheid,
-    GAP, intensiteit en Training Effect. Net als de run-dynamics hanteert intervals.icu
-    hier geen vaste veldnamen — verkeerde gokken blijven simpelweg leeg.
+    """Extra activity-metrics met de bevestigde intervals.icu-sleutelnamen
+    (geverifieerd via INTERVALS_DEBUG_KEYS). Ontbrekende velden blijven leeg.
+
+    NB: intervals.icu kent géén per-activity max vermogen (alleen gemodelleerd
+    p_max) en géén Garmin Training Effect — die zijn hier dus niet beschikbaar.
     """
     out: dict = {}
 
-    def first(keys: tuple[str, ...]) -> float | None:
-        for k in keys:
-            v = source.get(k)
-            if isinstance(v, (int, float)) and v > 0:
-                return float(v)
-        return None
+    def num(key: str) -> float | None:
+        v = source.get(key)
+        return float(v) if isinstance(v, (int, float)) else None
 
-    mw = first(("max_watts",))
-    if mw:
-        out["max_watts"] = round(mw)
-    ww = first(("icu_weighted_avg_watts", "normalized_watts"))
-    if ww:
+    ww = num("icu_weighted_avg_watts")
+    if ww and ww > 0:
         out["weighted_watts"] = round(ww)
-    ms = first(("max_speed",))
-    if ms:
+    ms = num("max_speed")
+    if ms and ms > 0:
         out["max_speed_ms"] = round(ms, 2)
-    # GAP (gradient adjusted pace): intervals.icu levert dit als snelheid in m/s.
-    gap = first(("gap", "gradient_adjusted_pace"))
-    if gap:
+    # GAP: intervals.icu levert gradient-adjusted pace als snelheid (m/s).
+    gap = num("gap")
+    if gap and 1.5 <= gap <= 8:
         out["gap_speed_ms"] = round(gap, 2)
-    # Intensiteit: fractie van drempel (bijv. 0.73) → percentage.
-    inten = first(("icu_intensity",))
-    if inten:
-        out["intensity_pct"] = round(inten * 100)
-    # Training Effect (komt soms mee uit Garmin via intervals.icu).
-    ate = first(("icu_aerobic_te", "aerobic_training_effect", "aerobicTrainingEffect"))
-    if ate:
-        out["aerobic_te"] = round(ate, 1)
-    nte = first(("icu_anaerobic_te", "anaerobic_training_effect", "anaerobicTrainingEffect"))
-    if nte:
-        out["anaerobic_te"] = round(nte, 1)
+    # Intensiteit: fractie van drempel (0.73) → percentage; soms al als percentage.
+    inten = num("icu_intensity")
+    if inten and inten > 0:
+        out["intensity_pct"] = round(inten * 100) if inten <= 3 else round(inten)
+    # Aerobe ontkoppeling (cardiac drift, Pa:HR) — kan negatief zijn (= goed).
+    dec = num("decoupling")
+    if dec is not None:
+        out["decoupling_pct"] = round(dec, 1)
+    # Efficiency factor (tempo/HR).
+    ef = num("icu_efficiency_factor")
+    if ef and ef > 0:
+        out["efficiency_factor"] = round(ef, 2)
     return out
 
 
@@ -443,6 +440,11 @@ def fetch_intervals_data() -> dict | None:
             hr_zones = act.get("icu_hr_zone_times")
             if hr_zones and isinstance(hr_zones, list) and any(v for v in hr_zones if v):
                 entry["hr_zone_times"] = [int(v or 0) for v in hr_zones]
+
+            # Tempo-zone verdeling (intervals.icu "Tempozones"): seconden per zone
+            pace_zones = act.get("pace_zone_times")
+            if pace_zones and isinstance(pace_zones, list) and any(v for v in pace_zones if v):
+                entry["pace_zone_times"] = [int(v or 0) for v in pace_zones]
 
             # Temperatuur tijdens activiteit
             temp = act.get("average_temp")
