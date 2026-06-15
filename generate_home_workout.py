@@ -496,7 +496,7 @@ def _call_claude(context: str, squat: dict, target: date) -> dict | None:
     log.info("Claude aanroepen voor thuistraining plan (model: %s)...", MODEL)
     response = client.messages.create(
         model=MODEL,
-        max_tokens=1024,
+        max_tokens=2048,
         system=system_prompt,
         messages=[{"role": "user", "content": user_message}],
     )
