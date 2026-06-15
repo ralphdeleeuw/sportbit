@@ -312,11 +312,11 @@
       duration_min: 10,
       start_date: '2026-04-28',
       exercises: [
-        { id: 'pushup_1', name: 'Pushups',  reps: 20, rest_s: 30 },
-        { id: 'situp',    name: 'Sit-ups',  reps: 50, rest_s: 30 },
-        { id: 'pushup_2', name: 'Pushups',  reps: 20, rest_s: 30 },
-        { id: 'squat',    name: 'Squats',   reps: 20, rest_s: 30, variant_key: true },
-        { id: 'pushup_3', name: 'Pushups',  reps: 20, rest_s: 0  },
+        { id: 'pushup_1', name: 'Pushups',  reps: 12, rest_s: 20 },
+        { id: 'situp',    name: 'Sit-ups',  reps: 25, rest_s: 20 },
+        { id: 'pushup_2', name: 'Pushups',  reps: 12, rest_s: 20 },
+        { id: 'squat',    name: 'Squats',   reps: 20, rest_s: 20, variant_key: true },
+        { id: 'pushup_3', name: 'Pushups',  reps: 12, rest_s: 0  },
       ],
       squat_progression: [
         { from_week:  1, variant: 'bw',            label: 'Bodyweight Squats',    sub: '',        sets: 1, reps: 20 },
