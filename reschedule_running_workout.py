@@ -190,10 +190,14 @@ def main() -> None:
         ints.headers.update({"Accept": "application/json", "Content-Type": "application/json"})
 
         for key, new_datetime in overrides.items():
-            session_role = "speed" if key == "run_1" else "long_run"
-            workout = next((w for w in workouts if w.get("session") == session_role and not w.get("cancelled")), None)
+            original_date = health_input.get(key + "_from")
+            if original_date:
+                workout = next((w for w in workouts if w.get("date") == original_date and not w.get("cancelled")), None)
+            else:
+                session_role = "speed" if key == "run_1" else "long_run"
+                workout = next((w for w in workouts if w.get("session") == session_role and not w.get("cancelled")), None)
             if not workout:
-                log.warning("Geen %s workout in running_plan.json — overslaan", session_role)
+                log.warning("Geen workout gevonden voor %s — overslaan", key)
                 continue
 
             new_date = new_datetime[:10]
@@ -243,6 +247,7 @@ def main() -> None:
             workout["time"] = new_time
             workout["event_id"] = new_id
             del health_input[key]
+            health_input.pop(key + "_from", None)
             changed = True
 
             # Google Agenda sync

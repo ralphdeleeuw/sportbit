@@ -4039,7 +4039,7 @@
                    value="${session.date}T${sessionTime}"
                    class="add-event-input" style="flex:1;min-width:180px">
             <button class="run-reschedule-btn" id="rssave-${cardId}"
-                    onclick="saveAndSyncReschedule('${sessionKey}', '${cardId}')">Opslaan & Sync Garmin</button>
+                    onclick="saveAndSyncReschedule('${sessionKey}', '${cardId}', '${session.date}')">Opslaan & Sync Garmin</button>
             ${clearBtn}
           </div>
           <div id="rsstatus-${cardId}" style="font-size:0.72rem;color:var(--muted);margin-top:0.4rem"></div>
@@ -4250,7 +4250,7 @@
       await setRunDaysNextWeek(newDays);
     }
 
-    async function _patchRescheduleToGist(token, sessionKey, newDatetime) {
+    async function _patchRescheduleToGist(token, sessionKey, newDatetime, originalDate) {
       const newDate = newDatetime.slice(0, 10);
       const newTime = newDatetime.slice(11, 16);
       const resp = await fetch(`https://api.github.com/gists/${currentGistId}`, {
@@ -4260,12 +4260,14 @@
       let h = {};
       try { h = JSON.parse(gist.files['health_input.json']?.content || '{}'); } catch(e) {}
       h[sessionKey] = newDatetime;
+      if (originalDate) h[sessionKey + '_from'] = originalDate;
       healthInput = h;
       let plan = {};
       try { plan = JSON.parse(gist.files['running_plan.json']?.content || '{}'); } catch(e) {}
-      const sessionRole = sessionKey === 'run_1' ? 'speed' : 'long_run';
       if (plan.workouts) {
-        const w = plan.workouts.find(w => w.session === sessionRole && !w.cancelled);
+        const w = originalDate
+          ? plan.workouts.find(w => w.date === originalDate && !w.cancelled)
+          : plan.workouts.find(w => w.session === (sessionKey === 'run_1' ? 'speed' : 'long_run') && !w.cancelled);
         if (w) { w.date = newDate; w.time = newTime; }
       }
       await fetch(`https://api.github.com/gists/${currentGistId}`, {
@@ -4278,7 +4280,7 @@
       });
     }
 
-    async function saveAndSyncReschedule(sessionKey, cardId) {
+    async function saveAndSyncReschedule(sessionKey, cardId, originalDate) {
       const token = document.getElementById('githubToken').value.trim();
       if (!token || !currentGistId) { alert('GitHub token vereist'); return; }
       const input = document.getElementById('rsinput-' + cardId);
@@ -4290,7 +4292,7 @@
 
       if (btn) { btn.disabled = true; btn.textContent = 'Opslaan…'; }
       try {
-        await _patchRescheduleToGist(token, sessionKey, newDatetime);
+        await _patchRescheduleToGist(token, sessionKey, newDatetime, originalDate);
         setStatus('✓ Opgeslagen in Gist — Garmin sync starten…');
 
         // Trigger health data refresh in the background so the AI coach advice is regenerated
@@ -4442,14 +4444,19 @@
 
         let h = {};
         try { h = JSON.parse(gist.files['health_input.json']?.content || '{}'); } catch(e) {}
+        const rescheduledDate = h[sessionKey] ? h[sessionKey].slice(0, 10) : null;
+        const fromDate = h[sessionKey + '_from'] || null;
         delete h[sessionKey];
+        delete h[sessionKey + '_from'];
         healthInput = h;
 
         let plan = {};
         try { plan = JSON.parse(gist.files['running_plan.json']?.content || '{}'); } catch(e) {}
         const sessionRole = sessionKey === 'run_1' ? 'speed' : 'long_run';
         if (plan.workouts) {
-          const w = plan.workouts.find(w => w.session === sessionRole);
+          const w = (rescheduledDate && plan.workouts.find(w => w.date === rescheduledDate && !w.cancelled))
+                 || (fromDate && plan.workouts.find(w => w.date === fromDate && !w.cancelled))
+                 || plan.workouts.find(w => w.session === sessionRole);
           if (w) {
             const targetDay = sessionKey === 'run_1' ? 2 : 6; // 2=di, 6=za
             const today = new Date();
