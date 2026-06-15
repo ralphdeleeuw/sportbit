@@ -206,8 +206,8 @@ def main() -> None:
             )
 
             log.info(
-                "Verplaatsen %s (%s): %s → %s %s",
-                key, session_role, workout.get("date"), new_date, new_time,
+                "Verplaatsen %s: %s → %s %s",
+                key, workout.get("date"), new_date, new_time,
             )
 
             # Verwijder oud intervals.icu event
