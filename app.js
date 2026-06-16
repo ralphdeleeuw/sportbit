@@ -1396,7 +1396,22 @@
       });
     }
 
-    function renderStravaBlock(date, typeFilter, keywords) {
+    // Koppelt het type van een handmatig personal event aan de activiteitstypes
+    // (intervals.icu/Strava) die eronder getoond mogen worden. Gedeeld door
+    // renderPersonalEventCard (coupling) en de orphan-detectie (dedup).
+    const personalTypeKeywords = {
+      'Hiken':        ['hike', 'walk', 'hiking', 'walking'],
+      'Hardlopen':    ['run', 'running', 'trailrun', 'treadmill', 'jog'],
+      'Fietsen':      ['ride', 'cycling', 'virtualride', 'ebikeride'],
+      'Mountainbiken':['mountainbikeride', 'mtb', 'gravel', 'virtualride'],
+      'Zwemmen':      ['swim', 'openwaterswim'],
+      'SUPpen':       ['sup', 'stand', 'paddle', 'row', 'canoe'],
+      'Yoga':         ['yoga', 'flexibility', 'stretching'],
+      'Gym':          ['weighttraining', 'strength', 'weight', 'workout'],
+      'CrossFit':     ['crossfit', 'workout', 'weight'],
+    };
+
+    function renderStravaBlock(date, typeFilter, keywords, excludeKeywords) {
       if (!stravaData) return '';
       const _rtS = ['run', 'running', 'trailrun', 'treadmill', 'jog'];
       let acts = (stravaData.activities_by_date || {})[date];
@@ -1404,6 +1419,7 @@
       if (typeFilter === 'run') acts = acts.filter(a => _rtS.some(rt => (a.type || '').toLowerCase().includes(rt)));
       else if (typeFilter === 'non-run') acts = acts.filter(a => !_rtS.some(rt => (a.type || '').toLowerCase().includes(rt)));
       else if (keywords) acts = acts.filter(a => keywords.some(k => (a.type || '').toLowerCase().includes(k)));
+      if (excludeKeywords && excludeKeywords.length) acts = acts.filter(a => !excludeKeywords.some(k => (a.type || '').toLowerCase().includes(k)));
       if (acts.length === 0) return '';
       return acts.map(act => {
         const dur     = act.duration_min ? `<span class="strava-stat"><strong>${act.duration_min}</strong> min</span>` : '';
@@ -1447,7 +1463,7 @@
       </div>`;
     }
 
-    function renderIntervalsBlock(date, typeFilter, keywords) {
+    function renderIntervalsBlock(date, typeFilter, keywords, excludeKeywords) {
       if (!intervalsData) return '';
       const runTypes = ['run', 'running', 'trailrun', 'treadmill', 'jog'];
       let acts = ((intervalsData.activities || {}).by_date || {})[date];
@@ -1455,6 +1471,7 @@
       if (typeFilter === 'run') acts = acts.filter(a => runTypes.some(rt => (a.type || '').toLowerCase().includes(rt)));
       else if (typeFilter === 'non-run') acts = acts.filter(a => !runTypes.some(rt => (a.type || '').toLowerCase().includes(rt)));
       else if (keywords) acts = acts.filter(a => keywords.some(k => (a.type || '').toLowerCase().includes(k)));
+      if (excludeKeywords && excludeKeywords.length) acts = acts.filter(a => !excludeKeywords.some(k => (a.type || '').toLowerCase().includes(k)));
       if (acts.length === 0) return '';
       return acts.map(act => {
         const isRun = runTypes.some(rt => (act.type || '').toLowerCase().includes(rt));
@@ -1702,7 +1719,7 @@
       <div class="run-phase-overview${stored ? ' open' : ''}">${rows}</div>`;
     }
 
-    function renderActivityCard(date, delay, runOnly) {
+    function renderActivityCard(date, delay, runOnly, excludeKeywords) {
       const _rtA = ['run', 'running', 'trailrun', 'treadmill', 'jog'];
       const tf = runOnly ? 'run' : null;
       let acts = ((intervalsData?.activities || {}).by_date || {})[date] || [];
@@ -1711,10 +1728,16 @@
         acts = acts.filter(a => _rtA.some(rt => (a.type || '').toLowerCase().includes(rt)));
         stravaActs = stravaActs.filter(a => _rtA.some(rt => (a.type || '').toLowerCase().includes(rt)));
       }
+      // Activiteiten die al door een handmatig personal event op deze datum geclaimd zijn,
+      // niet nogmaals als losse kaart tonen.
+      if (excludeKeywords && excludeKeywords.length) {
+        acts = acts.filter(a => !excludeKeywords.some(k => (a.type || '').toLowerCase().includes(k)));
+        stravaActs = stravaActs.filter(a => !excludeKeywords.some(k => (a.type || '').toLowerCase().includes(k)));
+      }
       if (acts.length === 0 && stravaActs.length === 0) return '';
 
-      const intervalsHtml = renderIntervalsBlock(date, tf);
-      const stravaHtml = intervalsHtml ? '' : renderStravaBlock(date, tf);
+      const intervalsHtml = renderIntervalsBlock(date, tf, null, excludeKeywords);
+      const stravaHtml = intervalsHtml ? '' : renderStravaBlock(date, tf, null, excludeKeywords);
       if (!intervalsHtml && !stravaHtml) return '';
 
       const first = acts[0] || {};
@@ -1870,19 +1893,44 @@
           const a2 = (stravaData.activities_by_date || {})[d2] || [];
           if (a2.some(a => _runTypes2.some(rt => (a.type || '').toLowerCase().includes(rt)))) runActivityDates2.add(d2);
         });
+        // Per datum de keywords van handmatige personal events (zelfde datumbereik als
+        // waarmee ze in pastItems komen). Een activiteit die hierdoor al onder een
+        // personal-event-kaart gekoppeld wordt, mag niet ook als losse orphan-kaart
+        // verschijnen — dat zou een dubbele kaart voor dezelfde activiteit geven.
+        const personalClaimedKeywordsByDate = {};
+        personalEvents.forEach(e => {
+          if (e.date < cutoffStr || isUpcoming(e.date, e.time || null)) return;
+          const kw = personalTypeKeywords[e.title];
+          if (!kw) return;
+          (personalClaimedKeywordsByDate[e.date] ||= new Set());
+          kw.forEach(k => personalClaimedKeywordsByDate[e.date].add(k));
+        });
+        // Blijft er na het wegfilteren van geclaimde types nog een activiteit over?
+        const _hasUnclaimedActivity = (d, runOnly, excl) => {
+          if (!excl || !excl.length) return true;
+          const types = [
+            ...(((intervalsData?.activities || {}).by_date || {})[d] || []),
+            ...((stravaData?.activities_by_date || {})[d] || []),
+          ].map(a => (a.type || '').toLowerCase())
+           .filter(t => !runOnly || _runTypes2.some(rt => t.includes(rt)));
+          return types.some(t => !excl.some(k => t.includes(k)));
+        };
         // Orphan activities: no class + no plan → show all; run on class day → show run-only
         const orphanEntries = [];
         Array.from(activityDates).forEach(d => {
           if (planDates.has(d) || d < cutoffStr || d > todayStr) return;
-          if (!classDates.has(d)) orphanEntries.push({ date: d, runOnly: false });
-          else if (runActivityDates2.has(d)) orphanEntries.push({ date: d, runOnly: true });
+          const excl = personalClaimedKeywordsByDate[d] ? Array.from(personalClaimedKeywordsByDate[d]) : null;
+          const runOnly = classDates.has(d);
+          if (runOnly && !runActivityDates2.has(d)) return;
+          if (!_hasUnclaimedActivity(d, runOnly, excl)) return;
+          orphanEntries.push({ date: d, runOnly, excludeKeywords: excl });
         });
         const pastRuns = runningPlanData
           ? (runningPlanData.workouts || []).filter(s => { const t = s.time || (s.session === 'speed' ? '20:00' : '09:00'); return s.date >= cutoffStr && !isUpcoming(s.date, t); })
           : [];
         const pastItems = [
           ...past.slice(-5).map(e => ({ type: 'class', date: e.date, item: e })),
-          ...orphanEntries.map(({ date: d, runOnly }) => ({ type: 'activity', date: d, runOnly })),
+          ...orphanEntries.map(({ date: d, runOnly, excludeKeywords }) => ({ type: 'activity', date: d, runOnly, excludeKeywords })),
           ...pastRuns.map(s => ({ type: 'run', date: s.date, item: s })),
           ...personalEvents.filter(e => !isUpcoming(e.date, e.time || null) && e.date >= cutoffStr).map(e => ({ type: 'personal', date: e.date, item: e })),
         ].sort((a, b) => b.date.localeCompare(a.date)).slice(0, 8);
@@ -2075,7 +2123,7 @@
           if (entry.type==='class') h += renderPastCard(entry.item,i*0.05);
           else if (entry.type==='run') h += renderRunEventCard(entry.item,i*0.05,'schema');
           else if (entry.type==='personal') h += renderPersonalEventCard(entry.item,i*0.05);
-          else h += renderActivityCard(entry.date,i*0.05,entry.runOnly);
+          else h += renderActivityCard(entry.date,i*0.05,entry.runOnly,entry.excludeKeywords);
         });
         h += `</div>`;
       }
@@ -3515,17 +3563,6 @@
 
       // Koppel workout data van intervals.icu/Strava als de datum vandaag of eerder is
       const todayStr = new Date().toISOString().slice(0, 10);
-      const personalTypeKeywords = {
-        'Hiken':        ['hike', 'walk', 'hiking', 'walking'],
-        'Hardlopen':    ['run', 'running', 'trailrun', 'treadmill', 'jog'],
-        'Fietsen':      ['ride', 'cycling', 'virtualride', 'ebikeride'],
-        'Mountainbiken':['mountainbikeride', 'mtb', 'gravel', 'virtualride'],
-        'Zwemmen':      ['swim', 'openwaterswim'],
-        'SUPpen':       ['sup', 'stand', 'paddle', 'row', 'canoe'],
-        'Yoga':         ['yoga', 'flexibility', 'stretching'],
-        'Gym':          ['weighttraining', 'strength', 'weight', 'workout'],
-        'CrossFit':     ['crossfit', 'workout', 'weight'],
-      };
       let activityBlockHtml = '';
       if (event.date <= todayStr) {
         const keywords = personalTypeKeywords[event.title] || null;
