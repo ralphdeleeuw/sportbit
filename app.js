@@ -1411,7 +1411,7 @@
       'CrossFit':     ['crossfit', 'workout', 'weight'],
     };
 
-    function renderStravaBlock(date, typeFilter, keywords, excludeKeywords) {
+    function renderStravaBlock(date, typeFilter, keywords, excludeKeywords, allowIds) {
       if (!stravaData) return '';
       const _rtS = ['run', 'running', 'trailrun', 'treadmill', 'jog'];
       let acts = (stravaData.activities_by_date || {})[date];
@@ -1420,6 +1420,7 @@
       else if (typeFilter === 'non-run') acts = acts.filter(a => !_rtS.some(rt => (a.type || '').toLowerCase().includes(rt)));
       else if (keywords) acts = acts.filter(a => keywords.some(k => (a.type || '').toLowerCase().includes(k)));
       if (excludeKeywords && excludeKeywords.length) acts = acts.filter(a => !excludeKeywords.some(k => (a.type || '').toLowerCase().includes(k)));
+      if (allowIds) acts = acts.filter(a => allowIds.has(a.activity_id));
       if (acts.length === 0) return '';
       return acts.map(act => {
         const dur     = act.duration_min ? `<span class="strava-stat"><strong>${act.duration_min}</strong> min</span>` : '';
@@ -1463,7 +1464,7 @@
       </div>`;
     }
 
-    function renderIntervalsBlock(date, typeFilter, keywords, excludeKeywords) {
+    function renderIntervalsBlock(date, typeFilter, keywords, excludeKeywords, allowIds) {
       if (!intervalsData) return '';
       const runTypes = ['run', 'running', 'trailrun', 'treadmill', 'jog'];
       let acts = ((intervalsData.activities || {}).by_date || {})[date];
@@ -1472,6 +1473,7 @@
       else if (typeFilter === 'non-run') acts = acts.filter(a => !runTypes.some(rt => (a.type || '').toLowerCase().includes(rt)));
       else if (keywords) acts = acts.filter(a => keywords.some(k => (a.type || '').toLowerCase().includes(k)));
       if (excludeKeywords && excludeKeywords.length) acts = acts.filter(a => !excludeKeywords.some(k => (a.type || '').toLowerCase().includes(k)));
+      if (allowIds) acts = acts.filter(a => allowIds.has(a.intervals_id));
       if (acts.length === 0) return '';
       return acts.map(act => {
         const isRun = runTypes.some(rt => (act.type || '').toLowerCase().includes(rt));
@@ -3546,6 +3548,63 @@
 
     // ── Personal events ───────────────────────────────────────────────────
 
+    // Wijst getrackte activiteiten 1-op-1 toe aan handmatige events op dezelfde dag wanneer
+    // er meerdere events van hetzelfde type zijn, op basis van de dichtstbijzijnde starttijd.
+    // Retourneert een Set van activity-id's voor dit event, of null als er niet
+    // gepartitioneerd hoeft te worden (één event van dit type op de dag → toon alles).
+    function assignedActivityIds(event) {
+      const keywords = personalTypeKeywords[event.title] || null;
+      if (!keywords) return null;
+      const date = event.date;
+      // Concurrerende events: zelfde datum, overlappende keywords.
+      const group = personalEvents.filter(e => {
+        if (e.date !== date) return false;
+        const kw = personalTypeKeywords[e.title];
+        return kw && kw.some(k => keywords.includes(k));
+      });
+      if (group.length <= 1) return null;
+
+      // Bron kiezen zoals renderPersonalEventCard: intervals heeft voorrang.
+      const ivActs = (((intervalsData?.activities || {}).by_date || {})[date] || [])
+        .filter(a => keywords.some(k => (a.type || '').toLowerCase().includes(k)));
+      let acts, idField;
+      if (ivActs.length) { acts = ivActs; idField = 'intervals_id'; }
+      else {
+        acts = ((stravaData?.activities_by_date || {})[date] || [])
+          .filter(a => keywords.some(k => (a.type || '').toLowerCase().includes(k)));
+        idField = 'activity_id';
+      }
+      if (acts.length === 0) return new Set();
+
+      const toMin = t => { if (!t) return null; const [h, m] = t.split(':').map(Number); return h * 60 + m; };
+      // Deterministische volgorde (voor de tie-break en de fallback zonder tijden).
+      const sortedGroup = [...group].sort((a, b) =>
+        ((toMin(a.time) ?? Infinity) - (toMin(b.time) ?? Infinity)) || String(a.id).localeCompare(String(b.id)));
+      const sortedActs = [...acts].sort((a, b) =>
+        ((toMin(a.start_time) ?? Infinity) - (toMin(b.start_time) ?? Infinity)) || String(a[idField]).localeCompare(String(b[idField])));
+
+      const assigned = new Set();
+      sortedActs.forEach((act, i) => {
+        const cands = sortedGroup.filter(e =>
+          personalTypeKeywords[e.title].some(k => (act.type || '').toLowerCase().includes(k)));
+        if (cands.length === 0) return;
+        const at = toMin(act.start_time);
+        let chosen;
+        if (at == null || cands.every(e => toMin(e.time) == null)) {
+          // Geen bruikbare tijden → verdeel deterministisch op index.
+          chosen = cands[Math.min(i, cands.length - 1)];
+        } else {
+          chosen = cands.reduce((best, e) => {
+            const d = Math.abs((toMin(e.time) ?? Infinity) - at);
+            const bd = Math.abs((toMin(best.time) ?? Infinity) - at);
+            return d < bd ? e : best;
+          });
+        }
+        if (chosen.id === event.id) assigned.add(act[idField]);
+      });
+      return assigned;
+    }
+
     function renderPersonalEventCard(event, delay) {
       const id = escapeHtml(event.id);
       const timeHtml = event.time ? `<span class="card-time" style="color:#4db8ff">${event.time}</span>` : '';
@@ -3566,8 +3625,9 @@
       let activityBlockHtml = '';
       if (event.date <= todayStr) {
         const keywords = personalTypeKeywords[event.title] || null;
-        const intervalsHtml = renderIntervalsBlock(event.date, null, keywords);
-        activityBlockHtml = intervalsHtml || renderStravaBlock(event.date, null, keywords);
+        const allowIds = keywords ? assignedActivityIds(event) : null;
+        const intervalsHtml = renderIntervalsBlock(event.date, null, keywords, null, allowIds);
+        activityBlockHtml = intervalsHtml || renderStravaBlock(event.date, null, keywords, null, allowIds);
       }
 
       const hasContent = event.notes || activityBlockHtml;
