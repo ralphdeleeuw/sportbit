@@ -3065,6 +3065,37 @@ def load_health_input(gist_id: str, token: str) -> tuple[dict | None, list[dict]
         return None, []
 
 
+# Activity type keywords (Strava `type` / intervals.icu `type`, lowercased)
+# that indicate a cardio/non-CrossFit session.  Checked first so things like
+# "Workout" recorded on a treadmill run don't get misclassified.
+_CARDIO_ACTIVITY_KEYWORDS = (
+    "run", "ride", "bike", "cycling", "swim", "hike", "walk", "ski",
+    "elliptical", "rowing", "sup", "paddle", "yoga",
+)
+# Keywords that indicate an actual CrossFit/strength session.
+_CROSSFIT_ACTIVITY_KEYWORDS = ("crossfit", "weighttraining", "weight training", "workout")
+
+
+def _is_crossfit_activity(activities: list[dict]) -> bool:
+    """True if any of the given Strava/intervals.icu activities looks like a
+    CrossFit/strength session, based on its recorded type.
+
+    Used to decide whether the box's programmed WOD for a date may be
+    attributed to the athlete — having logged *some* activity on a date is
+    not, by itself, evidence he attended class there (the box posts a WOD on
+    days he's never scheduled for, e.g. Tuesday).
+    """
+    for act in activities:
+        t = (act.get("type") or "").lower()
+        if not t:
+            continue
+        if any(k in t for k in _CARDIO_ACTIVITY_KEYWORDS):
+            continue
+        if any(k in t for k in _CROSSFIT_ACTIVITY_KEYWORDS):
+            return True
+    return False
+
+
 def load_sportbit_attended_dates(gist_id: str, token: str) -> tuple[set[str], dict[str, str], set[str]]:
     """Read sportbit_state.json from the shared gist and return:
     - A set of ISO dates where the athlete was signed up (and did NOT cancel),
@@ -3610,20 +3641,26 @@ def main() -> int:
             reverse=True,
         )
         for _d in _extra_dates[:3]:
-            # Don't attach a CrossFit WOD description to a date where the athlete
-            # had signed up but cancelled — only the Strava/intervals activity is real.
-            if _d in cancelled_cf_dates:
-                _strava_acts = _strava_by_date_main.get(_d, [])
-                _title = _strava_acts[0].get("name", "activity") if _strava_acts else "activity"
+            _acts_for_date = _strava_by_date_main.get(_d, []) + _intervals_acts_main.get(_d, [])
+            # Don't attach the box's programmed WOD description to a date unless
+            # there's positive evidence the athlete actually did a CrossFit-style
+            # session that day. The box posts a WOD every weekday (including days
+            # the athlete is never scheduled — e.g. Tuesday isn't part of his
+            # SCHEDULE at all), so merely having *some* logged activity on a date
+            # is not evidence he did that WOD — a run or ride logged on an
+            # off-schedule day must not be presented to the AI coach as CrossFit.
+            # This also covers dates where he had signed up but cancelled.
+            if _d in cancelled_cf_dates or not _is_crossfit_activity(_acts_for_date):
+                _title = _acts_for_date[0].get("name", "activity") if _acts_for_date else "activity"
                 attended_workouts.append({"date": _d, "title": _title, "description": ""})
-                log.info("Extra date %s: skipping WOD description (cancelled CF signup)", _d)
+                log.info("Extra date %s: skipping WOD description (%s)", _d,
+                         "cancelled CF signup" if _d in cancelled_cf_dates else "no CrossFit-type activity logged")
                 continue
             _main_wods = date_to_all_main_workouts.get(_d)
             if _main_wods:
                 attended_workouts.extend(_main_wods)
             else:
-                _strava_acts = _strava_by_date_main.get(_d, [])
-                _title = _strava_acts[0].get("name", "CrossFit WOD") if _strava_acts else "CrossFit WOD"
+                _title = _acts_for_date[0].get("name", "CrossFit WOD") if _acts_for_date else "CrossFit WOD"
                 attended_workouts.append({"date": _d, "title": _title, "description": ""})
         if _extra_dates:
             attended_workouts.sort(key=lambda w: w["date"], reverse=True)
