@@ -591,6 +591,9 @@ def fetch_intervals_data() -> dict | None:
                     label = lap.get("label") or lap.get("name")
                     if label:
                         lap_entry["label"] = str(label)
+                    lap_type = lap.get("type")
+                    if lap_type:
+                        lap_entry["type"] = str(lap_type).upper()
                     lap_dist = lap.get("distance")
                     if lap_dist and lap_dist > 0:
                         lap_entry["distance_m"] = round(float(lap_dist))
