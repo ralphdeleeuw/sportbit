@@ -4071,7 +4071,6 @@
 
     function renderRunEventCard(session, delay, idPrefix) {
       const today = new Date().toISOString().slice(0, 10);
-      const isUpcoming = session.date >= today;
       const isCancelled = !!session.cancelled;
       const sessionKey = session.session === 'speed' ? 'run_1' : 'run_2';
       const sessionTime = session.time || (session.session === 'speed' ? '20:00' : '09:00');
@@ -4080,7 +4079,11 @@
       const distStr = session.total_distance_km ? `${session.total_distance_km} km` : '';
       const metaHtml = `<div class="card-meta"><span class="card-time">${sessionTime}${distStr ? ' · ' + distStr : ''}</span></div>`;
 
-      const actualRun = !isUpcoming && !isCancelled ? _findActualRun(session.date) : null;
+      // Toon de uitgevoerde run zodra er intervals.icu-data is — ook al staat de workout
+      // voor vandaag gepland. Een toekomstige datum (of vandaag zonder data) blijft
+      // "aankomend" met reschedule/annuleer-opties.
+      const actualRun = !isCancelled && session.date <= today ? _findActualRun(session.date) : null;
+      const isUpcoming = session.date > today || (session.date === today && !actualRun);
       const actualHtml = actualRun ? _renderActualRunStats(actualRun) : '';
       const displayName = session.name || actualRun?.name || session.type || 'Run';
 
