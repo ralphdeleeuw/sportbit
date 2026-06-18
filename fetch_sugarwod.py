@@ -2623,6 +2623,8 @@ Today is: {today_str}{f", current time: {now_time}" if now_time else ""}
 
 IMPORTANT: Only workouts listed under "Past CrossFit box sessions the athlete ACTUALLY attended" have already occurred. A workout mentioned in "Previous coach advice" was upcoming at the time that advice was generated — it may or may not have happened since then. Never conclude a workout has already happened based solely on it appearing in previous advice. Use the current time and the scheduled training time to determine whether today's workout has occurred yet.
 
+IMPORTANT: "Previous coach advice" is a record of what was said before, not a verified fact about training history. Any claim it makes about which muscle groups are fatigued or which sessions caused that fatigue must be re-derived from today's "Past CrossFit box sessions" list — do not repeat a previous day's muscle-group or recovery conclusion unless today's actual past-workout list still supports it.
+
 Athlete: {athlete_profile['name']}, {athlete_profile['weight_kg']} kg, age 47
 Experience: {athlete_profile['experience']}
 Focus areas:
