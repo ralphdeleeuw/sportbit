@@ -2648,7 +2648,7 @@ Use this to assess the actual intensity, NOT just the WOD description:
 Provide advice on:
 1. **Recovery level** — are there muscle groups that need extra rest based on recent workouts?{"  Use the subjective recovery data (sleep, energy, muscle soreness) as the primary physiological recovery indicator. Use the Strava workout data (heart rate, duration) to assess the actual training load per session. If a subjective metric (e.g. sleep) is consistently at the same level over multiple weeks, treat it as the athlete's personal baseline — do not flag it as a persistent problem unless it has clearly worsened." if health_input else ""}{"  The ACWR ratio indicates training load: check if there is a pattern with the previous advice." if acwr else ""}
 2. **Intensity advice** — go full throttle, train controlled, or deliberately scale today?
-3. **One concrete tip** for the next workout taking recovery into account (e.g. pacing, scaling choice, specific movement)
+3. **One concrete tip** for the next workout taking recovery into account (e.g. pacing, scaling choice, specific movement){"  If 'Conditions next training' is provided, factor the weather and air quality into this tip: heat (feels-like > 25°C) or high humidity → emphasise hydration and consider scaling intensity; storm/heavy rain → flag this for outdoor/conditioning work; AQI > 100 → advise caution with high-intensity breathing-heavy efforts." if env_block else ""}
 
 When referring to dates, always use the exact date (e.g. "Thursday 19 March"), NEVER vague terms like "yesterday" or "the day before yesterday".
 Be direct, practical and concise. Maximum 160 words. Write in English. No introduction."""
