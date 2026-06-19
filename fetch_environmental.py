@@ -28,7 +28,7 @@ VEREISTE GITHUB SECRETS
 
 import logging
 import os
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
 
 import requests
@@ -142,8 +142,15 @@ def fetch_environmental_data(
     training_conditions: dict[str, dict] = {}
     if training_times:
         for date_str, time_str in training_times.items():
-            hour = time_str[:2]  # "20:00" → "20"
-            key = f"{date_str}T{hour}:00"
+            # Rond af naar het dichtstbijzijnde hele uur (19:45 → 20:00),
+            # incl. dag-overgang (23:45 → 00:00 volgende dag).
+            try:
+                dt = datetime.strptime(f"{date_str}T{time_str}", "%Y-%m-%dT%H:%M")
+                if dt.minute >= 30:
+                    dt += timedelta(hours=1)
+                key = dt.strftime("%Y-%m-%dT%H:00")
+            except ValueError:
+                key = f"{date_str}T{time_str[:2]}:00"
             idx = time_index.get(key)
             if idx is not None:
                 wcode = int(codes[idx]) if codes[idx] is not None else 0
