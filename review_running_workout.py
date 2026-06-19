@@ -54,8 +54,10 @@ _REVIEW_SYSTEM_PROMPT = """You are a professional running coach reviewing upcomi
 
 Your task: evaluate the planned workout(s) and decide if any need adjustment based on:
 - Recovery: HRV, resting HR, sleep, TSB (Training Stress Balance)
-- CrossFit load same day or day before (especially heavy metcon or strength)
+- CrossFit load same day or day before (especially heavy metcon or strength). Use the "CrossFit sessions" section: [DONE] = actually trained (real intervals.icu load — weigh this), [PLANNED] = signed up but not done yet. Do NOT assume a session happened unless it is marked [DONE].
+- Other sport activities actually performed (walking, MTB/cycling, swimming, etc.) — see "Other sport activities" section; these add to fatigue and recovery debt
 - Other planned physical activities nearby (mountain biking, CrossFit events, etc.) — check "Other planned activities" section
+- Current weather/air quality for the run day and time — see "Weather forecast for run day(s)" section
 - CrossFit events (e.g. "The Murph", competitions, open workouts) are extremely demanding: downgrade any run the day before or after to easy Z2 only
 - Subjective health notes
 
@@ -151,7 +153,9 @@ def _load_review_context(gist_id: str, token: str) -> dict:
     wods_by_date: dict[str, dict] = {w.get("date", ""): w for w in all_wods if w.get("date")}
     recent_cf_from_intervals: dict[str, dict] = {}
     for d, acts in activities_by_date.items():
-        if not (cutoff_recent <= d < today_str):
+        # Inclusief vandaag: een CrossFit-sessie van vandaag is relevant als de
+        # run later vandaag of morgen valt (same day / day before run).
+        if not (cutoff_recent <= d <= today_str):
             continue
         cf_acts = [a for a in acts if any(t in (a.get("type") or "").lower() for t in cf_activity_types)]
         if not cf_acts:
@@ -207,6 +211,43 @@ def _workout_start_dt(workout: dict) -> datetime | None:
         return datetime.fromisoformat(f"{d}T{t}").replace(tzinfo=AMS)
     except ValueError:
         return None
+
+
+def _run_training_times(workouts: list[dict]) -> dict[str, str]:
+    """Bouw {date: 'HH:MM'} voor de te beoordelen runs, t.b.v. weer-fetch."""
+    times: dict[str, str] = {}
+    for w in workouts:
+        d = (w.get("date") or "")[:10]
+        if not d:
+            continue
+        t = w.get("time") or ("20:00" if w.get("session") == "speed" else "09:00")
+        times[d] = t
+    return times
+
+
+def _fetch_run_weather(target_workouts: list[dict], fallback: dict | None) -> dict | None:
+    """Haal actueel weer + AQI op voor de run-dagen/-tijden zelf.
+
+    De in de Gist gecachte environmental_data is gekoppeld aan CrossFit-
+    inschrijftijden, niet aan de run-tijden, waardoor er voor de run-dagen vaak
+    geen condities beschikbaar zijn. Hier halen we daarom verse condities op die
+    exact op de run-datum/-tijd zijn afgestemd. Valt terug op de cache bij fouten.
+    """
+    run_times = _run_training_times(target_workouts)
+    if not run_times:
+        return fallback
+    try:
+        from fetch_environmental import fetch_environmental_data  # noqa: PLC0415
+        env = fetch_environmental_data(run_times)
+    except Exception as exc:
+        log.warning("Weer-fetch voor run-dagen mislukt: %s — val terug op cache", exc)
+        return fallback
+    if not env:
+        return fallback
+    # Behoud AQI uit cache als de verse fetch er geen heeft (bv. zonder WAQI-token)
+    if not env.get("aqi") and (fallback or {}).get("aqi"):
+        env["aqi"] = fallback["aqi"]
+    return env
 
 
 def _detect_prerun_workout(workouts: list[dict]) -> dict | None:
@@ -378,6 +419,39 @@ def _build_review_context(
     if run_lines:
         sections.append("Recent running activities (last 14 days):\n" + "\n".join(run_lines))
 
+    # Andere sportactiviteiten (wandelen, MTB/fietsen, zwemmen, etc.) — alles wat
+    # daadwerkelijk is uitgevoerd en geen hardlopen of CrossFit/kracht is. Deze
+    # tellen mee voor de totale belasting en het herstel rond de run.
+    cf_types_other = {"crossfit", "weight", "strength", "hiit", "weighttraining", "workout"}
+    other_lines = []
+    for d in sorted(acts_by_date.keys(), reverse=True)[:14]:
+        for act in acts_by_date.get(d, []):
+            t = (act.get("type") or "").lower()
+            if any(rt in t for rt in run_types) or any(ct in t for ct in cf_types_other):
+                continue
+            parts = [f"  {d}: {act.get('name') or act.get('type') or 'Activity'}"]
+            if act.get("type"):
+                parts.append(f"({act['type']})")
+            if act.get("distance_m"):
+                parts.append(f"{round(act['distance_m'] / 1000, 1)}km")
+            if act.get("duration_min"):
+                parts.append(f"{act['duration_min']}min")
+            if act.get("elevation_m"):
+                parts.append(f"+{act['elevation_m']}m")
+            if act.get("avg_hr"):
+                parts.append(f"avg.HR {act['avg_hr']}bpm")
+            tl = act.get("training_load") or act.get("trimp")
+            if tl is not None:
+                parts.append(f"TL {round(tl)}")
+            if act.get("rpe"):
+                parts.append(f"RPE {act['rpe']}")
+            other_lines.append(" ".join(parts))
+    if other_lines:
+        sections.append(
+            "Other sport activities (last 14 days — walking, MTB/cycling, etc.; "
+            "factor into recovery and load):\n" + "\n".join(other_lines)
+        )
+
     # Recent execution adherence — uit running_analysis.json (gepland-vs-werkelijk).
     # Informeert het UP/DOWN-besluit met de daadwerkelijke uitvoering van eerdere runs.
     exec_analysis = execution_analysis or {}
@@ -411,45 +485,70 @@ def _build_review_context(
             + "\n".join(adherence_lines)
         )
 
-    # CrossFit sessions relevant voor de run(s) — gebruik ingeschreven sessies
+    # CrossFit sessions relevant voor de run(s).
+    # [DONE]    = daadwerkelijk uitgevoerd (intervals.icu activiteit aanwezig).
+    # [PLANNED] = nog te doen (vandaag/toekomst) én actief ingeschreven.
+    # Een puur geprogrammeerde WOD waar Ralph NIET voor ingeschreven is en die
+    # NIET is uitgevoerd, wordt niet getoond — die telt niet als belasting.
+    cf_activity_types = {"crossfit", "weight", "strength", "hiit", "weighttraining", "workout"}
     run_dates = {w.get("date", "")[:10] for w in target_workouts if w.get("date")}
     cf_dates = run_dates | {
         (date.fromisoformat(d) - timedelta(days=1)).isoformat()
         for d in run_dates if d
     }
     wods_by_date = {w.get("date", ""): w for w in all_wods if w.get("date")}
-    relevant_cf_dates = [
-        d for d in cf_dates
-        if d not in cancelled_cf_dates
-        and (d in signed_up_cf_dates or d in wods_by_date)
-    ]
-    if relevant_cf_dates:
-        cf_lines = []
-        for d in sorted(relevant_cf_dates):
-            wod = wods_by_date.get(d, {"date": d})
-            title = wod.get("title") or wod.get("name") or "CrossFit"
-            desc = _strip_html(wod.get("description") or "")[:120]
-            notes = wod.get("athlete_notes") or ""
-            label = "same day as run" if d in run_dates else "day before run"
-            signed = " [signed up]" if d in signed_up_cf_dates else ""
-            # Voeg interval.icu data toe als beschikbaar (dag van/voor de run)
-            cf_act = (recent_cf_by_date or {}).get(d, {})
-            line = f"  {d} ({label}){signed} — {title}"
+    cf_lines = []
+    for d in sorted(cf_dates):
+        if d in cancelled_cf_dates:
+            continue
+        label = "same day as run" if d in run_dates else "day before run"
+        wod = wods_by_date.get(d, {})
+        title = wod.get("title") or wod.get("name") or "CrossFit"
+        desc = _strip_html(wod.get("description") or "")[:120]
+        notes = wod.get("athlete_notes") or ""
+
+        # Daadwerkelijk uitgevoerde CrossFit/kracht-activiteit van die dag?
+        actual_cf = [
+            a for a in acts_by_date.get(d, [])
+            if any(t in (a.get("type") or "").lower() for t in cf_activity_types)
+        ]
+        signed = d in signed_up_cf_dates
+
+        if actual_cf:
+            act = actual_cf[0]
+            line = f"  {d} ({label}) [DONE] — {act.get('name') or title}"
             if desc:
                 line += f"\n    {desc}"
-            if cf_act.get("avg_hr"):
-                line += f"\n    Actual: avg HR {cf_act['avg_hr']}bpm"
-                if cf_act.get("duration_min"):
-                    line += f", {cf_act['duration_min']}min"
-                tl = cf_act.get("training_load")
-                if tl is not None:
-                    line += f", TL {round(tl)}"
+            metrics = []
+            if act.get("avg_hr"):       metrics.append(f"avg HR {act['avg_hr']}bpm")
+            if act.get("max_hr"):       metrics.append(f"max HR {act['max_hr']}bpm")
+            if act.get("duration_min"): metrics.append(f"{act['duration_min']}min")
+            tl = act.get("training_load") or act.get("trimp")
+            if tl is not None:          metrics.append(f"TL {round(tl)}")
+            if act.get("rpe"):          metrics.append(f"RPE {act['rpe']}")
+            if metrics:
+                line += f"\n    Actual: {', '.join(metrics)}"
             if notes:
                 line += f"\n    Your notes: {notes[:80]}"
             cf_lines.append(line)
-        sections.append("CrossFit sessions (same day or day before run):\n" + "\n".join(cf_lines))
+        elif d >= today_str and signed:
+            # Nog te doen vandaag/toekomst en actief ingeschreven
+            line = f"  {d} ({label}) [PLANNED, signed up] — {title}"
+            if desc:
+                line += f"\n    {desc}"
+            if notes:
+                line += f"\n    Your notes: {notes[:80]}"
+            cf_lines.append(line)
+        # else: verleden dag zonder uitgevoerde activiteit, óf alleen een
+        #       geprogrammeerde WOD zonder inschrijving → niet meewegen.
+    if cf_lines:
+        sections.append(
+            "CrossFit sessions (same day or day before run — "
+            "[DONE]=actually trained, [PLANNED]=signed up but not done yet):\n"
+            + "\n".join(cf_lines)
+        )
     else:
-        sections.append("CrossFit on run day / day before: none scheduled")
+        sections.append("CrossFit on run day / day before: none done or planned")
 
     # Upcoming personal events (mountainbike, etc.)
     if personal_events:
@@ -786,6 +885,9 @@ def main() -> None:
 
     log.info("Workouts te beoordelen: %d", len(target_workouts))
 
+    # Actueel weer voor de run-dagen/-tijden zelf (cache is op CF-tijden gebaseerd)
+    environmental_data = _fetch_run_weather(target_workouts, ctx.get("environmental_data"))
+
     context_text = _build_review_context(
         mode=mode,
         target_workouts=target_workouts,
@@ -798,7 +900,7 @@ def main() -> None:
         recent_cf_by_date=ctx.get("recent_cf_by_date"),
         personal_events=ctx.get("personal_events"),
         cancelled_runs=ctx.get("cancelled_runs"),
-        environmental_data=ctx.get("environmental_data"),
+        environmental_data=environmental_data,
         execution_analysis=ctx.get("execution_analysis"),
     )
     log.info("Review context:\n%s", context_text)
