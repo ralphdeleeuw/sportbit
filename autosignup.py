@@ -50,6 +50,12 @@ DAY_NAMES = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday",
 # Lessen die nooit automatisch geboekt worden
 EXCLUDED_CLASS_NAMES = {"Open Gym"}
 
+# Huppa occurrenceUser-statussen die een échte annulering aangeven. Alleen bij
+# deze statussen (of een volledig ontbrekende occurrenceUser) beschouwen we een
+# inschrijving als opgezegd. Een onbekende status laten we voor de zekerheid
+# als "nog ingeschreven" gelden, zodat we niemand ten onrechte uitschrijven.
+CANCELLED_USER_STATUSES = {"cancelled", "canceled", "declined", "removed", "rejected"}
+
 # Familieleden waarvan inschrijvingen zichtbaar moeten zijn in de PWA
 FAMILY_MEMBERS = [
     {"name": "Laura", "email_env": "HUPPA_EMAIL_LAURA", "password_env": "HUPPA_PASSWORD_LAURA"},
@@ -238,7 +244,19 @@ class GistStateManager:
         for event in events:
             eid = str(event["id"])
             if eid in self.state["signed_up"] and eid not in self.state["cancelled"]:
-                still_registered = event.get("is_booked", False)
+                # Bepaal of de sporter nog ingeschreven staat in Huppa. We schrijven
+                # alleen uit bij een ondubbelzinnig signaal:
+                #  - geen occurrenceUser meer (booking helemaal verdwenen), of
+                #  - een status die expliciet "geannuleerd" betekent.
+                # Een wachtlijst-plek of een onbekende status telt als nog ingeschreven,
+                # zodat we niemand ten onrechte als uitgeschreven markeren in de PWA.
+                user_status = event.get("occurrence_user_status")
+                still_registered = (
+                    event.get("is_booked", False)
+                    or event.get("is_on_waitlist", False)
+                    or (user_status is not None
+                        and str(user_status).lower() not in CANCELLED_USER_STATUSES)
+                )
                 if not still_registered:
                     title = event.get("name", "?")
                     starts_at = event.get("starts_at", "")
@@ -304,6 +322,7 @@ class HuppaClient:
             return dt.astimezone(AMS).strftime("%Y-%m-%d %H:%M")
 
         trainers = [t.get("name") for t in (evt.get("trainers") or []) if t.get("name")]
+        occurrence_user_status = (evt.get("occurrenceUser") or {}).get("status")
         return {
             "id": evt.get("id"),
             "name": evt.get("name", "CrossFit WOD"),
@@ -312,7 +331,8 @@ class HuppaClient:
             "available_slots": evt.get("availableSlots", 0),
             "booked_slots": evt.get("bookedSlots", 0),
             "is_full": evt.get("isFull", False),
-            "is_booked": (evt.get("occurrenceUser") or {}).get("status") == "confirmed",
+            "is_booked": occurrence_user_status == "confirmed",
+            "occurrence_user_status": occurrence_user_status,
             "is_on_waitlist": evt.get("occurrenceWaitlistId") is not None,
             "is_eligible_to_book": evt.get("isEligibleToBook", True),
             "organization_id": (evt.get("category") or {}).get("organizationId"),
