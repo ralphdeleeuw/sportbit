@@ -491,6 +491,10 @@ def fetch_family_bookings(subdomain: str, days_ahead: int) -> dict[str, list[str
             if not client.login():
                 log.warning("Login mislukt voor %s; inschrijvingen overgeslagen.", member["name"])
                 continue
+            if member["name"] == "Eva":
+                dbg = client.session.get(f"{HUPPA_API_BASE}/users/me/bookings-and-waitlists",
+                                          params={"filter": "upcoming"}, timeout=20)
+                log.info("  DEBUG bookings-and-waitlists Eva: %s %s", dbg.status_code, dbg.text[:1500])
             for offset in range(0, days_ahead + 1):
                 date = today + timedelta(days=offset)
                 date_str = date.isoformat()
