@@ -238,6 +238,8 @@ class GistStateManager:
         self.state["family_bookings"] = bookings
         self._save()
         log.info("Family bookings opgeslagen: %d slots.", len(bookings))
+        for key, members in sorted(bookings.items()):
+            log.info("  %s: %s", key, members)
 
     def detect_manual_cancellations(self, events: list[dict]):
         newly_cancelled = []
