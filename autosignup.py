@@ -480,6 +480,10 @@ def fetch_family_bookings(subdomain: str, days_ahead: int) -> dict[str, list[str
                     log.warning("Kon events niet ophalen voor %s op %s: %s", member["name"], date_str, exc)
                     continue
                 for evt in events:
+                    if offset <= 1:
+                        log.info("  DEBUG %s %s: is_booked=%s is_on_waitlist=%s name=%s",
+                                 member["name"], evt.get("starts_at"), evt.get("is_booked"),
+                                 evt.get("is_on_waitlist"), evt.get("name"))
                     if not evt.get("is_booked", False):
                         continue
                     starts_at = evt.get("starts_at", "")
