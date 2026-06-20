@@ -241,7 +241,8 @@ class GistStateManager:
         for key, members in sorted(bookings.items()):
             log.info("  %s: %s", key, members)
 
-    def detect_manual_cancellations(self, events: list[dict]):
+    def detect_manual_cancellations(self, events: list[dict], booked_slots: set | None = None):
+        booked_slots = booked_slots or set()
         newly_cancelled = []
         for event in events:
             eid = str(event["id"])
@@ -252,10 +253,14 @@ class GistStateManager:
                 #  - een status die expliciet "geannuleerd" betekent.
                 # Een wachtlijst-plek of een onbekende status telt als nog ingeschreven,
                 # zodat we niemand ten onrechte als uitgeschreven markeren in de PWA.
+                # /users/me/occurrences laat occurrenceUser soms ten onrechte leeg zien
+                # terwijl er wel een actieve boeking is; bookings-and-waitlists is hier
+                # betrouwbaarder, dus die telt als die de booking wél ziet.
                 user_status = event.get("occurrence_user_status")
                 still_registered = (
                     event.get("is_booked", False)
                     or event.get("is_on_waitlist", False)
+                    or event.get("starts_at", "") in booked_slots
                     or (user_status is not None
                         and str(user_status).lower() not in CANCELLED_USER_STATUSES)
                 )
@@ -642,6 +647,11 @@ def run(email: str, password: str, subdomain: str, dry_run: bool, days_ahead: in
     today = datetime.now(AMS).date()
 
     if state:
+        try:
+            booked_slots = set(client.get_booked_slots())
+        except Exception as exc:
+            log.warning("Could not fetch bookings-and-waitlists for cross-check: %s", exc)
+            booked_slots = set()
         all_events = []
         scheduled_weekdays = {weekday for weekday, _ in SCHEDULE}
         # Past 14 days: check every scheduled weekday
@@ -679,7 +689,7 @@ def run(email: str, password: str, subdomain: str, dry_run: bool, days_ahead: in
                     log.warning("Could not fetch events for %s: %s", date_str, exc)
                     events_cache[date_str] = []
             all_events.extend(events_cache[date_str])
-        newly_cancelled = state.detect_manual_cancellations(all_events)
+        newly_cancelled = state.detect_manual_cancellations(all_events, booked_slots)
         for eid in newly_cancelled:
             delete_calendar_event(eid, sync_calendar)
 
