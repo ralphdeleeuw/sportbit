@@ -355,6 +355,35 @@ class HuppaClient:
                   [(e["starts_at"], e["name"]) for e in normalized])
         return normalized
 
+    def get_booked_slots(self) -> list[str]:
+        """Haal actieve boekingen op via bookings-and-waitlists.
+
+        De /users/me/occurrences endpoint laat een occurrenceUser soms leeg
+        zien terwijl er wel degelijk een boeking bestaat (gezien bij
+        familieleden); deze endpoint geeft het echte boekingsoverzicht zoals
+        de Huppa-app dat ook toont. Geeft 'YYYY-MM-DD HH:MM' (Amsterdam-tijd)
+        strings terug voor elke occurrence met een niet-geannuleerde boeking.
+        """
+        resp = self._get_with_reauth(
+            f"{HUPPA_API_BASE}/users/me/bookings-and-waitlists",
+            params={"filter": "upcoming"},
+            timeout=20,
+        )
+        resp.raise_for_status()
+        data = resp.json()
+        slots = []
+        for group in data.get("data", []):
+            for occ in group.get("occurrences", []):
+                booking = occ.get("booking")
+                if not booking or booking.get("cancelledAt") is not None:
+                    continue
+                starts_at = occ.get("startsAt", "")
+                if not starts_at:
+                    continue
+                dt = datetime.fromisoformat(starts_at.replace("Z", "+00:00"))
+                slots.append(dt.astimezone(AMS).strftime("%Y-%m-%d %H:%M"))
+        return slots
+
     def signup(self, event: dict) -> bool:
         org_id = event.get("organization_id")
         occ_id = event.get("id")
@@ -479,6 +508,8 @@ def fetch_family_bookings(subdomain: str, days_ahead: int) -> dict[str, list[str
     """
     family_bookings: dict[str, list[str]] = {}
     today = datetime.now(AMS).date()
+    horizon_str = (today + timedelta(days=days_ahead)).isoformat()
+    today_str = today.isoformat()
 
     for member in FAMILY_MEMBERS:
         email = os.environ.get(member["email_env"])
@@ -491,29 +522,14 @@ def fetch_family_bookings(subdomain: str, days_ahead: int) -> dict[str, list[str
             if not client.login():
                 log.warning("Login mislukt voor %s; inschrijvingen overgeslagen.", member["name"])
                 continue
-            if member["name"] == "Eva":
-                dbg = client.session.get(f"{HUPPA_API_BASE}/users/me/bookings-and-waitlists",
-                                          params={"filter": "upcoming"}, timeout=20)
-                log.info("  DEBUG bookings-and-waitlists Eva: %s %s", dbg.status_code, dbg.text[:1500])
-            for offset in range(0, days_ahead + 1):
-                date = today + timedelta(days=offset)
-                date_str = date.isoformat()
-                try:
-                    events = client.get_events(date_str)
-                except Exception as exc:
-                    log.warning("Kon events niet ophalen voor %s op %s: %s", member["name"], date_str, exc)
+            for starts_at in client.get_booked_slots():
+                date_str, time_str = starts_at.split(" ")
+                if not (today_str <= date_str <= horizon_str):
                     continue
-                for evt in events:
-                    if not evt.get("is_booked", False):
-                        continue
-                    starts_at = evt.get("starts_at", "")
-                    time_str = starts_at[11:16] if len(starts_at) > 15 else ""
-                    if not time_str:
-                        continue
-                    key = f"{date_str}_{time_str}"
-                    family_bookings.setdefault(key, [])
-                    if member["name"] not in family_bookings[key]:
-                        family_bookings[key].append(member["name"])
+                key = f"{date_str}_{time_str}"
+                family_bookings.setdefault(key, [])
+                if member["name"] not in family_bookings[key]:
+                    family_bookings[key].append(member["name"])
             log.info("Familie-inschrijvingen opgehaald voor %s.", member["name"])
         except Exception as exc:
             log.error("Fout bij ophalen inschrijvingen voor %s: %s", member["name"], exc)
