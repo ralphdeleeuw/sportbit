@@ -1,0 +1,33 @@
+name: Sweep Running Calendar
+
+on:
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: 'Dry run (true = alleen tonen wat verwijderd zou worden, niets verwijderen)'
+        required: false
+        default: 'true'
+      days_back:
+        description: 'Hoeveel dagen terug scannen'
+        required: false
+        default: '540'
+      days_forward:
+        description: 'Hoeveel dagen vooruit scannen (voor ontdubbelen)'
+        required: false
+        default: '90'
+
+jobs:
+  sweep:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: {python-version: '3.12'}
+      - run: pip install google-auth google-auth-oauthlib google-api-python-client
+      - run: python3 sweep_running_calendar.py
+        env:
+          GOOGLE_CREDENTIALS: ${{ secrets.GOOGLE_CREDENTIALS }}
+          CALENDAR_ID: ${{ secrets.CALENDAR_ID }}
+          DRY_RUN: ${{ github.event.inputs.dry_run }}
+          DAYS_BACK: ${{ github.event.inputs.days_back }}
+          DAYS_FORWARD: ${{ github.event.inputs.days_forward }}
