@@ -898,31 +898,45 @@ def _run_analyze(gist_id: str, github_token: str) -> None:
         except Exception as exc:
             log.warning("Notificatie mislukt voor %s: %s", w_date, exc)
 
-    # Herbereken-pass: bestaande voltooide entries met een verouderde metrics-versie
-    # opnieuw doorrekenen (deterministisch, zónder Claude) zodat nieuwe metrics —
-    # zoals het 12-min testresultaat, GAP en de tempozones — retroactief verschijnen.
-    # Coach-tekst en voorstellen blijven ongemoeid; geen notificatie/dubbele suggesties.
+    # Herbereken-pass (zelfhelend): recente voltooide entries worden bij ELKE run
+    # opnieuw deterministisch doorgerekend, en oudere entries zodra de metrics-versie
+    # verouderd is. Zo volgen de getoonde metrics — interval-uitlijning, 12-min
+    # testresultaat, GAP, tempozones — altijd de nieuwste logica, zonder dat een
+    # versie-bump of handmatige re-run nodig is. Claude/coach-tekst en voorstellen
+    # blijven ongemoeid; geen notificatie, geen dubbele suggesties.
+    recent_cutoff = (date.today() - timedelta(days=21)).isoformat()
     for d, entry in by_date.items():
-        if not entry.get("completed") or entry.get("metrics_version") == METRICS_VERSION:
+        if not entry.get("completed"):
+            continue
+        stale = entry.get("metrics_version") != METRICS_VERSION
+        if not stale and d < recent_cutoff:
             continue
         workout = workouts_by_date.get(d) or entry.get("workout")
         if not workout:
+            if stale:
+                log.info("Kan %s niet herberekenen — geplande workout onbekend (geen snapshot)", d)
             continue
         activity, source = _match_activity_to_workout(
             workout, ctx["intervals_by_date"], ctx["strava_by_date"]
         )
         if not activity:
-            continue  # activiteit niet meer in de data — oude metrics behouden
+            if stale:
+                log.info("Kan %s niet herberekenen — geen activiteit (meer) in de data", d)
+            continue
         week_number = workout.get("week_number") or plan.get("week_number")
-        entry["metrics"] = _compute_metrics(workout, activity, source, week_number)
-        entry["activity_source"] = source
+        new_metrics = _compute_metrics(workout, activity, source, week_number)
         entry.setdefault("workout", _workout_snapshot(workout))
-        if not (entry.get("coach") or {}).get("verdict"):
-            entry["verdict"] = entry["metrics"].get("overall_verdict")
-        entry["metrics_version"] = METRICS_VERSION
-        entry["metrics_refreshed_at"] = datetime.now(timezone.utc).isoformat()
-        changed = True
-        log.info("Metrics herberekend voor %s (versie → %d)", d, METRICS_VERSION)
+        if new_metrics != entry.get("metrics") or stale:
+            old_version = entry.get("metrics_version")
+            entry["metrics"] = new_metrics
+            entry["activity_source"] = source
+            if not (entry.get("coach") or {}).get("verdict"):
+                entry["verdict"] = new_metrics.get("overall_verdict")
+            entry["metrics_version"] = METRICS_VERSION
+            entry["metrics_refreshed_at"] = datetime.now(timezone.utc).isoformat()
+            changed = True
+            log.info("Metrics herberekend voor %s (versie %s → %d)",
+                     d, old_version, METRICS_VERSION)
 
     if changed:
         analysis["updated_at"] = datetime.now(timezone.utc).isoformat()
