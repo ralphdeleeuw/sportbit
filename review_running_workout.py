@@ -105,13 +105,13 @@ Output: return ONLY valid JSON (no markdown, no explanation):
   ]
 }
 
-Step formats (PACE IS ALWAYS REQUIRED for run/warmup/cooldown — a step without pace cannot be displayed on Garmin and will be silently dropped, causing distance and duration to disappear from the workout):
-  Warm-up:      {"type":"warmup",   "distance_m":<int>, "pace_min":"M:SS", "pace_max":"M:SS"}
-  Easy/long run:{"type":"run",      "distance_m":<int>, "pace_min":"M:SS", "pace_max":"M:SS"}
-  Interval:     {"type":"run",      "distance_m":<int>, "pace_target":"M:SS"}
+Step formats (PACE IS ALWAYS REQUIRED for run/warmup/cooldown — provide pace_min and pace_max as a range; a step without a pace range cannot show the pace gauge on Garmin, and a step without any pace is silently dropped, causing distance and duration to disappear from the workout):
+  Warm-up:      {"type":"warmup",   "distance_m":<int>, "pace_min":"M:SS", "pace_max":"M:SS", "hr_zone":"Z1"}
+  Easy/long run:{"type":"run",      "distance_m":<int>, "pace_min":"M:SS", "pace_max":"M:SS", "hr_zone":"Z2"}
+  Interval:     {"type":"run",      "distance_m":<int>, "pace_min":"M:SS", "pace_max":"M:SS", "hr_zone":"Z5"}
   Repeat:       {"type":"repeat",   "count":<int>, "children":[<steps>]}
   Walking rest: {"type":"rest",     "duration_s":<int>}
-  Cool-down:    {"type":"cooldown", "distance_m":<int>, "pace_min":"M:SS", "pace_max":"M:SS"}
+  Cool-down:    {"type":"cooldown", "distance_m":<int>, "pace_min":"M:SS", "pace_max":"M:SS", "hr_zone":"Z1"}
 
 If no adjustments needed: {"adjusted": false, "reason": "...", "workouts": []}
 
@@ -239,21 +239,31 @@ def _detect_mode(mode_arg: str, workouts: list[dict], plan: dict) -> str:
 
 # ── Context bouwen voor Claude ────────────────────────────────────────────────
 
+def _pace_brief(s: dict) -> str:
+    """Geef het tempo van een stap weer als bereik 'M:SS-M:SS' indien beschikbaar,
+    anders een enkel tempo. Leeg als er geen tempo is."""
+    pace_min = s.get("pace_min")
+    pace_max = s.get("pace_max")
+    if pace_min and pace_max:
+        return f"{pace_min}-{pace_max}"
+    return s.get("pace_target") or pace_max or pace_min or ""
+
+
 def _format_steps_brief(steps: list[dict], indent: str = "  ") -> list[str]:
     lines = []
     for s in steps:
         stype = s.get("type")
         if stype in ("warmup", "cooldown"):
             dist = s.get("distance_m", "")
-            pace = s.get("pace_max", "")
+            pace = _pace_brief(s)
             label = "Warmup" if stype == "warmup" else "Cooldown"
             dist_str = f"{dist/1000:.1f}km " if dist else ""
-            pace_str = f" (max {pace}/km)" if pace else ""
+            pace_str = f" @ {pace}/km" if pace else ""
             lines.append(f"{indent}{dist_str}{label}{pace_str}")
         elif stype == "run":
             dist = s.get("distance_m")
-            pace = s.get("pace_target") or s.get("pace_max")
-            pace_str = f" @ {pace}/km" if s.get("pace_target") else (f" (max {pace}/km)" if pace else "")
+            pace = _pace_brief(s)
+            pace_str = f" @ {pace}/km" if pace else ""
             lines.append(f"{indent}{dist}m{pace_str}" if dist else f"{indent}run{pace_str}")
         elif stype == "rest":
             lines.append(f"{indent}{s.get('duration_s', '?')}s walking rest")
@@ -540,11 +550,18 @@ def _review_with_claude(context_text: str) -> dict:
 # ── Aanpassingen doorvoeren ───────────────────────────────────────────────────
 
 def _validate_steps(steps: list[dict]) -> list[str]:
-    """Controleer of elke run/warmup/cooldown stap een pace- of duration-veld heeft.
+    """Controleer of elke run/warmup/cooldown stap een geldig tempo/duration heeft.
 
     Retourneert een lijst van foutmeldingen. Leeg = stappen zijn geldig.
-    Een stap zonder pace en zonder duration wordt door _step_to_doc stilzwijgend
-    weggegooid, wat leidt tot een workout_doc zonder correcte afstand/tijdsduur.
+
+    Twee controles:
+    1. Een stap zonder pace én zonder duration wordt door _step_to_doc stilzwijgend
+       weggegooid, wat leidt tot een workout_doc zonder correcte afstand/tijdsduur.
+    2. Een afstandsstap met enkel een los tempo (alleen pace_target, of slechts één
+       van pace_min/pace_max) levert in _step_to_doc een nul-breedte tempo-bereik op
+       (start == end). Garmin toont daar géén tempo-naald/bereik bij. Daarom is voor
+       afstandsstappen een echt bereik (pace_min én pace_max) vereist.
+    Tijdgebaseerde stappen zonder afstand blijven met enkel een duration toegestaan.
     """
     errors = []
     for i, step in enumerate(steps):
@@ -557,8 +574,15 @@ def _validate_steps(steps: list[dict]) -> list[str]:
         for s in run_steps:
             has_pace = any(s.get(f) for f in ("pace_min", "pace_max", "pace_target"))
             has_dur = s.get("duration_s") or s.get("duration_min")
+            has_range = s.get("pace_min") and s.get("pace_max")
             if not has_pace and not has_dur:
                 errors.append(f"stap {i} type={s.get('type')!r} heeft geen pace of duration")
+            elif s.get("distance_m") and not has_range:
+                errors.append(
+                    f"stap {i} type={s.get('type')!r} heeft geen tempo-bereik "
+                    f"(pace_min én pace_max vereist voor een afstandsstap, "
+                    f"anders toont Garmin geen snelheidsbereik)"
+                )
     return errors
 
 
