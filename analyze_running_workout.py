@@ -60,7 +60,7 @@ PHASE2_GOAL_M = 2700           # fase 2 (weken 11+): streefdoel
 # Versie van de deterministische metrics. Verhoog dit zodra _compute_metrics
 # nieuwe velden produceert; bestaande entries met een lagere versie worden dan
 # automatisch (zonder Claude) herberekend zodat nieuwe data retroactief verschijnt.
-METRICS_VERSION = 5
+METRICS_VERSION = 6
 
 _ANALYSIS_SYSTEM_PROMPT = """You are a professional running coach analysing how Ralph de Leeuw executed a planned workout.
 - 47 years old, 77kg, CrossFit 5x/week, runs 1-3x/week
@@ -314,16 +314,22 @@ def _workout_snapshot(workout: dict) -> dict:
 
 
 def _is_test_workout(workout: dict) -> bool:
-    """12-min defensietest herkennen via stap (duration_s≈720/label) of naam/omschrijving."""
+    """ALLEEN een échte 12-min defensietest herkennen: een stap van ~720s (12 min) of
+    een '12-min' label/naam. Bewust NIET op losse 'test'/'defensietest' in de
+    omschrijving — anders wordt elke workout in het defensietest-programma als test
+    gezien (en de warmup als 'testresultaat')."""
     for s in workout.get("steps") or []:
-        if s.get("type") == "run":
-            label = (s.get("label") or "").lower()
-            dur = s.get("duration_s")
-            if (dur and int(dur) == TEST_DURATION_S) or "12-min" in label or "defensie" in label:
-                return True
-    text = f"{workout.get('name', '')} {workout.get('description', '')}".lower()
-    return ("12-min" in text or "12 min" in text or "defensietest" in text
-            or ("test" in text and "12" in text))
+        if s.get("type") != "run":
+            continue
+        dur = s.get("duration_s")
+        if dur and abs(int(dur) - TEST_DURATION_S) <= 60:
+            return True
+        label = (s.get("label") or "").lower()
+        if "12-min" in label or "12 min" in label:
+            return True
+    name = (workout.get("name") or "").lower()
+    return any(k in name for k in ("12-min test", "12 min test",
+                                   "12-min defensietest", "12 min defensietest"))
 
 
 def _test_result(workout: dict, activity: dict, week_number: int | None) -> dict | None:
@@ -346,8 +352,8 @@ def _test_result(workout: dict, activity: dict, week_number: int | None) -> dict
         test_lap = max(labelled, key=lambda l: l.get("distance_m") or 0)
     else:
         test_lap = min(cands, key=lambda l: (abs(l["duration_s"] - TEST_DURATION_S), -(l.get("distance_m") or 0)))
-        # Sanity: testlap moet qua duur in de buurt van 12 min liggen
-        if abs(test_lap["duration_s"] - TEST_DURATION_S) > TEST_DURATION_S * 0.35:
+        # Sanity: testlap moet qua duur dicht bij 12 min liggen (anders bijv. een warmup)
+        if abs(test_lap["duration_s"] - TEST_DURATION_S) > TEST_DURATION_S * 0.20:
             return None
 
     test_dist = float(test_lap["distance_m"])
