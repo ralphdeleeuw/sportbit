@@ -57,6 +57,35 @@ def _delete_intervals_event(event_id: str, athlete_id: str, api_key: str) -> Non
         log.warning("Fout bij verwijderen intervals.icu event %s: %s", event_id, exc)
 
 
+def _garmin_login(email: str, password: str):
+    """Log in op Garmin Connect; geeft een client terug of None bij falen/ontbrekende creds."""
+    if not (email and password):
+        return None
+    try:
+        from garminconnect import Garmin  # type: ignore[import]
+    except ImportError:
+        log.warning("garminconnect niet geïnstalleerd — Garmin workout niet verwijderd")
+        return None
+    try:
+        client = Garmin(email, password)
+        client.login()
+        log.info("Garmin Connect login geslaagd")
+        return client
+    except Exception as exc:
+        log.error("Garmin Connect login mislukt: %s", exc)
+        return None
+
+
+def _delete_garmin_workout(client, workout_id) -> None:
+    try:
+        client.client.request(
+            "DELETE", "connectapi", f"/workout-service/workout/{workout_id}", api=True
+        )
+        log.info("Garmin workout %s verwijderd", workout_id)
+    except Exception as exc:
+        log.warning("Kon Garmin workout %s niet verwijderen (al weg?): %s", workout_id, exc)
+
+
 def main() -> None:
     logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
 
@@ -66,6 +95,8 @@ def main() -> None:
     github_token = os.environ.get("GITHUB_TOKEN", "").strip()
     gcal_creds   = os.environ.get("GOOGLE_CREDENTIALS", "").strip()
     gcal_cal_id  = os.environ.get("CALENDAR_ID", "").strip()
+    garmin_email    = os.environ.get("GARMIN_EMAIL", "").strip()
+    garmin_password = os.environ.get("GARMIN_PASSWORD", "").strip()
 
     missing = [n for n, v in [
         ("INTERVALS_ATHLETE_ID", athlete_id),
@@ -108,17 +139,25 @@ def main() -> None:
 
     cancelled_with_events = [
         w for w in workouts
-        if w.get("cancelled") and (w.get("gcal_event_id") or w.get("event_id"))
+        if w.get("cancelled")
+        and (w.get("gcal_event_id") or w.get("event_id") or w.get("garmin_workout_id"))
     ]
 
     if not cancelled_with_events:
-        log.info("Geen geannuleerde workouts met calendar events — niets te doen")
+        log.info("Geen geannuleerde workouts met events — niets te doen")
         if marked:
             _patch_gist(gist_id, github_token, {
                 "running_plan.json": json.dumps(plan, indent=2, ensure_ascii=False),
             })
             log.info("Gist bijgewerkt — workout gemarkeerd als geannuleerd")
         return
+
+    # Log éénmaal in op Garmin als er workouts met een garmin_workout_id zijn.
+    garmin_client = None
+    if any(w.get("garmin_workout_id") for w in cancelled_with_events):
+        garmin_client = _garmin_login(garmin_email, garmin_password)
+        if garmin_client is None and not (garmin_email and garmin_password):
+            log.warning("GARMIN_EMAIL/GARMIN_PASSWORD niet ingesteld — Garmin workouts niet verwijderd")
 
     changed = False
     for workout in cancelled_with_events:
@@ -141,6 +180,13 @@ def main() -> None:
             changed = True
         elif gcal_id and not (gcal_creds and gcal_cal_id):
             log.warning("Google Agenda credentials ontbreken — event %s niet verwijderd", gcal_id)
+
+        # Verwijder native Garmin workout
+        garmin_id = workout.get("garmin_workout_id")
+        if garmin_id and garmin_client is not None:
+            _delete_garmin_workout(garmin_client, garmin_id)
+            del workout["garmin_workout_id"]
+            changed = True
 
     if changed:
         _patch_gist(gist_id, github_token, {
