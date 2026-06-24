@@ -1156,26 +1156,35 @@ def cleanup_completed_events(athlete_id: str, api_key: str, gist_id: str, github
     """Verwijder geplande events waarvan de activiteit al geregistreerd is in intervals.icu.
 
     Draait dagelijks (via fetch_sugarwod.py). Zodra Garmin een hardloopactiviteit
-    synchroniseert naar intervals.icu op de datum van een gepland event, wordt het
-    geplande event verwijderd zodat er nog maar 1 entry zichtbaar is.
+    synchroniseert naar intervals.icu op de datum van een gepland event, worden het
+    geplande intervals.icu event én het Google Agenda event verwijderd zodat er nog
+    maar 1 entry zichtbaar is. Google Agenda-opruiming vereist GOOGLE_CREDENTIALS +
+    CALENDAR_ID in de omgeving.
     """
     files = _load_gist(gist_id, github_token)
     plan: dict = _parse_json(files.get("running_plan.json", ""), "running_plan.json") or {}
     workouts = plan.get("workouts", [])
 
     today = date.today().isoformat()
-    past = [w for w in workouts if w.get("event_id") and w.get("date", "9999") < today]
+    past = [
+        w for w in workouts
+        if (w.get("event_id") or w.get("gcal_event_id")) and w.get("date", "9999") < today
+    ]
     if not past:
         return
 
     session = requests.Session()
     session.auth = ("API_KEY", api_key)
     run_types = {"run", "running", "trailrun", "treadmill"}
+
+    gcal_creds = os.environ.get("GOOGLE_CREDENTIALS", "").strip()
+    gcal_cal_id = os.environ.get("CALENDAR_ID", "").strip()
+    gcal = None  # lazy: pas inloggen als er echt een gcal-event verwijderd moet worden
+    gcal_failed = False
     changed = False
 
     for workout in past:
         workout_date = workout["date"]
-        event_id = workout["event_id"]
         try:
             resp = session.get(
                 f"{INTERVALS_BASE}/{athlete_id}/activities",
@@ -1190,16 +1199,49 @@ def cleanup_completed_events(athlete_id: str, api_key: str, gist_id: str, github
                 run_types & {(a.get("type") or "").lower().replace(" ", "")}
                 for a in activities
             )
-            if has_run:
+            if not has_run:
+                continue
+
+            # 1) intervals.icu event verwijderen
+            event_id = workout.get("event_id")
+            if event_id:
                 del_resp = session.delete(f"{INTERVALS_BASE}/{athlete_id}/events/{event_id}", timeout=20)
                 if del_resp.ok:
-                    log.info("Event %s verwijderd — activiteit op %s gevonden", event_id, workout_date)
+                    log.info("intervals.icu event %s verwijderd — activiteit op %s gevonden", event_id, workout_date)
                     workout["event_id"] = None
                     changed = True
                 else:
-                    log.warning("Kon event %s niet verwijderen: %s", event_id, del_resp.status_code)
+                    log.warning("Kon intervals.icu event %s niet verwijderen: %s", event_id, del_resp.status_code)
+
+            # 2) Google Agenda event verwijderen
+            gcal_id = workout.get("gcal_event_id")
+            if gcal_id and gcal_creds and gcal_cal_id and not gcal_failed:
+                if gcal is None:
+                    try:
+                        from google_calendar_sync import GoogleCalendarSync
+                        gcal = GoogleCalendarSync(creds_json=gcal_creds)
+                    except Exception as exc:
+                        log.warning("Fout bij opzetten Google Agenda service: %s", exc)
+                        gcal_failed = True
+                if gcal is not None:
+                    try:
+                        gcal.service.events().delete(calendarId=gcal_cal_id, eventId=gcal_id).execute()
+                        log.info("Google Agenda event %s verwijderd — activiteit op %s gevonden", gcal_id, workout_date)
+                        workout["gcal_event_id"] = None
+                        changed = True
+                    except Exception as exc:
+                        # 404/410 = al verwijderd → id opruimen; andere fouten → behouden voor retry
+                        status = getattr(getattr(exc, "resp", None), "status", None)
+                        if status in (404, 410):
+                            log.info("Google Agenda event %s was al verwijderd", gcal_id)
+                            workout["gcal_event_id"] = None
+                            changed = True
+                        else:
+                            log.warning("Kon Google Agenda event %s niet verwijderen: %s", gcal_id, exc)
+            elif gcal_id and not (gcal_creds and gcal_cal_id):
+                log.warning("Google Agenda credentials ontbreken — event %s niet verwijderd", gcal_id)
         except Exception as exc:
-            log.warning("Fout bij cleanup event %s (%s): %s", event_id, workout_date, exc)
+            log.warning("Fout bij cleanup workout op %s: %s", workout_date, exc)
 
     if changed:
         _save_to_gist(gist_id, github_token, "running_plan.json",
