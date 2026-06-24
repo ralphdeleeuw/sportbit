@@ -734,6 +734,15 @@ def _pace_to_sec_per_km(pace: str) -> int:
     return int(parts[0]) * 60 + int(parts[1])
 
 
+def _step_duration_s(step: dict) -> int | None:
+    """Duur van een stap in seconden uit duration_s of duration_min, anders None."""
+    if step.get("duration_s"):
+        return int(step["duration_s"])
+    if step.get("duration_min"):
+        return int(step["duration_min"] * 60)
+    return None
+
+
 # ── workout_doc bouwen ─────────────────────────────────────────────────────────
 
 def _step_to_doc(step: dict) -> dict | None:
@@ -930,14 +939,14 @@ def _build_description(spec: dict) -> str:
 
         elif stype == "run":
             dist = step.get("distance_m")
-            dur = step.get("duration_min")
+            dur_s = _step_duration_s(step)
             pace = step.get("pace_target") or step.get("pace_max")
             if dist:
                 pace_str = f" at {pace}/km" if pace else ""
                 lines.append(f"{dist}m{pace_str}")
-            elif dur:
+            elif dur_s:
                 pace_str = f" (max {pace}/km)" if pace else ""
-                lines.append(f"{dur} min{pace_str}")
+                lines.append(f"{dur_s // 60} min{pace_str}")
 
         elif stype == "repeat":
             count = step.get("count", "?")
@@ -1011,6 +1020,12 @@ def _build_icu_workout_text(spec: dict) -> str:
             pace_part = f" {pr} pace" if pr else ""
             if dist:
                 result.append(f"{dist}m{pace_part}")
+            else:
+                # Tijdgebaseerde stap (bijv. 12-min test): duur i.p.v. afstand,
+                # anders rendert intervals.icu de stap als "0km".
+                dur = _step_duration_s(step)
+                if dur:
+                    result.append(f"{dur}s{pace_part}")
         elif stype == "rest":
             dur = step.get("duration_s")
             if dur:
@@ -1048,6 +1063,14 @@ def _build_expanded_description(spec: dict) -> str:
         km = m / 1000
         return f"{km:g}km"
 
+    def amount_str(s: dict) -> str:
+        """Afstand (Xkm) als die er is, anders duur (Ns) voor tijdgebaseerde stappen."""
+        dist = s.get("distance_m", 0)
+        if dist:
+            return dist_str(dist)
+        dur = _step_duration_s(s)
+        return f"{dur}s" if dur else "0km"
+
     def _pr(s: dict) -> str:
         pace_min = s.get("pace_min")
         pace_max = s.get("pace_max")
@@ -1072,7 +1095,7 @@ def _build_expanded_description(spec: dict) -> str:
             sections.append(f"Cooldown\n- Cooldown {dist_str(dist)}{pace_label} Pace intensity=cooldown")
 
         elif stype == "run":
-            sections.append(f"- {dist_str(dist)}{pace_label} Pace")
+            sections.append(f"- {amount_str(step)}{pace_label} Pace")
 
         elif stype == "repeat":
             count = step.get("count", 1)
@@ -1084,10 +1107,9 @@ def _build_expanded_description(spec: dict) -> str:
                     if dur:
                         lines.append(f"- {dur}s Rest")
                 else:
-                    cdist = child.get("distance_m", 0)
                     cpr = _pr(child)
                     cpace_label = f" {cpr}" if cpr else ""
-                    lines.append(f"- {dist_str(cdist)}{cpace_label} Pace")
+                    lines.append(f"- {amount_str(child)}{cpace_label} Pace")
             sections.append("\n".join(lines))
 
     icu_text = _build_icu_workout_text(spec)
