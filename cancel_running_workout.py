@@ -19,6 +19,7 @@ import json
 import logging
 import os
 import sys
+from datetime import datetime, timezone
 
 import requests
 
@@ -84,6 +85,27 @@ def main() -> None:
         plan = {}
 
     workouts: list[dict] = plan.get("workouts", [])
+
+    # Optioneel: markeer een specifieke run (op datum) als geannuleerd voordat we
+    # opruimen. Zo kan een losse run on-demand geannuleerd worden via
+    # workflow_dispatch (input 'date'), zonder de app/Gist-token nodig te hebben.
+    cancel_date = os.environ.get("CANCEL_DATE", "").strip()
+    marked = False
+    if cancel_date:
+        target = next((w for w in workouts if w.get("date") == cancel_date), None)
+        if target is None:
+            log.warning("Geen workout gevonden op %s — niets gemarkeerd", cancel_date)
+        elif target.get("cancelled"):
+            log.info("Workout op %s was al geannuleerd", cancel_date)
+        else:
+            target["cancelled"] = True
+            target["cancelled_at"] = datetime.now(timezone.utc).isoformat()
+            marked = True
+            log.info(
+                "Workout '%s' op %s gemarkeerd als geannuleerd",
+                target.get("name") or target.get("type") or "workout", cancel_date,
+            )
+
     cancelled_with_events = [
         w for w in workouts
         if w.get("cancelled") and (w.get("gcal_event_id") or w.get("event_id"))
@@ -91,6 +113,11 @@ def main() -> None:
 
     if not cancelled_with_events:
         log.info("Geen geannuleerde workouts met calendar events — niets te doen")
+        if marked:
+            _patch_gist(gist_id, github_token, {
+                "running_plan.json": json.dumps(plan, indent=2, ensure_ascii=False),
+            })
+            log.info("Gist bijgewerkt — workout gemarkeerd als geannuleerd")
         return
 
     changed = False

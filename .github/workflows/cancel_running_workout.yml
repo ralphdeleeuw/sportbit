@@ -5,6 +5,11 @@ on:
     # Elke 4 uur (00:00, 04:00, 08:00, 12:00, 16:00, 20:00 UTC)
     - cron: '0 */4 * * *'
   workflow_dispatch:
+    inputs:
+      date:
+        description: 'Datum (YYYY-MM-DD) van de run die geannuleerd moet worden. Leeg = alleen reeds geannuleerde runs opruimen.'
+        required: false
+        default: ''
 
 jobs:
   cancel:
@@ -16,6 +21,7 @@ jobs:
       - run: pip install requests google-auth google-auth-oauthlib google-api-python-client
       - run: python3 cancel_running_workout.py
         env:
+          CANCEL_DATE: ${{ github.event.inputs.date }}
           INTERVALS_ATHLETE_ID: ${{ secrets.INTERVALS_ATHLETE_ID }}
           INTERVALS_API_KEY: ${{ secrets.INTERVALS_API_KEY }}
           GIST_ID: ${{ secrets.GIST_ID }}
