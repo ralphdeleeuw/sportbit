@@ -60,7 +60,7 @@ PHASE2_GOAL_M = 2700           # fase 2 (weken 11+): streefdoel
 # Versie van de deterministische metrics. Verhoog dit zodra _compute_metrics
 # nieuwe velden produceert; bestaande entries met een lagere versie worden dan
 # automatisch (zonder Claude) herberekend zodat nieuwe data retroactief verschijnt.
-METRICS_VERSION = 4
+METRICS_VERSION = 5
 
 _ANALYSIS_SYSTEM_PROMPT = """You are a professional running coach analysing how Ralph de Leeuw executed a planned workout.
 - 47 years old, 77kg, CrossFit 5x/week, runs 1-3x/week
@@ -437,42 +437,68 @@ def _compute_metrics(workout: dict, activity: dict, source: str, week_number: in
     return metrics
 
 
-def _align_laps(flat: list[dict], activity: dict) -> dict:
-    """Lijn de geplande werk-intervallen uit op de werkelijke werk-laps.
+def _best_distance_subsequence(targets: list[int], laps: list[dict]) -> list[dict]:
+    """Kies len(targets) laps (op chronologische volgorde) die de geplande afstanden
+    het best benaderen — minimaliseert de som van |lap-afstand − doel-afstand|.
 
-    intervals.icu markeert elke lap als WORK/RECOVERY — die gebruiken we om alleen de
-    snelle werk-laps te koppelen aan de geplande intervallen (warmup/herstel/cooldown
-    horen daar niet tussen). Zonder type-info vallen we terug op een heuristiek.
+    Zo worden warmup/cooldown (sterk afwijkende afstand) overgeslagen, ook al heeft
+    intervals.icu ze als WORK gemarkeerd.
+    """
+    n, m = len(targets), len(laps)
+    if n == 0 or m < n:
+        return []
+    inf = float("inf")
+    dp = [[inf] * (m + 1) for _ in range(n + 1)]
+    back = [[None] * (m + 1) for _ in range(n + 1)]
+    for j in range(m + 1):
+        dp[0][j] = 0.0
+    for i in range(1, n + 1):
+        for j in range(1, m + 1):
+            best, choice = dp[i][j - 1], "skip"           # lap j-1 overslaan
+            ld = laps[j - 1].get("distance_m") or 0
+            use = dp[i - 1][j - 1] + abs(ld - targets[i - 1])
+            if use < best:
+                best, choice = use, "use"
+            dp[i][j], back[i][j] = best, choice
+    i, j, chosen = n, m, []
+    while i > 0 and j > 0:
+        if back[i][j] == "use":
+            chosen.append(laps[j - 1])
+            i -= 1
+            j -= 1
+        else:
+            j -= 1
+    chosen.reverse()
+    return chosen
+
+
+def _align_laps(flat: list[dict], activity: dict) -> dict:
+    """Lijn de geplande werk-intervallen uit op de werkelijke laps, op AFSTAND.
+
+    intervals.icu markeert élke aaneengesloten loop-lap als WORK (dus ook warmup en
+    cooldown) en alleen de pauzes als RECOVERY. We kunnen 'type' daarom niet blind
+    vertrouwen: we matchen elk gepland interval aan de lap met de best passende
+    afstand, zodat warmup/cooldown er vanzelf buiten vallen.
     """
     laps = activity.get("laps") or []
-    work = [s for s in flat if s["kind"] == "work" and s.get("pace_mid_sec")]
+    # Alleen werk-stappen met een concrete afstand (de 12-min test is duur-gebaseerd
+    # en wordt apart afgehandeld via _test_result).
+    work = [s for s in flat if s["kind"] == "work" and s.get("pace_mid_sec") and s.get("distance_m")]
     if not laps or not work:
         return {"lap_alignment": "summary_only"}
 
-    # 1) Voorkeur: laps die intervals.icu zelf als WORK heeft gemarkeerd.
-    typed_work = [lap for lap in laps if (lap.get("type") or "").upper() == "WORK"]
-    if typed_work:
-        work_laps = typed_work
+    # Kandidaten: laps met een betekenisvolle afstand (filtert split-artefacten weg).
+    candidates = [lap for lap in laps if (lap.get("distance_m") or 0) >= 50]
+    if len(candidates) < len(work):
+        # Te weinig laps — val terug op volgorde.
+        alignment = "partial"
+        n = min(len(work), len(candidates))
+        pairs = list(zip(work[:n], candidates[:n]))
     else:
-        # 2) Heuristiek zonder type-info. Eerst de 1:1-gevallen (incl. warmup/cooldown),
-        #    anders de snelste laps selecteren die overeenkomen met het aantal werk-stappen.
-        run_laps = [lap for lap in laps if (lap.get("distance_m") or 0) >= 100]
-        if len(run_laps) == len(work):
-            work_laps = run_laps
-        elif len(laps) == len(flat):
-            work_laps = [lap for s, lap in zip(flat, laps)
-                         if s["kind"] == "work" and s.get("pace_mid_sec")]
-        else:
-            # Selecteer de N snelste laps (N = aantal werk-stappen), op volgorde van tijd.
-            paced = [(lap, _lap_pace_sec(lap)) for lap in run_laps]
-            paced = [(lap, p) for lap, p in paced if p]
-            fastest = sorted(paced, key=lambda lp: lp[1])[:len(work)]
-            fastest_ids = {id(lap) for lap, _ in fastest}
-            work_laps = [lap for lap in run_laps if id(lap) in fastest_ids]
-
-    alignment = "exact" if len(work_laps) == len(work) else "partial"
-    n = min(len(work), len(work_laps))
-    pairs = list(zip(work[:n], work_laps[:n]))
+        # Afstand-gebaseerde subsequence-matching (slaat warmup/cooldown over).
+        work_laps = _best_distance_subsequence([s["distance_m"] for s in work], candidates)
+        pairs = list(zip(work, work_laps))
+        alignment = "exact" if len(work_laps) == len(work) else "partial"
 
     aligned: list[dict] = []
     hits = 0
