@@ -3098,22 +3098,26 @@ def _is_crossfit_activity(activities: list[dict]) -> bool:
     return False
 
 
-def load_sportbit_attended_dates(gist_id: str, token: str) -> tuple[set[str], dict[str, str], set[str]]:
+def load_sportbit_attended_dates(gist_id: str, token: str) -> tuple[set[str], dict[str, str], set[str], set[str]]:
     """Read sportbit_state.json from the shared gist and return:
     - A set of ISO dates where the athlete was signed up (and did NOT cancel),
-      filtered to scheduled class days (Mon/Wed/Thu/Sat).
+      filtered to regular class days (Mon/Wed/Thu/Sat/Sun) for past-attendance tracking.
     - A dict of {date: time} for ALL non-cancelled signups (past + future),
       used to look up actual training times.
     - A set of ISO dates where the athlete HAD signed up but cancelled,
       with no remaining active signup on that date.
+    - A set of ALL non-cancelled signup dates regardless of weekday (for future
+      workout detection — covers manually registered special/Friday classes).
 
-    Returns (set[str], dict[str, str], set[str]).
+    Returns (set[str], dict[str, str], set[str], set[str]).
     """
-    # Weekdays (0=Mon … 6=Sun) that are scheduled CrossFit class days
+    # Weekdays (0=Mon … 6=Sun) that count as regular past-attendance days.
+    # Manually registered classes on other days (e.g. Fri) are still captured
+    # in all_signed_up_dates so the coach sees them as upcoming workouts.
     SCHEDULED_WEEKDAYS = {0, 2, 3, 5, 6}  # Mon, Wed, Thu, Sat, Sun
 
     if not gist_id or not token:
-        return set(), {}, set()
+        return set(), {}, set(), set()
     try:
         resp = requests.get(
             f"https://api.github.com/gists/{gist_id}",
@@ -3125,11 +3129,12 @@ def load_sportbit_attended_dates(gist_id: str, token: str) -> tuple[set[str], di
         raw = files.get("sportbit_state.json", {}).get("content", "")
         if not raw:
             log.warning("[gist] sportbit_state.json not found or empty")
-            return set(), {}, set()
+            return set(), {}, set(), set()
         state = json.loads(raw)
         signed_up: dict = state.get("signed_up", {})
         cancelled: dict = state.get("cancelled", {})
         attended: set[str] = set()
+        all_signed_up_dates: set[str] = set()
         signed_up_times: dict[str, str] = {}
         skipped = 0
         for event_id, info in signed_up.items():
@@ -3137,6 +3142,7 @@ def load_sportbit_attended_dates(gist_id: str, token: str) -> tuple[set[str], di
                 date = info.get("date", "")
                 time = info.get("time", "")
                 if date:
+                    all_signed_up_dates.add(date)
                     # Build full date→time map for all non-cancelled signups
                     if time:
                         signed_up_times[date] = time
@@ -3148,7 +3154,7 @@ def load_sportbit_attended_dates(gist_id: str, token: str) -> tuple[set[str], di
                         attended.add(date)
                     else:
                         skipped += 1
-                        log.info("[gist] Skipping %s (weekday %d, not a scheduled class day)", date, weekday)
+                        log.info("[gist] %s (weekday %d) not in regular schedule — tracked in all_signed_up_dates", date, weekday)
         # Dates with a cancelled signup but no remaining active signup on that date
         cancelled_dates: set[str] = {
             info.get("date", "")
@@ -3156,13 +3162,14 @@ def load_sportbit_attended_dates(gist_id: str, token: str) -> tuple[set[str], di
             if info.get("date") and info["date"] not in attended
         }
         cancelled_dates.discard("")
-        log.info("[gist] Sportbit attended dates: %d (skipped %d non-class-day signups)", len(attended), skipped)
+        log.info("[gist] Sportbit attended dates: %d (skipped %d non-regular-day signups)", len(attended), skipped)
+        log.info("[gist] All non-cancelled signup dates: %d (incl. non-regular days)", len(all_signed_up_dates))
         log.info("[gist] Signed-up times: %d dates with known training time", len(signed_up_times))
         log.info("[gist] Cancelled CF dates (no active signup): %d", len(cancelled_dates))
-        return attended, signed_up_times, cancelled_dates
+        return attended, signed_up_times, cancelled_dates, all_signed_up_dates
     except Exception as exc:
         log.warning("[gist] Failed to load sportbit_state.json: %s", exc)
-        return set(), {}, set()
+        return set(), {}, set(), set()
 
 
 def load_workout_log(gist_id: str, token: str) -> dict[str, dict]:
@@ -3519,7 +3526,7 @@ def main() -> int:
     date_to_workout = {d: _pick_main_workout(ws) for d, ws in _by_date_all.items()}
 
     # 1. Sportbit attended dates (signed up, not cancelled) + actual training times
-    sportbit_attended, signed_up_times, cancelled_cf_dates = load_sportbit_attended_dates(gist_id, token)
+    sportbit_attended, signed_up_times, cancelled_cf_dates, all_sportbit_signed_up = load_sportbit_attended_dates(gist_id, token)
 
     # Environmental data (weer + AQI) — opgehaald na signed_up_times zodat trainingsdagen bekend zijn
     env_data = None
@@ -3569,9 +3576,10 @@ def main() -> int:
         reverse=True,
     )
     # Use next Sportbit signup as next_workout so the coach addresses the actual
-    # next planned class, not just the first programmed SugarWOD on or after today
-    # (which may be a day without a class, e.g. Sunday).
-    future_sportbit_dates = sorted(d for d in sportbit_attended if d >= today.isoformat())
+    # next planned class, not just the first programmed SugarWOD on or after today.
+    # Use all_sportbit_signed_up (no weekday filter) so manually registered classes
+    # on non-regular days (e.g. Friday) are also picked up.
+    future_sportbit_dates = sorted(d for d in all_sportbit_signed_up if d >= today.isoformat())
     if future_sportbit_dates:
         next_date = future_sportbit_dates[0]
         next_workout = date_to_workout.get(next_date) or {
