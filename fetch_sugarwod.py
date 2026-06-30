@@ -2972,7 +2972,8 @@ Be direct and concise. Maximum 210 words. No introduction."""
         try:
             log.info("Generating AI plan for %s (%s)", date, title)
             message = client.messages.create(
-                model="claude-opus-4-7",
+                # Kostenbesparing: Sonnet 4.6 ($3/$15 per 1M tokens) i.p.v. Opus ($5/$25).
+                model="claude-sonnet-4-6",
                 max_tokens=700,
                 messages=[{"role": "user", "content": prompt}],
             )
@@ -3553,8 +3554,11 @@ def main() -> int:
     else:
         _plans_input = upcoming_workouts
     if skip_ai:
-        log.info("AI coaching overgeslagen (SKIP_AI=true)")
-        workout_plans = {}
+        # AI overslaan om kosten te besparen — behoud de eerder gegenereerde plannen
+        # uit de Gist zodat het dashboard niet leeg raakt (save_to_gist overschrijft
+        # het hele bestand, dus None/{} zou de bestaande coaching wissen).
+        log.info("AI coaching overgeslagen (SKIP_AI=true) — vorige workout-plannen behouden")
+        workout_plans = cached_gist.get("workout_plans") or {}
     else:
         workout_plans = generate_workout_plans(
             _plans_input, barbell_lifts, ATHLETE_PROFILE,
@@ -3604,7 +3608,8 @@ def main() -> int:
         log.info("[deload] Overtraining risico gedetecteerd — herstelweek aanbevolen")
 
     if skip_ai:
-        recovery_advice = None
+        # Behoud het eerder gegenereerde herstel-advies (zie toelichting hierboven).
+        recovery_advice = cached_gist.get("recovery_advice")
     elif past_sportbit_dates:
         attended_workouts = []
         for d in past_sportbit_dates[:5]:
@@ -3764,7 +3769,15 @@ def main() -> int:
             now_time=now.strftime("%H:%M"),
         )
 
-    ai_generated_at = datetime.now(AMS).isoformat() if not skip_ai else None
+    if skip_ai:
+        # Behoud de tijdstempels van de eerder gegenereerde (en hierboven overgenomen)
+        # coaching, zodat het dashboard "gegenereerd …" correct blijft tonen.
+        workout_plans_generated_at = cached_gist.get("workout_plans_generated_at")
+        recovery_advice_generated_at = cached_gist.get("recovery_advice_generated_at")
+    else:
+        ai_generated_at = datetime.now(AMS).isoformat()
+        workout_plans_generated_at = ai_generated_at if workout_plans else None
+        recovery_advice_generated_at = ai_generated_at if recovery_advice else None
     wod_data = {
         "workouts": workouts,
         "by_date": by_date,
@@ -3774,9 +3787,9 @@ def main() -> int:
         "personal_records": personal_records,
         "benchmark_workouts": benchmark_workouts,
         "workout_plans": workout_plans,
-        "workout_plans_generated_at": ai_generated_at if workout_plans else None,
+        "workout_plans_generated_at": workout_plans_generated_at,
         "recovery_advice": recovery_advice,
-        "recovery_advice_generated_at": ai_generated_at if recovery_advice else None,
+        "recovery_advice_generated_at": recovery_advice_generated_at,
         "strava_data": strava_data,
         "intervals_data": intervals_data,
         "withings_data": withings_data,

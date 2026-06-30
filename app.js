@@ -137,6 +137,7 @@
             ${ts}
             <div class="ai-coach-body">${safeMarkdown(_prog.program_markdown)}</div>
           </div>
+          ${aiGenButton('🏋️ Programma opnieuw genereren', 'generate_open_gym_program.yml', {})}
         </div>`;
       })();
 
@@ -1990,29 +1991,31 @@
 
       // Recovery + AI coach
       const recoveryBlock = renderRecoveryTodayBlock();
-      if (recoveryBlock || recoveryAdvice) {
-        h += `<div class="recovery-card-wrapper">${recoveryBlock || ''}`;
-        if (recoveryAdvice) {
-          const label = recoveryAdviceFromHistory
-            ? `Coach Advies (${recoveryAdviceHistory[recoveryAdviceHistory.length-1].date})`
-            : 'AI Coach advies';
-          const tsStr = formatAdviceTimestamp(recoveryAdviceGeneratedAt);
-          const tsHtml = tsStr ? `<div class="ai-coach-timestamp">gegenereerd ${tsStr}</div>` : '';
-          h += `<div class="ai-coach-block" onclick="this.classList.toggle('open')">
-            <div class="ai-coach-toggle">
-              <div class="ai-coach-toggle-left">
-                <div class="ai-coach-label">${label}</div>
-                ${tsHtml}
-              </div>
-              <div class="wod-chevron">▾</div>
+      h += `<div class="recovery-card-wrapper">${recoveryBlock || ''}`;
+      if (recoveryAdvice) {
+        const label = recoveryAdviceFromHistory
+          ? `Coach Advies (${recoveryAdviceHistory[recoveryAdviceHistory.length-1].date})`
+          : 'AI Coach advies';
+        const tsStr = formatAdviceTimestamp(recoveryAdviceGeneratedAt);
+        const tsHtml = tsStr ? `<div class="ai-coach-timestamp">gegenereerd ${tsStr}</div>` : '';
+        h += `<div class="ai-coach-block" onclick="this.classList.toggle('open')">
+          <div class="ai-coach-toggle">
+            <div class="ai-coach-toggle-left">
+              <div class="ai-coach-label">${label}</div>
+              ${tsHtml}
             </div>
-            <div class="ai-coach-content">
-              <div class="ai-coach-body">${safeMarkdown(recoveryAdvice)}</div>
-            </div>
-          </div>`;
-        }
-        h += `</div>`;
+            <div class="wod-chevron">▾</div>
+          </div>
+          <div class="ai-coach-content">
+            <div class="ai-coach-body">${safeMarkdown(recoveryAdvice)}</div>
+          </div>
+        </div>`;
+      } else {
+        h += `<div class="ai-coach-empty">Nog geen AI coach-advies. Genereer het on-demand 👇</div>`;
       }
+      // On-demand: regenereert herstel-advies + workout-plannen (fetch_sugarwod, AI aan)
+      h += aiGenButton('🧠 Coach-advies genereren', 'fetch_sugarwod.yml', {});
+      h += `</div>`;
 
       if (deloadAlert) h += `<div class="deload-banner">⚠️ Herstelweek aanbevolen — schaal WODs naar 60–70%.</div>`;
 
@@ -2045,6 +2048,7 @@
             ${ts}
             <div class="ai-coach-body">${safeMarkdown(openGymProgram.program_markdown)}</div>
           </div>
+          ${aiGenButton('🏋️ Programma opnieuw genereren', 'generate_open_gym_program.yml', {})}
         </div>`;
       }
 
@@ -2215,6 +2219,12 @@
       const el = document.getElementById('plan-content');
       if (!el) return;
       let h = `<div class="tab-page-header"><div class="tab-page-title">Hardloopplan</div></div>`;
+      // On-demand AI-acties (kostenbesparing: niets draait meer automatisch)
+      h += `<div class="ai-gen-toolbar">
+        ${aiGenButton('🏃 Genereer plan', 'generate_running_workout.yml', {})}
+        ${aiGenButton('🔍 Review', 'review_running_workout.yml', { mode: 'auto' })}
+        ${aiGenButton('📊 Analyse', 'analyze_running_workout.yml', { mode: 'analyze' })}
+      </div>`;
       const planHtml = renderRunningPlanSection();
       h += planHtml || `<div class="empty">📋 Geen hardloopplan beschikbaar</div>`;
       el.innerHTML = h;
@@ -2987,6 +2997,73 @@
       statusEl.style.color = 'var(--accent2)';
       btn.disabled = false;
       btn.textContent = btnLabel;
+    }
+
+    // ── On-demand AI-generatie (kostenbesparing) ─────────────────────────────
+    // AI-coaches draaien niet meer automatisch. Deze helpers plaatsen een knop
+    // náást elk AI-blok (Vandaag/Schema/Hardlopen) die de bijbehorende workflow
+    // on-demand start. De knop en zijn status-span (.ai-gen-status, gedeelde
+    // .ai-gen-row parent) worden uit de klik afgeleid, zodat dezelfde functie
+    // overal werkt zonder vaste element-IDs.
+    function aiGenButton(label, workflowFile, inputs) {
+      const inp = encodeURIComponent(JSON.stringify(inputs || {}));
+      return `<div class="ai-gen-row">
+        <button class="ai-gen-btn" data-wf="${workflowFile}" data-inputs="${inp}" data-label="${escapeHtml(label)}" onclick="triggerAiGenerate(event)">${label}</button>
+        <span class="ai-gen-status"></span>
+      </div>`;
+    }
+
+    async function triggerAiGenerate(ev) {
+      if (ev) ev.stopPropagation();
+      const btn = ev ? (ev.currentTarget || ev.target) : null;
+      if (!btn) return;
+      const row = btn.closest('.ai-gen-row');
+      const statusEl = row ? row.querySelector('.ai-gen-status') : null;
+      const workflowFile = btn.dataset.wf;
+      const label = btn.dataset.label || btn.textContent;
+      let inputs = {};
+      try { inputs = JSON.parse(decodeURIComponent(btn.dataset.inputs || '%7B%7D')); } catch (_) {}
+
+      const token = (document.getElementById('githubToken')?.value || '').trim()
+                 || (localStorage.getItem('huppa_github_token') || '').trim();
+
+      if (!token) {
+        if (statusEl) { statusEl.textContent = 'GitHub token vereist — stel in via Acties'; statusEl.style.color = 'var(--accent2)'; }
+        else alert('Vul eerst je GitHub Token in via Acties');
+        return;
+      }
+      if (!statusEl) return; // markup safeguard: pollWorkflowRun heeft een status-element nodig
+
+      btn.disabled = true;
+      btn.textContent = '⏳ Bezig…';
+      statusEl.textContent = 'Workflow starten…';
+      statusEl.style.color = 'var(--muted)';
+      const triggerTime = new Date();
+
+      try {
+        const resp = await fetch(
+          `https://api.github.com/repos/ralphdeleeuw/sportbit/actions/workflows/${workflowFile}/dispatches`,
+          {
+            method: 'POST',
+            headers: { Authorization: `token ${token}`, Accept: 'application/vnd.github+json', 'Content-Type': 'application/json' },
+            body: JSON.stringify({ ref: 'main', inputs }),
+          }
+        );
+        if (resp.status !== 204) {
+          const body = await resp.json().catch(() => ({}));
+          statusEl.textContent = `Fout ${resp.status}: ${body.message || 'onbekend'}`;
+          statusEl.style.color = 'var(--accent2)';
+          btn.disabled = false; btn.textContent = label;
+          return;
+        }
+        statusEl.textContent = '⏳ In wachtrij…';
+        statusEl.style.color = 'var(--muted)';
+        await pollWorkflowRun(token, triggerTime, statusEl, btn, workflowFile, label);
+      } catch (e) {
+        statusEl.textContent = `Netwerkfout: ${e.message}`;
+        statusEl.style.color = 'var(--accent2)';
+        btn.disabled = false; btn.textContent = label;
+      }
     }
 
     async function loadWorkflowLastRuns(token) {
@@ -4970,9 +5047,9 @@
                 style="margin-top:0.6rem">${escapeHtml(existingNotes)}</textarea>
               <div class="log-actions">
                 <span class="log-status${isDone ? ' ok' : ''}" id="hw-status">${isDone ? '✓ Gedaan' : ''}</span>
-                <button class="log-save-btn" style="margin-right:0.5rem;background:transparent;border:1px solid var(--info);color:var(--info)" onclick="triggerHomeWorkoutPlan(event)">↻ Vernieuw</button>
                 <button class="log-save-btn" onclick="saveHomeWorkout('${todayStr}')">Opslaan</button>
               </div>
+              ${aiGenButton('🏠 Plan opnieuw genereren', 'generate_home_workout.yml', {})}
             </div>
           </div>
         </div>`;

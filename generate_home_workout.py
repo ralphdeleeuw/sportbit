@@ -37,7 +37,10 @@ log = logging.getLogger(__name__)
 
 AMS = ZoneInfo("Europe/Amsterdam")
 GIST_FILENAME = "home_workout_plan.json"
-MODEL = "claude-opus-4-8"
+# Kostenbesparing: Haiku 4.5 ($1/$5 per 1M tokens) i.p.v. Opus ($5/$25). De
+# thuistraining is een eenvoudige, gestructureerde dag-routine — ruim binnen Haiku's
+# kunnen. Verhoog naar claude-sonnet-4-6 of claude-opus-4-8 als de kwaliteit tegenvalt.
+MODEL = "claude-haiku-4-5"
 DAY_NL = ["maandag", "dinsdag", "woensdag", "donderdag", "vrijdag", "zaterdag", "zondag"]
 
 # ── Squat progressieschema — EXACT gespiegeld van HOME_WORKOUT.squat_progression in app.js ──

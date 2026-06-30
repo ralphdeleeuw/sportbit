@@ -1,8 +1,8 @@
 name: Genereer Thuistraining Plan
 
 on:
-  schedule:
-    - cron: '30 5 * * *'  # 05:30 UTC = 07:30 CEST / 06:30 CET — vóór ochtendwekker
+  # Kostenbesparing: niet meer automatisch. Genereren gebeurt on-demand via de
+  # knop in de PWA (workflow_dispatch).
   workflow_dispatch:
     inputs:
       date:

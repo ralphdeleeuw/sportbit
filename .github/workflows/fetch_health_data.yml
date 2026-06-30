@@ -67,6 +67,9 @@ jobs:
           WITHINGS_REFRESH_TOKEN: ${{ secrets.WITHINGS_REFRESH_TOKEN }}
           WAQI_API_TOKEN: ${{ secrets.WAQI_API_TOKEN }}
           HEALTH_ONLY: 'true'
+          # Kostenbesparing: deze (4-uurlijkse) health-refresh roept géén AI-coaching aan.
+          # AI draait alleen nog on-demand via de knoppen in de PWA.
+          SKIP_AI: 'true'
           SKIP_STRAVA: ${{ inputs.skip_strava || 'false' }}
           SKIP_WITHINGS: ${{ inputs.skip_withings || 'false' }}
           SKIP_INTERVALS: ${{ inputs.skip_intervals || 'false' }}

@@ -635,7 +635,8 @@ def _build_review_context(
 def _review_with_claude(context_text: str) -> dict:
     client = anthropic.Anthropic(api_key=os.environ["ANTHROPIC_API_KEY"])
     msg = client.messages.create(
-        model="claude-opus-4-7",
+        # Kostenbesparing: Sonnet 4.6 ($3/$15 per 1M tokens) i.p.v. Opus ($5/$25).
+        model="claude-sonnet-4-6",
         max_tokens=4096,
         system=_REVIEW_SYSTEM_PROMPT,
         messages=[{
