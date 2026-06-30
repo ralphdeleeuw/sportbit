@@ -49,7 +49,10 @@ jobs:
           WAQI_API_TOKEN: ${{ secrets.WAQI_API_TOKEN }}
           MFP_USERNAME: ${{ secrets.MFP_USERNAME }}
           MFP_PASSWORD: ${{ secrets.MFP_PASSWORD }}
-          SKIP_AI: ${{ inputs.skip_ai || 'false' }}
+          # Kostenbesparing: op de geplande (dagelijkse) run wordt de WOD-data wél
+          # opgehaald, maar AI-coaching overgeslagen. Bij handmatige dispatch vanuit de
+          # PWA bepaalt de skip_ai-invoer het (standaard false → AI draait on-demand).
+          SKIP_AI: ${{ github.event_name == 'schedule' && 'true' || (inputs.skip_ai || 'false') }}
           SKIP_MYFITNESSPAL: ${{ inputs.skip_myfitnesspal || 'false' }}
           # HEALTH_ONLY is false (default): alleen SugarWOD ophalen, gecachte health data uit Gist gebruiken
         run: python3 fetch_sugarwod.py

@@ -1,12 +1,8 @@
 name: Analyze Running Workout
 
 on:
-  # Draai na het verversen van de health-data (verse activiteiten uit intervals.icu/Strava)
-  workflow_run:
-    workflows: ["Refresh Health Data"]
-    types:
-      - completed
-  # Handmatig vanuit de Acties-tab of vanuit de app (analyze | apply)
+  # Kostenbesparing: niet meer automatisch na élke health-refresh (was workflow_run).
+  # Analyse gebeurt on-demand via de knop in de PWA (workflow_dispatch).
   workflow_dispatch:
     inputs:
       mode:
@@ -21,8 +17,6 @@ on:
 jobs:
   analyze:
     runs-on: ubuntu-latest
-    # Bij workflow_run: alleen draaien als de health-refresh slaagde
-    if: ${{ github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success' }}
 
     steps:
       - uses: actions/checkout@v4

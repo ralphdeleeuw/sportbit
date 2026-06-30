@@ -36,7 +36,8 @@ log = logging.getLogger(__name__)
 AMS = ZoneInfo("Europe/Amsterdam")
 
 GIST_FILENAME = "open_gym_program.json"
-MODEL = "claude-opus-4-7"
+# Kostenbesparing: Sonnet 4.6 ($3/$15 per 1M tokens) i.p.v. Opus ($5/$25).
+MODEL = "claude-sonnet-4-6"
 
 # ── Atletenprofiel ─────────────────────────────────────────────────────────────
 
