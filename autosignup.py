@@ -641,17 +641,31 @@ def run(email: str, password: str, subdomain: str, dry_run: bool, days_ahead: in
     events_cache: dict[str, list[dict]] = {}
     capacity_updates: dict[str, dict] = {}  # {"YYYY-MM-DD_HH:MM": {"available": int, "is_full": bool}}
 
+    # /users/me/occurrences laat occurrenceUser soms ten onrechte leeg zien
+    # terwijl er wel een actieve boeking is (zie HuppaClient.get_booked_slots).
+    # Haal daarom altijd de betrouwbaardere bookings-and-waitlists op en
+    # gebruik die om is_booked te corrigeren voor élk event dat we ophalen —
+    # anders proberen we opnieuw in te schrijven voor een les waar we al voor
+    # geboekt staan (409), of missen we een handmatige inschrijving in de PWA.
+    try:
+        booked_slots = set(client.get_booked_slots())
+    except Exception as exc:
+        log.warning("Could not fetch bookings-and-waitlists for cross-check: %s", exc)
+        booked_slots = set()
+
+    def fetch_events(date_str: str) -> list[dict]:
+        events = client.get_events(date_str)
+        for event in events:
+            if not event.get("is_booked") and event.get("starts_at", "") in booked_slots:
+                event["is_booked"] = True
+        return events
+
     # First pass: fetch events and detect manual cancellations.
     # Scan BOTH upcoming slots AND recent past scheduled days (last 14 days)
     # so that late cancellations for already-passed classes are picked up.
     today = datetime.now(AMS).date()
 
     if state:
-        try:
-            booked_slots = set(client.get_booked_slots())
-        except Exception as exc:
-            log.warning("Could not fetch bookings-and-waitlists for cross-check: %s", exc)
-            booked_slots = set()
         all_events = []
         scheduled_weekdays = {weekday for weekday, _ in SCHEDULE}
         # Past 14 days: check every scheduled weekday
@@ -662,7 +676,7 @@ def run(email: str, password: str, subdomain: str, dry_run: bool, days_ahead: in
             date_str = d.strftime("%Y-%m-%d")
             if date_str not in events_cache:
                 try:
-                    events_cache[date_str] = client.get_events(date_str)
+                    events_cache[date_str] = fetch_events(date_str)
                 except Exception as exc:
                     log.warning("Could not fetch past events for %s: %s", date_str, exc)
                     events_cache[date_str] = []
@@ -671,7 +685,7 @@ def run(email: str, password: str, subdomain: str, dry_run: bool, days_ahead: in
         for date, _ in slots:
             date_str = date.strftime("%Y-%m-%d")
             if date_str not in events_cache:
-                events_cache[date_str] = client.get_events(date_str)
+                events_cache[date_str] = fetch_events(date_str)
             all_events.extend(events_cache[date_str])
         # Also scan upcoming non-scheduled days that have signed_up events,
         # so manual cancellations on those days are detected.
@@ -684,7 +698,7 @@ def run(email: str, password: str, subdomain: str, dry_run: bool, days_ahead: in
         for date_str in signed_up_dates:
             if date_str not in events_cache:
                 try:
-                    events_cache[date_str] = client.get_events(date_str)
+                    events_cache[date_str] = fetch_events(date_str)
                 except Exception as exc:
                     log.warning("Could not fetch events for %s: %s", date_str, exc)
                     events_cache[date_str] = []
@@ -705,7 +719,7 @@ def run(email: str, password: str, subdomain: str, dry_run: bool, days_ahead: in
             continue
 
         if date_str not in events_cache:
-            events_cache[date_str] = client.get_events(date_str)
+            events_cache[date_str] = fetch_events(date_str)
         events = events_cache[date_str]
 
         event = find_event_at_time(events, date_str, target_time)
@@ -783,7 +797,7 @@ def run(email: str, password: str, subdomain: str, dry_run: bool, days_ahead: in
         d = today + timedelta(days=offset)
         date_str = d.strftime("%Y-%m-%d")
         if date_str not in events_cache:
-            events_cache[date_str] = client.get_events(date_str)
+            events_cache[date_str] = fetch_events(date_str)
         for event in events_cache[date_str]:
             if not event.get("is_booked", False):
                 continue
