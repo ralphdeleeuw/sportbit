@@ -241,8 +241,8 @@ class GistStateManager:
         for key, members in sorted(bookings.items()):
             log.info("  %s: %s", key, members)
 
-    def detect_manual_cancellations(self, events: list[dict], booked_slots: set | None = None):
-        booked_slots = booked_slots or set()
+    def detect_manual_cancellations(self, events: list[dict], booked_occurrence_ids: set | None = None):
+        booked_occurrence_ids = booked_occurrence_ids or set()
         newly_cancelled = []
         for event in events:
             eid = str(event["id"])
@@ -255,12 +255,14 @@ class GistStateManager:
                 # zodat we niemand ten onrechte als uitgeschreven markeren in de PWA.
                 # /users/me/occurrences laat occurrenceUser soms ten onrechte leeg zien
                 # terwijl er wel een actieve boeking is; bookings-and-waitlists is hier
-                # betrouwbaarder, dus die telt als die de booking wél ziet.
+                # betrouwbaarder, dus die telt als die de booking wél ziet. We matchen
+                # op occurrence-id (niet tijdstip), want op hetzelfde tijdstip kan een
+                # andere les (bijv. Open Gym naast Workout of the Day) wél geboekt zijn.
                 user_status = event.get("occurrence_user_status")
                 still_registered = (
                     event.get("is_booked", False)
                     or event.get("is_on_waitlist", False)
-                    or event.get("starts_at", "") in booked_slots
+                    or eid in booked_occurrence_ids
                     or (user_status is not None
                         and str(user_status).lower() not in CANCELLED_USER_STATUSES)
                 )
@@ -360,14 +362,19 @@ class HuppaClient:
                   [(e["starts_at"], e["name"]) for e in normalized])
         return normalized
 
-    def get_booked_slots(self) -> list[str]:
+    def get_bookings(self) -> list[dict]:
         """Haal actieve boekingen op via bookings-and-waitlists.
 
         De /users/me/occurrences endpoint laat een occurrenceUser soms leeg
         zien terwijl er wel degelijk een boeking bestaat (gezien bij
         familieleden); deze endpoint geeft het echte boekingsoverzicht zoals
-        de Huppa-app dat ook toont. Geeft 'YYYY-MM-DD HH:MM' (Amsterdam-tijd)
-        strings terug voor elke occurrence met een niet-geannuleerde boeking.
+        de Huppa-app dat ook toont. Geeft per niet-geannuleerde boeking een
+        dict {"id": occurrence_id, "starts_at": "YYYY-MM-DD HH:MM"} terug.
+        We geven ook het occurrence-id mee (niet alleen het tijdstip): op
+        hetzelfde tijdstip kunnen meerdere losse lessen staan (bijv. Workout
+        of the Day én Open Gym om 20:00), en matchen op alleen het tijdstip
+        zou dan ten onrechte ook de les waar je niet voor ingeschreven bent
+        als geboekt markeren.
         """
         resp = self._get_with_reauth(
             f"{HUPPA_API_BASE}/users/me/bookings-and-waitlists",
@@ -376,18 +383,34 @@ class HuppaClient:
         )
         resp.raise_for_status()
         data = resp.json()
-        slots = []
+        bookings = []
         for group in data.get("data", []):
             for occ in group.get("occurrences", []):
                 booking = occ.get("booking")
                 if not booking or booking.get("cancelledAt") is not None:
                     continue
                 starts_at = occ.get("startsAt", "")
-                if not starts_at:
+                occ_id = occ.get("id")
+                if not starts_at or occ_id is None:
                     continue
                 dt = datetime.fromisoformat(starts_at.replace("Z", "+00:00"))
-                slots.append(dt.astimezone(AMS).strftime("%Y-%m-%d %H:%M"))
-        return slots
+                bookings.append({
+                    "id": str(occ_id),
+                    "starts_at": dt.astimezone(AMS).strftime("%Y-%m-%d %H:%M"),
+                })
+        return bookings
+
+    def get_booked_slots(self) -> list[str]:
+        """Tijdstippen ('YYYY-MM-DD HH:MM') van alle actieve boekingen.
+
+        Gebruikt voor de familie-weergave, waar alleen het tijdstip nodig is
+        (niet welke specifieke les). Zie get_bookings() voor id-based matching.
+        """
+        return [b["starts_at"] for b in self.get_bookings()]
+
+    def get_booked_occurrence_ids(self) -> set[str]:
+        """Set van occurrence-ids waarvoor een actieve boeking bestaat."""
+        return {b["id"] for b in self.get_bookings()}
 
     def signup(self, event: dict) -> bool:
         org_id = event.get("organization_id")
@@ -642,21 +665,25 @@ def run(email: str, password: str, subdomain: str, dry_run: bool, days_ahead: in
     capacity_updates: dict[str, dict] = {}  # {"YYYY-MM-DD_HH:MM": {"available": int, "is_full": bool}}
 
     # /users/me/occurrences laat occurrenceUser soms ten onrechte leeg zien
-    # terwijl er wel een actieve boeking is (zie HuppaClient.get_booked_slots).
+    # terwijl er wel een actieve boeking is (zie HuppaClient.get_bookings).
     # Haal daarom altijd de betrouwbaardere bookings-and-waitlists op en
     # gebruik die om is_booked te corrigeren voor élk event dat we ophalen —
     # anders proberen we opnieuw in te schrijven voor een les waar we al voor
     # geboekt staan (409), of missen we een handmatige inschrijving in de PWA.
+    # We matchen op occurrence-id, niet op tijdstip: op hetzelfde tijdstip kan
+    # een andere les (bijv. Open Gym naast Workout of the Day) los geboekt
+    # staan, en matchen op tijdstip zou die dan ten onrechte ook als geboekt
+    # markeren.
     try:
-        booked_slots = set(client.get_booked_slots())
+        booked_occurrence_ids = client.get_booked_occurrence_ids()
     except Exception as exc:
         log.warning("Could not fetch bookings-and-waitlists for cross-check: %s", exc)
-        booked_slots = set()
+        booked_occurrence_ids = set()
 
     def fetch_events(date_str: str) -> list[dict]:
         events = client.get_events(date_str)
         for event in events:
-            if not event.get("is_booked") and event.get("starts_at", "") in booked_slots:
+            if not event.get("is_booked") and str(event.get("id")) in booked_occurrence_ids:
                 event["is_booked"] = True
         return events
 
@@ -703,7 +730,7 @@ def run(email: str, password: str, subdomain: str, dry_run: bool, days_ahead: in
                     log.warning("Could not fetch events for %s: %s", date_str, exc)
                     events_cache[date_str] = []
             all_events.extend(events_cache[date_str])
-        newly_cancelled = state.detect_manual_cancellations(all_events, booked_slots)
+        newly_cancelled = state.detect_manual_cancellations(all_events, booked_occurrence_ids)
         for eid in newly_cancelled:
             delete_calendar_event(eid, sync_calendar)
 
