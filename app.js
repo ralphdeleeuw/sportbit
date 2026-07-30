@@ -2,6 +2,10 @@
     const MONTH_NL = ['jan', 'feb', 'mrt', 'apr', 'mei', 'jun', 'jul', 'aug', 'sep', 'okt', 'nov', 'dec'];
     // Vaste CrossFit rooster — spiegelt SCHEDULE in autosignup.py (JS getDay: 0=Zo, 6=Za)
     const CROSSFIT_SCHEDULE = [[1,"20:00"],[3,"08:00"],[4,"20:00"],[6,"09:00"],[0,"09:00"]];
+    // Blessures — zie het blessure-blok verderop; hier gedeclareerd omdat de eerste
+    // render (renderTodayTab / renderActiesTab) al draait voordat dat blok is bereikt.
+    const INJURY_SEVERITIES = ['licht', 'matig', 'ernstig'];
+    const INJURY_STATUSES = ['actief', 'herstellend', 'hersteld'];
     // Vervang dit door je eigen VAPID public key (gegenereerd met: vapid --gen && vapid --applicationServerKey)
     const VAPID_PUBLIC_KEY = 'BEHjNc5ry_se3HeXSfl2QIWOtkZIT69L5rVDNHxqNzZrL0hZ0az8InWjZw8g2IZhLT9_B28XaSWdrL64TcQKnHM';
     let currentGistId = '';
@@ -4326,8 +4330,8 @@
     // ── Blessures ─────────────────────────────────────────────
     // Opgeslagen in health_input.json (sleutel "injuries") — dezelfde bron die álle
     // AI-coaches lezen (WOD-plan, herstel-advies, Open Gym, thuistraining, hardlopen).
-    const INJURY_SEVERITIES = ['licht', 'matig', 'ernstig'];
-    const INJURY_STATUSES = ['actief', 'herstellend', 'hersteld'];
+    // INJURY_SEVERITIES / INJURY_STATUSES staan bovenaan het bestand: de eerste render
+    // draait al voordat dit blok is uitgevoerd.
 
     function _normaliseInjury(raw, idx) {
       if (typeof raw === 'string') {
