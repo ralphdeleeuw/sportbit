@@ -44,6 +44,7 @@ import requests
 
 import notify
 from gist_utils import load_gist, patch_gist
+from injuries import format_injuries_prompt, parse_injuries
 
 log = logging.getLogger(__name__)
 AMS = ZoneInfo("Europe/Amsterdam")
@@ -416,7 +417,8 @@ def _build_claude_context(ctx: dict) -> str:
         f"  - {k}: {v}"
         for k, v in health_input.items()
         if k not in ("date", "run_1", "run_2", "run_3", "sessions_per_week",
-                      "run_days_this_week", "run_days_next_week", "sessions_next_week")
+                      "run_days_this_week", "run_days_next_week", "sessions_next_week",
+                      "injuries")
     ]
 
     session2_label = "12-minute defensie test run" if week_number % 2 == 0 else "tempo/threshold run"
@@ -446,6 +448,11 @@ def _build_claude_context(ctx: dict) -> str:
             f"{'TEST WEEK: Session 2 = 12-minute test run' if week_number % 2 == 0 else 'training week (next test: week ' + str(week_number + (2 - week_number % 2)) + ')'}"
         ),
     ]
+
+    # Actieve blessures (health_input.json) — hard constraint voor het schema
+    injury_block = format_injuries_prompt(parse_injuries(health_input), lang="en")
+    if injury_block:
+        sections.append(injury_block.strip())
 
     if wellness_lines:
         sections.append("Recovery data (last 7 days):\n" + "\n".join(wellness_lines))
@@ -584,6 +591,7 @@ _SYSTEM_PROMPT = """You are a professional running coach. You create training sc
 - Also check "Other planned activities" — avoid hard speed sessions the day before a physically demanding activity
 - CrossFit events (e.g. "The Murph", competitions, open workouts) in "Other planned activities" are extremely demanding: treat the day before AND the day after as recovery days — only easy runs (Z2) allowed
 - If recent running workouts were cancelled due to illness or injury (see "Cancelled running workouts"), account for lost training load: start lighter if illness/fatigue was the reason, maintain normal progression if it was a scheduling issue
+- If the context contains an "ACTIVE INJURIES" block, that outranks every other rule: keep the sessions the athlete can safely do, replace or drop hard efforts that load the injured area (a running injury means easy Z2 volume or full rest instead of intervals/tests), and state the injury adjustment in the coaching note
 - If "Weather forecast for run days" is provided: high temperature (feels-like > 25°C) → lower pace zones by one step and reduce distance by 10-15%; stormy/heavy rain → replace speed work with easy Z2 run; AQI > 100 → avoid high-intensity intervals
 
 Training focus — defensie fitness test (two goals, two phases):

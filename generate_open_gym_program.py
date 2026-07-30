@@ -31,6 +31,7 @@ import requests
 
 import notify
 from gist_utils import load_gist, patch_gist
+from injuries import format_injuries_prompt, parse_injuries
 
 log = logging.getLogger(__name__)
 AMS = ZoneInfo("Europe/Amsterdam")
@@ -47,6 +48,7 @@ ATHLETE_PROFILE = {
     "weight_kg": 77,
     "experience": "intermediate-advanced (4+ jaar CrossFit)",
     "rx_preference": "mix van RX en Scaled — RX wanneer mogelijk",
+    # Fallback — actuele blessures komen uit health_input.json ("injuries"), zie injuries.py
     "injuries": "geen",
     "gym": "CrossFit Hilversum",
     "doel": "Uiteindelijk alles RX kunnen. Leeftijd 47, voelt zich goed en traint serieus.",
@@ -459,6 +461,11 @@ def _build_context(data: dict, open_gym_event: dict) -> str:
         f"(De atleet heeft zich NIET ingeschreven voor de reguliere CrossFit les — hij gaat zelf trainen in de Open Gym)"
     )
 
+    # ── Actieve blessures (health_input.json) ─────────────────────────────────
+    injury_block = format_injuries_prompt(parse_injuries(data.get("health_input")), lang="nl")
+    if injury_block:
+        sections.append(injury_block.strip())
+
     # ── WOD van de dag (reguliere les die wordt overgeslagen) ──────────────────
     wods_today = wod_by_date.get(event_date_str, [])
     if wods_today:
@@ -759,6 +766,9 @@ Geef per onderdeel de verwachte tijdsduur, zodat het totaal uitkomt op 40-45 min
 (Voorbereiding en gezelligheid tussendoor vallen buiten deze tijd.)
 
 Criteria voor het programma:
+0. Respecteert actieve blessures — als de context een blok "ACTIEVE BLESSURES" bevat, gaat dat vóór alle
+   andere criteria: programmeer geen bewegingen die het aangedane gebied belasten, kies veilige alternatieven
+   en benoem kort welke aanpassing je om welke blessure hebt gedaan
 1. Complementair aan trainingsbelasting (gebruik CTL/ATL/TSB en recente activiteiten)
 2. Bijdraagt aan specifieke doelen (skills + kracht)
 3. Vermijdt overlap met de overgeslagen WOD

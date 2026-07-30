@@ -30,6 +30,8 @@ from zoneinfo import ZoneInfo
 import requests
 from bs4 import BeautifulSoup
 
+from injuries import format_injuries_prompt, parse_injuries
+
 # ──────────────────────────────────────────────────────────────
 # Configuration
 # ──────────────────────────────────────────────────────────────
@@ -107,6 +109,7 @@ ATHLETE_PROFILE = {
     "weight_kg": 77,
     "experience": "intermediate-advanced (4+ jaar CrossFit)",
     "rx_preference": "mix van RX en Scaled — RX wanneer mogelijk",
+    # Fallback — actuele blessures komen uit health_input.json ("injuries"), zie injuries.py
     "injuries": "geen",
     "gym": "CrossFit Hilversum",
     "doel": "Uiteindelijk alles RX kunnen. Leeftijd 47, voelt zich goed en traint serieus.",
@@ -2305,6 +2308,9 @@ def generate_recovery_advice(
                 + "\n"
             )
 
+    # Actieve blessures (uit health_input.json) — hard constraint voor het advies
+    injury_block = format_injuries_prompt(parse_injuries(health_input), lang="en")
+
     # Garmin/intervals.icu objectieve hersteldata
     garmin_block = ""
     if intervals_data and intervals_data.get("wellness", {}).get("by_date"):
@@ -2629,7 +2635,7 @@ Athlete: {athlete_profile['name']}, {athlete_profile['weight_kg']} kg, age 47
 Experience: {athlete_profile['experience']}
 Focus areas:
 {skill_focus_text}
-{health_block}{garmin_block}{withings_block}{acwr_text}
+{injury_block}{health_block}{garmin_block}{withings_block}{acwr_text}
 Barbell maxima (kg):
 {barbell_text}{barbell_trend_text}
 
@@ -2742,6 +2748,12 @@ def generate_workout_plans(
             parts.append(f"stress {stress}/5")
         if parts:
             recovery_status_text = "\nCurrent athlete recovery status: " + ", ".join(parts) + "\n"
+
+    # Actieve blessures (uit health_input.json) — gaan vóór elk ander advies
+    injury_block = format_injuries_prompt(parse_injuries(health_input), lang="en")
+    if not injury_block:
+        injury_block = f"\nInjuries: {athlete_profile['injuries']}\n"
+
     if intervals_data and intervals_data.get("wellness", {}).get("by_date"):
         from datetime import date as _date_cls_wod  # noqa: PLC0415
         _w = intervals_data["wellness"]["by_date"]
@@ -2944,9 +2956,7 @@ Athlete: {athlete_profile['name']}
 Body weight: {athlete_profile['weight_kg']} kg
 Experience: {athlete_profile['experience']}
 Goal: {athlete_profile.get('doel', '')}
-RX/Scaled preference: {athlete_profile['rx_preference']}
-Injuries: {athlete_profile['injuries']}
-{recovery_status_text}
+RX/Scaled preference: {athlete_profile['rx_preference']}{injury_block}{recovery_status_text}
 Personal focus areas (movements where improvement is desired):
 {skill_focus_text}
 

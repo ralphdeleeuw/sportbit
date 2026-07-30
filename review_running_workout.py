@@ -29,6 +29,7 @@ import requests
 
 import notify
 
+from injuries import format_injuries_prompt, parse_injuries
 from generate_running_workout import (
     AMS,
     INTERVALS_BASE,
@@ -62,6 +63,7 @@ Your task: evaluate the planned workout(s) and decide if any need adjustment bas
 - Subjective health notes
 
 Adjust DOWN when:
+- An "ACTIVE INJURIES" block is present in the context and the planned session loads the injured area — this outranks every other signal: downgrade intervals/tests to easy Z2 or recommend skipping, and name the injury in the reasoning
 - HRV < 35ms or significantly below recent baseline
 - TSB < -20 combined with poor sleep (< 6h) or high subjective fatigue
 - Heavy CrossFit session same day AND run is later that day
@@ -338,6 +340,11 @@ def _build_review_context(
         f"Today: {today_str} ({dag_nl[date.today().weekday()]}), {now_ams.strftime('%H:%M')} AMS",
     ]
 
+    # Actieve blessures (health_input.json) — hard constraint voor de review
+    injury_block = format_injuries_prompt(parse_injuries(health_input), lang="en")
+    if injury_block:
+        sections.append(injury_block.strip())
+
     # Workouts te beoordelen
     if mode == "prerun":
         w = target_workouts[0]
@@ -601,7 +608,7 @@ def _build_review_context(
     health_lines = [
         f"  - {k}: {v}"
         for k, v in health_input.items()
-        if k not in ("date", "run_1", "run_2")
+        if k not in ("date", "run_1", "run_2", "injuries")
     ]
     if health_lines:
         sections.append("Subjective health notes:\n" + "\n".join(health_lines))
