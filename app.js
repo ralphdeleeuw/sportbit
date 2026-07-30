@@ -1987,6 +1987,21 @@
         <button class="refresh-btn" onclick="hardRefresh()" title="Ververs pagina">↻</button>
       </div>`;
 
+      // Actieve blessures — zichtbaar bij de coaching die erop is aangepast
+      const activeInjuries = getInjuries().filter(i => i.status !== 'hersteld');
+      if (activeInjuries.length) {
+        const items = activeInjuries.map(i => {
+          const bits = [i.severity, i.status === 'herstellend' ? 'herstellend' : ''].filter(Boolean);
+          const label = i.area + (bits.length ? ` (${bits.join(', ')})` : '');
+          return `<li>${escapeHtml(label)}${i.description ? ` — ${escapeHtml(i.description)}` : ''}</li>`;
+        }).join('');
+        h += `<div class="injury-banner" onclick="switchTab('acties')">
+          <div class="injury-banner-title">🩹 Actieve blessure${activeInjuries.length > 1 ? 's' : ''}</div>
+          <ul class="injury-banner-list">${items}</ul>
+          <div class="injury-banner-hint">De AI-coaches houden hier rekening mee · tik om te beheren</div>
+        </div>`;
+      }
+
       h += renderHomeWorkoutCard();
 
       // Recovery + AI coach
@@ -2262,6 +2277,8 @@
           </div>
         </details>`;
       }
+
+      h += renderInjuriesCard();
 
       const wfs = [
         { btnId:'signupBtn', statusId:'signupStatus', lastRunId:'signupLastRun', workflowFile:'autosignup.yml', icon:'⚡', title:'Inschrijven', desc:'Huppa auto-inschrijving & Google Calendar sync', fn:'triggerSignup()', cls:'' },
@@ -4304,6 +4321,151 @@
         body: JSON.stringify({ files: { 'health_input.json': { content: JSON.stringify(h, null, 2) } } })
       });
       return token;
+    }
+
+    // ── Blessures ─────────────────────────────────────────────
+    // Opgeslagen in health_input.json (sleutel "injuries") — dezelfde bron die álle
+    // AI-coaches lezen (WOD-plan, herstel-advies, Open Gym, thuistraining, hardlopen).
+    const INJURY_SEVERITIES = ['licht', 'matig', 'ernstig'];
+    const INJURY_STATUSES = ['actief', 'herstellend', 'hersteld'];
+
+    function _normaliseInjury(raw, idx) {
+      if (typeof raw === 'string') {
+        return { id: `inj-${idx}`, area: raw.trim(), description: '', severity: '',
+                 status: 'actief', since: '', avoid: [], notes: '' };
+      }
+      if (!raw || typeof raw !== 'object') return null;
+      const avoid = Array.isArray(raw.avoid)
+        ? raw.avoid.filter(Boolean).map(String)
+        : (raw.avoid ? String(raw.avoid).split(',').map(s => s.trim()).filter(Boolean) : []);
+      return {
+        id: String(raw.id || `inj-${idx}`),
+        area: String(raw.area || '').trim(),
+        description: String(raw.description || '').trim(),
+        severity: INJURY_SEVERITIES.includes(raw.severity) ? raw.severity : '',
+        status: INJURY_STATUSES.includes(raw.status) ? raw.status : 'actief',
+        since: String(raw.since || ''),
+        avoid,
+        notes: String(raw.notes || '').trim(),
+      };
+    }
+
+    function getInjuries() {
+      const raw = healthInput?.injuries;
+      if (!raw) return [];
+      const items = typeof raw === 'string'
+        ? raw.split(/[;\n]/).map(s => s.trim()).filter(Boolean)
+        : (Array.isArray(raw) ? raw : [raw]);
+      return items.map(_normaliseInjury).filter(x => x && (x.area || x.description));
+    }
+
+    function renderInjuriesCard() {
+      const injuries = getInjuries();
+      const active = injuries.filter(i => i.status !== 'hersteld');
+
+      let rows = '';
+      if (injuries.length === 0) {
+        rows = `<div class="injury-empty">Geen blessures geregistreerd — de coaches trainen je zonder beperkingen.</div>`;
+      } else {
+        rows = injuries.map(inj => {
+          const meta = [];
+          if (inj.severity) meta.push(inj.severity);
+          if (inj.since) meta.push(`sinds ${inj.since}`);
+          if (inj.avoid.length) meta.push(`vermijden: ${inj.avoid.join(', ')}`);
+          const opts = INJURY_STATUSES.map(s =>
+            `<option value="${s}"${s === inj.status ? ' selected' : ''}>${s}</option>`).join('');
+          return `<div class="injury-row${inj.status === 'hersteld' ? ' injury-resolved' : ''}">
+            <div class="injury-main">
+              <div class="injury-area">${escapeHtml(inj.area)}</div>
+              ${inj.description ? `<div class="injury-desc">${escapeHtml(inj.description)}</div>` : ''}
+              ${meta.length ? `<div class="injury-meta">${escapeHtml(meta.join(' · '))}</div>` : ''}
+            </div>
+            <div class="injury-actions">
+              <select class="injury-status" onchange="setInjuryStatus('${escapeHtml(inj.id)}', this.value)">${opts}</select>
+              <button class="injury-del" onclick="removeInjury('${escapeHtml(inj.id)}')" title="Verwijderen">✕</button>
+            </div>
+          </div>`;
+        }).join('');
+      }
+
+      const sevOpts = ['<option value="">ernst…</option>']
+        .concat(INJURY_SEVERITIES.map(s => `<option value="${s}">${s}</option>`)).join('');
+
+      return `<div class="workflow-card" id="injuriesCard">
+        <div class="workflow-title">🩹 Blessures${active.length ? ` <span class="injury-badge">${active.length}</span>` : ''}</div>
+        <div class="workflow-desc">Wordt automatisch meegegeven aan álle AI-coaches: WOD-uitvoeringsplan, herstel-advies, Open Gym, thuistraining, hardloopschema en hardloop-review. Zet op <em>hersteld</em> om een blessure te bewaren als historie zonder dat de coaches er nog rekening mee houden.</div>
+        <div class="injury-list">${rows}</div>
+        <div class="injury-form">
+          <input type="text" id="injuryArea" class="config-input" placeholder="Lichaamsdeel (bijv. linkerschouder)">
+          <input type="text" id="injuryDesc" class="config-input" placeholder="Klacht (bijv. pijn bij overhead druk)">
+          <div class="injury-form-row">
+            <select id="injurySeverity" class="config-input injury-select">${sevOpts}</select>
+            <input type="date" id="injurySince" class="config-input injury-select">
+          </div>
+          <input type="text" id="injuryAvoid" class="config-input" placeholder="Bewegingen vermijden, komma-gescheiden (optioneel)">
+          <div class="workflow-footer">
+            <button class="workflow-btn danger" onclick="addInjury()">+ Blessure toevoegen</button>
+            <span id="injuryStatus" class="workflow-status"></span>
+          </div>
+        </div>
+      </div>`;
+    }
+
+    function _refreshInjuriesCard(msg, color) {
+      const card = document.getElementById('injuriesCard');
+      if (card) card.outerHTML = renderInjuriesCard();
+      const st = document.getElementById('injuryStatus');
+      if (st && msg) {
+        st.textContent = msg;
+        st.style.color = color || '#00c853';
+        setTimeout(() => { const e2 = document.getElementById('injuryStatus'); if (e2) e2.textContent = ''; }, 4000);
+      }
+    }
+
+    async function _saveInjuries(list, msg) {
+      const statusEl = document.getElementById('injuryStatus');
+      if (statusEl) { statusEl.textContent = 'Opslaan…'; statusEl.style.color = 'var(--muted)'; }
+      try {
+        await _patchHealthInput({ injuries: list });
+        _refreshInjuriesCard(msg || '✓ Opgeslagen');
+      } catch(e) {
+        if (statusEl) { statusEl.textContent = `Fout: ${e.message}`; statusEl.style.color = 'var(--accent2)'; }
+        console.error(e);
+      }
+    }
+
+    async function addInjury() {
+      const area = (document.getElementById('injuryArea')?.value || '').trim();
+      const desc = (document.getElementById('injuryDesc')?.value || '').trim();
+      if (!area && !desc) {
+        const st = document.getElementById('injuryStatus');
+        if (st) { st.textContent = 'Vul minimaal een lichaamsdeel in'; st.style.color = 'var(--accent2)'; }
+        return;
+      }
+      const avoid = (document.getElementById('injuryAvoid')?.value || '')
+        .split(',').map(s => s.trim()).filter(Boolean);
+      const entry = {
+        id: String(Date.now()),
+        area: area || desc,
+        description: area ? desc : '',
+        severity: document.getElementById('injurySeverity')?.value || '',
+        status: 'actief',
+        since: document.getElementById('injurySince')?.value || new Date().toISOString().slice(0, 10),
+        avoid,
+        notes: '',
+      };
+      await _saveInjuries([...getInjuries(), entry], '✓ Blessure toegevoegd — coaches houden hier rekening mee');
+    }
+
+    async function setInjuryStatus(id, status) {
+      const list = getInjuries().map(i => i.id === id ? { ...i, status } : i);
+      await _saveInjuries(list, status === 'hersteld' ? '✓ Gemarkeerd als hersteld' : '✓ Status bijgewerkt');
+    }
+
+    async function removeInjury(id) {
+      const inj = getInjuries().find(i => i.id === id);
+      if (inj && !confirm(`"${inj.area}" definitief verwijderen?`)) return;
+      await _saveInjuries(getInjuries().filter(i => i.id !== id), '✓ Verwijderd');
     }
 
     async function _triggerRunGeneration(statusEl) {

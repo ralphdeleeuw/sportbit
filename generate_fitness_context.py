@@ -27,6 +27,7 @@ from zoneinfo import ZoneInfo
 import requests
 
 from gist_utils import load_gist as _load_gist
+from injuries import format_injuries_summary, parse_injuries
 
 # ──────────────────────────────────────────────────────────────────────────────
 # Atletenprofiel (hardcoded fallback — identiek aan fetch_sugarwod.py)
@@ -40,6 +41,7 @@ ATHLETE_PROFILE = {
     "weight_kg": 77,
     "experience": "intermediate-advanced (4+ jaar CrossFit)",
     "rx_preference": "mix van RX en Scaled — RX wanneer mogelijk",
+    # Fallback — actuele blessures komen uit health_input.json ("injuries"), zie injuries.py
     "injuries": "geen",
     "gym": "CrossFit Hilversum",
     "doel": "Uiteindelijk alles RX kunnen. Leeftijd 47, voelt zich goed en traint serieus.",
@@ -165,8 +167,9 @@ def _fmt_val(val, suffix: str = "") -> str:
 # Section generators
 # ──────────────────────────────────────────────────────────────────────────────
 
-def section_profile() -> str:
+def section_profile(injuries: list[dict] | None = None) -> str:
     p = ATHLETE_PROFILE
+    injury_label = format_injuries_summary(injuries or [], lang="nl")
     lines = [_section("Atletenprofiel")]
     lines.append(_table(
         ["Eigenschap", "Waarde"],
@@ -177,9 +180,23 @@ def section_profile() -> str:
             ["Ervaring", p["experience"]],
             ["Sportschool", p["gym"]],
             ["RX-voorkeur", p["rx_preference"]],
-            ["Blessures", p["injuries"]],
+            ["Blessures", injury_label],
         ],
     ))
+    if injuries:
+        lines.append("\n**Actieve blessures — houd hier bij élk advies rekening mee:**")
+        for inj in injuries:
+            detail = [inj["description"]] if inj["description"] else []
+            if inj["since"]:
+                detail.append(f"sinds {inj['since']}")
+            if inj["avoid"]:
+                detail.append("vermijden: " + ", ".join(inj["avoid"]))
+            if inj["notes"]:
+                detail.append(inj["notes"])
+            suffix = f" — {' | '.join(detail)}" if detail else ""
+            status = f" ({inj['status']})" if inj["status"] != "actief" else ""
+            lines.append(f"- {inj['area']}{status}{suffix}")
+        lines.append("")
     lines.append(f"\n**Doel:** {p['doel']}\n")
     lines.append("\n**Skill focus (prioriteit):**")
     for skill in p["skill_focus"]:
@@ -483,6 +500,7 @@ def generate(output_file: str = "fitness_context.md") -> None:
     wod_data: dict | None = None
     health_input: dict | None = None
     hi_history: list[dict] = []
+    active_injuries: list[dict] = []
     workout_log: dict | None = None
     if gist_id and token:
         print("[info] Gist-data ophalen...", file=sys.stderr)
@@ -500,6 +518,7 @@ def generate(output_file: str = "fitness_context.md") -> None:
                         "stress": hi_raw.get("stress"),
                     }
                 hi_history = hi_raw.get("history", [])
+                active_injuries = parse_injuries(hi_raw)
             wl_raw = _parse_json(files.get("workout_log.json", ""), "workout_log.json")
             if isinstance(wl_raw, dict):
                 workout_log = {e["date"]: e for e in wl_raw.get("entries", []) if "date" in e}
@@ -517,7 +536,7 @@ def generate(output_file: str = "fitness_context.md") -> None:
         f"*Gegenereerd op: {now_str} (Amsterdam)*  \n"
         f"*Data bijgewerkt: {fetched_at}*\n",
         "---",
-        section_profile(),
+        section_profile(active_injuries),
         section_schedule(),
         section_prs(wod_data),
         section_body_composition(wod_data),

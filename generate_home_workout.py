@@ -31,6 +31,7 @@ import anthropic
 
 import notify
 from gist_utils import load_gist, patch_gist
+from injuries import format_injuries_prompt, parse_injuries
 
 logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
 log = logging.getLogger(__name__)
@@ -192,6 +193,11 @@ def _build_context(data: dict, target: date, week: int, squat: dict) -> str:
         + (f" ({squat['sub']})" if squat["sub"] else "")
         + f" — {squat['sets']} set(s) × {squat['reps']} reps (standaard, aanpassing mogelijk)"
     )
+
+    # ── Actieve blessures (health_input.json) ─────────────────────────────────
+    injury_block = format_injuries_prompt(parse_injuries(data.get("health_input")), lang="nl")
+    if injury_block:
+        sections.append(injury_block.strip())
 
     # ── Wellness afgelopen 7 dagen ─────────────────────────────────────────────
     wellness: dict = data["wellness"]
@@ -436,6 +442,10 @@ Regels voor de squat:
 Jouw taak: pas de reps en mobility aan op basis van alle beschikbare data.
 
 AANPASSINGSRICHTLIJNEN:
+- ACTIEVE BLESSURE (blok "ACTIEVE BLESSURES" in de context) → dit gaat vóór alles. De vaste oefeningen liggen
+  vast, maar verlaag de reps van elke oefening die het aangedane gebied belast fors (of tot een pijnvrij minimum)
+  en zet in "adaptation_note" welk pijnvrij alternatief hij in plaats daarvan kan doen. Kies mobiliteit die de
+  blessure ondersteunt en nooit provoceert. Benoem de blessure-aanpassing in de "coaching_note".
 - Lage HRV (<35ms of <75% van gebruikelijk) of slechte slaap (<6u) → schakel terug naar 60-70% van de normale reps
 - Hoge TSB (positief, goed uitgerust) → overweeg de volle reps of zelfs net iets meer
 - Intensieve CrossFit gisteren (TL>80) of zware hardloopsessie → verlaag overlappende spiergroepen

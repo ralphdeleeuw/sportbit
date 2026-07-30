@@ -2179,3 +2179,122 @@
       background: transparent;
       flex-shrink: 0;
     }
+
+    /* ── Blessures ──────────────────────────────────────────── */
+    .injury-badge {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      min-width: 18px;
+      height: 18px;
+      padding: 0 5px;
+      border-radius: 9px;
+      background: var(--accent2);
+      color: #fff;
+      font-size: 11px;
+      font-weight: 700;
+      vertical-align: middle;
+    }
+
+    .injury-list {
+      display: flex;
+      flex-direction: column;
+      gap: 0.4rem;
+      margin: 0.4rem 0;
+    }
+
+    .injury-empty {
+      font-size: 0.72rem;
+      color: var(--muted);
+    }
+
+    .injury-row {
+      display: flex;
+      align-items: flex-start;
+      gap: 0.5rem;
+      padding: 0.5rem 0.6rem;
+      border: 1px solid var(--border);
+      border-left: 3px solid var(--accent2);
+      border-radius: var(--radius-sm);
+      background: var(--surface-deep);
+    }
+
+    .injury-row.injury-resolved {
+      border-left-color: var(--faint);
+      opacity: 0.55;
+    }
+
+    .injury-main { flex: 1; min-width: 0; }
+    .injury-area { font-size: 0.8rem; font-weight: 600; color: var(--text); }
+    .injury-desc { font-size: 0.72rem; color: var(--text); opacity: 0.85; margin-top: 1px; }
+    .injury-meta { font-size: 0.68rem; color: var(--muted); margin-top: 2px; }
+
+    .injury-actions {
+      display: flex;
+      align-items: center;
+      gap: 0.35rem;
+      flex-shrink: 0;
+    }
+
+    .injury-status {
+      background: var(--surface2);
+      color: var(--text);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-sm);
+      font-size: 0.68rem;
+      padding: 0.2rem 0.3rem;
+    }
+
+    .injury-del {
+      background: transparent;
+      border: 1px solid var(--border);
+      border-radius: var(--radius-sm);
+      color: var(--muted);
+      font-size: 0.75rem;
+      line-height: 1;
+      padding: 0.25rem 0.4rem;
+      cursor: pointer;
+    }
+    .injury-del:hover { color: var(--accent2); border-color: var(--accent2); }
+
+    .injury-form {
+      display: flex;
+      flex-direction: column;
+      gap: 0.35rem;
+      margin-top: 0.3rem;
+    }
+
+    .injury-form-row {
+      display: flex;
+      gap: 0.35rem;
+    }
+    .injury-form-row .injury-select { flex: 1; min-width: 0; }
+
+    .injury-banner {
+      background: var(--surface);
+      border: 1px solid var(--accent2);
+      border-radius: var(--radius-sm);
+      padding: 0.6rem 0.8rem;
+      margin: 0 0 0.75rem;
+      cursor: pointer;
+    }
+
+    .injury-banner-title {
+      font-size: 0.78rem;
+      font-weight: 700;
+      color: var(--accent2);
+      letter-spacing: 0.02em;
+    }
+
+    .injury-banner-list {
+      margin: 0.25rem 0 0;
+      padding-left: 1.1rem;
+      font-size: 0.74rem;
+      color: var(--text);
+    }
+
+    .injury-banner-hint {
+      font-size: 0.66rem;
+      color: var(--muted);
+      margin-top: 0.3rem;
+    }

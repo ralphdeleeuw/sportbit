@@ -34,6 +34,7 @@ import anthropic
 import requests
 
 import notify
+from injuries import format_injuries_prompt, parse_injuries
 
 from generate_running_workout import (
     AMS,
@@ -75,6 +76,8 @@ Your task:
    Propose an adjustment only when the execution clearly justifies it (e.g. consistently
    well under/over target pace, missed the session, struggled badly, or breezed through).
    Most analyses need NO adjustment — leave proposed_adjustments empty.
+   If the context contains an "ACTIVE INJURIES" block, that is a reason to adjust regardless of execution:
+   downgrade upcoming sessions that load the injured area to easy Z2 volume and name the injury in the rationale.
 
 Pace zones for reference (defensie fitness test — two phases):
 - Conversational (max): 6:40/km | Aerobic: 6:00-6:30/km
@@ -125,6 +128,7 @@ def _load_context(gist_id: str, token: str) -> dict:
     files = _load_gist(gist_id, token)
 
     plan = _parse_json(files.get("running_plan.json", ""), "running_plan.json") or {}
+    health_input = _parse_json(files.get("health_input.json", ""), "health_input.json") or {}
     wod_data = _parse_json(files.get("sugarwod_wod.json", ""), "sugarwod_wod.json") or {}
     analysis = _parse_json(files.get(ANALYSIS_FILE, ""), ANALYSIS_FILE) or {}
 
@@ -146,6 +150,7 @@ def _load_context(gist_id: str, token: str) -> dict:
         "strava_by_date": strava_by_date,
         "wellness_by_date": wellness_by_date,
         "analysis": analysis,
+        "injuries": parse_injuries(health_input),
     }
 
 
@@ -601,8 +606,14 @@ def _build_analysis_context(
     metrics: dict,
     upcoming: list[dict],
     wellness_by_date: dict,
+    injuries: list[dict] | None = None,
 ) -> str:
     sections: list[str] = []
+
+    # Actieve blessures (health_input.json) — wegen zwaarder dan elke aanpassing
+    injury_block = format_injuries_prompt(injuries or [], lang="en")
+    if injury_block:
+        sections.append(injury_block.strip())
 
     sections.append(
         f"Planned workout: [{workout.get('session', '?')}] {workout.get('date')} — "
@@ -857,7 +868,8 @@ def _run_analyze(gist_id: str, github_token: str) -> None:
         metrics = _compute_metrics(workout, activity, source, week_number)
 
         context_text = _build_analysis_context(
-            workout, activity, source, metrics, upcoming, ctx["wellness_by_date"]
+            workout, activity, source, metrics, upcoming, ctx["wellness_by_date"],
+            ctx.get("injuries"),
         )
         log.info("Analyse-context:\n%s", context_text)
 
