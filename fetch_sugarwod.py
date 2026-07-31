@@ -2116,6 +2116,7 @@ def generate_recovery_advice(
     running_plan: "dict | None" = None,
     deload_detected: bool = False,
     now_time: str | None = None,
+    injuries: list[dict] | None = None,
 ) -> str:
     """
     Generate a daily recovery/intensity advice based on recent workouts and
@@ -2309,7 +2310,7 @@ def generate_recovery_advice(
             )
 
     # Actieve blessures (uit health_input.json) — hard constraint voor het advies
-    injury_block = format_injuries_prompt(parse_injuries(health_input), lang="en")
+    injury_block = format_injuries_prompt(injuries or [], lang="en")
 
     # Garmin/intervals.icu objectieve hersteldata
     garmin_block = ""
@@ -2691,6 +2692,7 @@ def generate_workout_plans(
     personal_events: list[dict] | None = None,
     running_plan: "dict | None" = None,
     withings_data: "dict | None" = None,
+    injuries: list[dict] | None = None,
 ) -> dict[str, str]:
     """
     Call the Claude API to generate a personalised execution plan for each
@@ -2750,7 +2752,7 @@ def generate_workout_plans(
             recovery_status_text = "\nCurrent athlete recovery status: " + ", ".join(parts) + "\n"
 
     # Actieve blessures (uit health_input.json) — gaan vóór elk ander advies
-    injury_block = format_injuries_prompt(parse_injuries(health_input), lang="en")
+    injury_block = format_injuries_prompt(injuries or [], lang="en")
     if not injury_block:
         injury_block = f"\nInjuries: {athlete_profile['injuries']}\n"
 
@@ -3214,8 +3216,10 @@ def _load_previous_coach_context(gist_id: str, token: str) -> dict:
       - barbell_lifts_history: list of daily barbell snapshots
       - recovery_advice_history: list of {date, advice} entries (last 3 days)
       - _full: full contents of sugarwod_wod.json (used for HEALTH_ONLY / SugarWOD-only caching)
+      - _injuries: active injuries from health_input.json (see injuries.py)
     """
-    empty = {"barbell_lifts_history": [], "recovery_advice_history": [], "_full": {}, "_personal_events": [], "_running_plan": {}}
+    empty = {"barbell_lifts_history": [], "recovery_advice_history": [], "_full": {},
+             "_personal_events": [], "_running_plan": {}, "_injuries": []}
     try:
         resp = requests.get(
             f"https://api.github.com/gists/{gist_id}",
@@ -3224,9 +3228,19 @@ def _load_previous_coach_context(gist_id: str, token: str) -> dict:
         )
         resp.raise_for_status()
         files = resp.json().get("files", {})
+        # Blessures staan los van sugarwod_wod.json — altijd lezen, ook als die
+        # nog leeg is, anders mist de coach ze bij een eerste run.
+        health_raw = files.get("health_input.json", {}).get("content", "")
+        try:
+            active_injuries = parse_injuries(json.loads(health_raw) if health_raw else {})
+        except (ValueError, TypeError):
+            active_injuries = []
+        if active_injuries:
+            log.info("[gist] %d actieve blessure(s) geladen uit health_input.json", len(active_injuries))
+
         raw = files.get(GIST_FILENAME, {}).get("content", "")
         if not raw:
-            return empty
+            return {**empty, "_injuries": active_injuries}
         existing = json.loads(raw)
         personal_events_raw = files.get("personal_events.json", {}).get("content", "")
         personal_events = json.loads(personal_events_raw).get("events", []) if personal_events_raw else []
@@ -3238,6 +3252,7 @@ def _load_previous_coach_context(gist_id: str, token: str) -> dict:
             "_full": existing,
             "_personal_events": personal_events,
             "_running_plan": running_plan,
+            "_injuries": active_injuries,
         }
     except Exception as exc:
         log.warning("[gist] Could not load previous coach context: %s", exc)
@@ -3329,11 +3344,13 @@ def main() -> int:
     cached_gist: dict = {}
     personal_events: list[dict] = []
     running_plan: dict = {}
+    active_injuries: list[dict] = []
     if gist_id and token:
         full_ctx = _load_previous_coach_context(gist_id, token)
         cached_gist = full_ctx.pop("_full", {})
         personal_events = full_ctx.pop("_personal_events", [])
         running_plan = full_ctx.pop("_running_plan", {})
+        active_injuries = full_ctx.pop("_injuries", [])
         prev_coach_ctx = full_ctx
         log.info("[gist] personal_events.json: %d events geladen", len(personal_events))
         log.info(
@@ -3575,6 +3592,7 @@ def main() -> int:
             signed_up_times=signed_up_times,
             health_input=health_input,
             health_history=health_history,
+            injuries=active_injuries,
             strava_data=strava_data,
             workout_log=workout_log,
             barbell_history=prev_coach_ctx["barbell_lifts_history"],
@@ -3698,6 +3716,7 @@ def main() -> int:
             attended_workouts[:10], next_workout, barbell_lifts, ATHLETE_PROFILE, today,
             strava_data=strava_data,
             health_input=health_input,
+            injuries=active_injuries,
             signed_up_times=signed_up_times,
             health_history=health_history,
             previous_advice=prev_coach_ctx["recovery_advice_history"],
@@ -3737,6 +3756,7 @@ def main() -> int:
             attended_workouts[:5], next_workout, barbell_lifts, ATHLETE_PROFILE, today,
             strava_data=strava_data,
             health_input=health_input,
+            injuries=active_injuries,
             signed_up_times=signed_up_times,
             health_history=health_history,
             previous_advice=prev_coach_ctx["recovery_advice_history"],
@@ -3764,6 +3784,7 @@ def main() -> int:
             past_workouts_sorted[:3], next_workout, barbell_lifts, ATHLETE_PROFILE,
             strava_data=strava_data,
             health_input=health_input,
+            injuries=active_injuries,
             signed_up_times=signed_up_times,
             health_history=health_history,
             previous_advice=prev_coach_ctx["recovery_advice_history"],
