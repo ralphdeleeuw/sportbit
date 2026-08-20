@@ -6,6 +6,11 @@ Dumpt de volledige raw API-responses voor een geboekte les en probeert
 potentiële deelnemers-endpoints. Resultaten gaan naar de gist als
 'huppa_discovery.json' zodat we kunnen analyseren wat beschikbaar is.
 
+De Huppa-app toont sinds een update ook een 'Participants'-lijst (avatars +
+namen als "Erik H, Ralph D, Stef K") in het lesdetail. Dit script probeert
+breed te achterhalen via welk endpoint/veld die data binnenkomt, en scant
+alle 200-responses op velden die naar deelnemers ruiken.
+
 Usage:
     python3 huppa_discover.py
 """
@@ -22,6 +27,14 @@ import requests
 HUPPA_API_BASE = "https://api.huppa.app"
 AMS = ZoneInfo("Europe/Amsterdam")
 GIST_FILENAME = "huppa_discovery.json"
+
+# Sleutelwoorden die duiden op deelnemers-informatie in een response.
+PARTICIPANT_HINTS = (
+    "participant", "attendee", "attendance", "roster", "member",
+    "occurrenceuser", "occurrenceusers", "users", "user", "booking",
+    "bookings", "waitlist", "avatar", "profilepicture", "firstname",
+    "lastname", "initial",
+)
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 log = logging.getLogger("discover")
@@ -57,6 +70,31 @@ def try_endpoint(session: requests.Session, url: str, params: dict = None) -> di
         return {"status": "error", "body": str(e)}
 
 
+def find_participant_fields(body, path: str = "", out: list = None, depth: int = 0) -> list:
+    """Loop recursief door een response en verzamel paden die op deelnemers lijken."""
+    if out is None:
+        out = []
+    if depth > 6:
+        return out
+    if isinstance(body, dict):
+        for key, value in body.items():
+            child_path = f"{path}.{key}" if path else key
+            if any(hint in key.lower() for hint in PARTICIPANT_HINTS):
+                preview = str(value)
+                out.append({
+                    "path": child_path,
+                    "type": type(value).__name__,
+                    "count": len(value) if isinstance(value, (list, dict)) else None,
+                    "preview": preview[:300],
+                })
+            find_participant_fields(value, child_path, out, depth + 1)
+    elif isinstance(body, list):
+        # Alleen het eerste element uitdiepen; de rest heeft dezelfde vorm.
+        if body:
+            find_participant_fields(body[0], f"{path}[0]", out, depth + 1)
+    return out
+
+
 def save_to_gist(gist_id: str, token: str, data: dict) -> None:
     content = json.dumps(data, indent=2, default=str)
     headers = {"Authorization": f"token {token}", "Accept": "application/vnd.github+json"}
@@ -73,6 +111,56 @@ def save_to_gist(gist_id: str, token: str, data: dict) -> None:
         print(json.dumps(data, indent=2, default=str))
 
 
+def build_probe_endpoints(org_id, occ_id, today) -> list[tuple[str, dict]]:
+    """Bouw een brede lijst kandidaat-endpoints voor deelnemers en lesdetail."""
+    date_str = today.isoformat()
+    probes: list[tuple[str, dict]] = []
+
+    # Lesdetail — de app toont adres, trainer en 'About the class' in één sheet,
+    # dus er bestaat vrijwel zeker een detail-endpoint. Ook met include-varianten.
+    detail_paths = [
+        f"/organizations/{org_id}/occurrences/{occ_id}",
+        f"/occurrences/{occ_id}",
+        f"/users/me/occurrences/{occ_id}",
+    ]
+    include_variants = [
+        {},
+        {"include": "participants"},
+        {"include": "users"},
+        {"include": "occurrenceUsers"},
+        {"include": "bookings"},
+        {"with": "participants"},
+        {"expand": "participants"},
+    ]
+    for path in detail_paths:
+        for params in include_variants:
+            probes.append((path, params))
+
+    # Expliciete deelnemers-endpoints, org-scoped en zonder org.
+    sub_resources = [
+        "participants", "users", "occurrence-users", "occurrenceUsers",
+        "bookings", "booking", "attendees", "attendance", "roster",
+        "waitlist", "members", "signups",
+    ]
+    for sub in sub_resources:
+        probes.append((f"/organizations/{org_id}/occurrences/{occ_id}/{sub}", {}))
+        probes.append((f"/occurrences/{occ_id}/{sub}", {}))
+
+    # Lijst-endpoints die mogelijk deelnemers meesturen.
+    probes += [
+        ("/users/me/occurrences", {"date": date_str, "include": "participants"}),
+        ("/users/me/occurrences", {"date": date_str, "withParticipants": "true"}),
+        ("/users/me/bookings-and-waitlists", {"filter": "upcoming"}),
+        ("/users/me/bookings-and-waitlists", {}),
+        (f"/organizations/{org_id}/occurrences", {"date": date_str}),
+        (f"/organizations/{org_id}/occurrences/{occ_id}/participants", {"limit": "50"}),
+        ("/users/me", {}),
+        (f"/organizations/{org_id}/settings", {}),
+        (f"/organizations/{org_id}", {}),
+    ]
+    return probes
+
+
 def main():
     email = os.environ["HUPPA_EMAIL"]
     password = os.environ["HUPPA_PASSWORD"]
@@ -85,7 +173,12 @@ def main():
         sys.exit(1)
 
     today = datetime.now(AMS).date()
-    results = {"generated_at": datetime.now().isoformat(), "raw_occurrences": {}, "endpoints": {}}
+    results = {
+        "generated_at": datetime.now().isoformat(),
+        "raw_occurrences": {},
+        "endpoints": {},
+        "participant_findings": {},
+    }
 
     # Stap 1: Dump volledige RAW occurrence responses voor komende 7 dagen
     booked_event = None
@@ -110,47 +203,53 @@ def main():
                 booked_event = evt
                 log.info("Eerste geboekte les gevonden: %s op %s", evt.get("name"), date_str)
 
-    # Stap 2: Probeer deelnemers-gerelateerde endpoints voor de geboekte les
+    # Val terug op een willekeurige les als er niets geboekt staat: deelnemers
+    # zijn mogelijk ook zichtbaar zonder eigen boeking.
+    fallback_used = False
+    if booked_event is None:
+        for date_str, items in results["raw_occurrences"].items():
+            if items:
+                booked_event = items[0]
+                fallback_used = True
+                log.warning("Geen geboekte les; val terug op %s op %s",
+                            booked_event.get("name"), date_str)
+                break
+
+    # Stap 2: Probeer deelnemers-gerelateerde endpoints voor de gekozen les
     if booked_event:
         occ_id = booked_event.get("id")
         org_id = (booked_event.get("category") or {}).get("organizationId")
+        results["probed_occurrence"] = {
+            "id": occ_id,
+            "organization_id": org_id,
+            "name": booked_event.get("name"),
+            "starts_at": booked_event.get("startsAt"),
+            "fallback_used": fallback_used,
+        }
         log.info("Probing endpoints voor occurrence %s, org %s", occ_id, org_id)
 
-        probe_endpoints = [
-            # Enkelvoudige occurrence (mogelijk met deelnemers)
-            (f"/organizations/{org_id}/occurrences/{occ_id}", {}),
-            # Deelnemers-varianten
-            (f"/organizations/{org_id}/occurrences/{occ_id}/users", {}),
-            (f"/organizations/{org_id}/occurrences/{occ_id}/bookings", {}),
-            (f"/organizations/{org_id}/occurrences/{occ_id}/participants", {}),
-            (f"/organizations/{org_id}/occurrences/{occ_id}/booking", {}),
-            # User-centric endpoints met filter
-            ("/users/me/bookings-and-waitlists", {"filter": "upcoming"}),
-            ("/users/me/bookings-and-waitlists", {}),
-            # Andere mogelijke paden
-            (f"/occurrences/{occ_id}/users", {}),
-            (f"/occurrences/{occ_id}/bookings", {}),
-            (f"/occurrences/{occ_id}", {}),
-            # Public class roster
-            (f"/organizations/{org_id}/occurrences", {"date": today.isoformat()}),
-        ]
-
-        for path, params in probe_endpoints:
+        for path, params in build_probe_endpoints(org_id, occ_id, today):
             url = f"{HUPPA_API_BASE}{path}"
-            key = f"{path}" + (f"?{json.dumps(params)}" if params else "")
+            key = f"{path}" + (f"?{json.dumps(params, sort_keys=True)}" if params else "")
+            if key in results["endpoints"]:
+                continue
             log.info("Probeer: GET %s %s", path, params or "")
-            results["endpoints"][key] = try_endpoint(session, url, params or None)
-
+            result = try_endpoint(session, url, params or None)
+            results["endpoints"][key] = result
+            if result["status"] == 200:
+                findings = find_participant_fields(result["body"])
+                if findings:
+                    results["participant_findings"][key] = findings
     else:
-        log.warning("Geen geboekte les gevonden in de komende 8 dagen.")
-        results["note"] = "Geen geboekte les gevonden — probe endpoints overgeslagen."
+        log.warning("Geen lessen gevonden in de komende 8 dagen.")
+        results["note"] = "Geen lessen gevonden — probe endpoints overgeslagen."
 
     # Stap 3: Print compacte samenvatting naar stdout (leesbaar in Actions logs)
-    print("\n" + "="*60)
+    print("\n" + "=" * 60)
     print("HUPPA DISCOVERY SAMENVATTING")
-    print("="*60)
+    print("=" * 60)
 
-    print("\n[RAW OCCURRENCE VELDEN - eerste geboekte les]")
+    print("\n[RAW OCCURRENCE VELDEN - geprobede les]")
     if booked_event:
         for k, v in booked_event.items():
             preview = str(v)[:200]
@@ -161,11 +260,20 @@ def main():
         status = result["status"]
         body = result["body"]
         body_preview = str(body)[:300].replace("\n", " ")
-        marker = "✅" if status == 200 else "❌"
-        print(f"  {marker} [{status}] {key}")
+        marker = "OK " if status == 200 else "-- "
+        print(f"  {marker}[{status}] {key}")
         if status == 200:
-            print(f"      → {body_preview}")
-    print("="*60 + "\n")
+            print(f"      -> {body_preview}")
+
+    print("\n[MOGELIJKE DEELNEMERS-VELDEN]")
+    if results["participant_findings"]:
+        for key, findings in results["participant_findings"].items():
+            print(f"  {key}")
+            for f in findings:
+                print(f"      {f['path']} ({f['type']}, n={f['count']}): {f['preview'][:200]}")
+    else:
+        print("  (geen velden gevonden die op deelnemers lijken)")
+    print("=" * 60 + "\n")
 
     # Stap 4: Opslaan in gist
     if gist_id and github_token:
