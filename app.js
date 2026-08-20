@@ -2,6 +2,16 @@
     const MONTH_NL = ['jan', 'feb', 'mrt', 'apr', 'mei', 'jun', 'jul', 'aug', 'sep', 'okt', 'nov', 'dec'];
     // Vaste CrossFit rooster — spiegelt SCHEDULE in autosignup.py (JS getDay: 0=Zo, 6=Za)
     const CROSSFIT_SCHEDULE = [[1,"20:00"],[3,"08:00"],[4,"20:00"],[6,"09:00"],[0,"09:00"]];
+    // Sportvrienden — alleen deze deelnemers tonen bij een les. Huppa levert
+    // namen als "Erik H"; matchen gebeurt op voornaam + eerste letter achternaam,
+    // zodat ook "Erik Huisman" matcht.
+    const SPORT_FRIENDS = ['Erik H', 'Linda W', 'Laura D', 'Eva D', 'Robbert S'];
+    const _FRIEND_KEYS = SPORT_FRIENDS.map(n => n.toLowerCase().replace(/\./g, '').replace(/\s+/g, ' ').trim());
+    function isSportFriend(name) {
+      const key = (name || '').toLowerCase().replace(/\./g, '').replace(/\s+/g, ' ').trim();
+      return _FRIEND_KEYS.some(f => key === f || key.startsWith(f));
+    }
+
     // Blessures — zie het blessure-blok verderop; hier gedeclareerd omdat de eerste
     // render (renderTodayTab / renderActiesTab) al draait voordat dat blok is bereikt.
     const INJURY_SEVERITIES = ['licht', 'matig', 'ernstig'];
@@ -109,7 +119,7 @@
     // occurrenceParticipants mee: naam + avatar-URL, zoals in de app).
     function renderParticipants(date, time) {
       const cap = classCapacity[`${date}_${time}`];
-      const people = (cap && cap.participants) || [];
+      const people = ((cap && cap.participants) || []).filter(p => isSportFriend(p.name));
       if (!people.length) return '';
       const avatars = people.slice(0, 6).map(p => {
         const name = escapeHtml(p.name || '');
