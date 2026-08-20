@@ -105,6 +105,26 @@
       return `<span class="capacity-badge ${cls}">${cap.available} vrij</span>`;
     }
 
+    // Deelnemers van een les (sinds de Huppa-update levert de API
+    // occurrenceParticipants mee: naam + avatar-URL, zoals in de app).
+    function renderParticipants(date, time) {
+      const cap = classCapacity[`${date}_${time}`];
+      const people = (cap && cap.participants) || [];
+      if (!people.length) return '';
+      const avatars = people.slice(0, 6).map(p => {
+        const name = escapeHtml(p.name || '');
+        return p.avatar
+          ? `<img class="participant-avatar" src="${escapeHtml(p.avatar)}" alt="${name}" title="${name}" loading="lazy">`
+          : `<span class="participant-avatar participant-avatar-fallback" title="${name}">${name.charAt(0)}</span>`;
+      }).join('');
+      const extra = people.length > 6 ? `<span class="participant-more">+${people.length - 6}</span>` : '';
+      const names = people.map(p => escapeHtml(p.name || '')).join(', ');
+      return `<div class="class-participants">
+        <div class="participant-avatars">${avatars}${extra}</div>
+        <span class="participant-names">${names}</span>
+      </div>`;
+    }
+
     function renderFamilyBadges(date, time) {
       const members = familyBookings[`${date}_${time}`];
       if (!members || members.length === 0) return '';
@@ -118,10 +138,12 @@
       const cancelled = type === 'cancelled';
       const _cap = classCapacity[`${item.date}_${item.time}`];
       const _coach = _cap && _cap.trainers && _cap.trainers[0] ? _cap.trainers[0].split(' ')[0] : '';
+      const _room = _cap && _cap.room ? _cap.room : '';
       const metaHtml = `<div class="card-meta">
         <span class="card-time">${item.time}</span>
         ${_coach ? `<span class="card-coach">· ${escapeHtml(_coach)}</span>` : ''}
-      </div>`;
+        ${_room ? `<span class="card-coach">· ${escapeHtml(_room)}</span>` : ''}
+      </div>` + (cancelled ? '' : renderParticipants(item.date, item.time));
 
       // Open Gym: toon gegenereerd programma als beschikbaar
       // Zoek eerst op event_id (permanent opgeslagen in state), dan op datum als fallback
