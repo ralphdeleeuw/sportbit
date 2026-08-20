@@ -2170,6 +2170,47 @@
     .family-badge-laura { background: #e67e22; }
     .family-badge-eva   { background: #27ae60; }
 
+    /* ── Deelnemers (Huppa occurrenceParticipants) ─────────── */
+    .class-participants {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      margin-top: 5px;
+      min-width: 0;
+    }
+    .participant-avatars { display: flex; align-items: center; }
+    .participant-avatar {
+      width: 20px;
+      height: 20px;
+      border-radius: 50%;
+      object-fit: cover;
+      border: 1.5px solid var(--surface-deep);
+      margin-right: -6px;
+      background: var(--border);
+    }
+    .participant-avatar-fallback {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 10px;
+      font-weight: 700;
+      color: var(--muted);
+      text-transform: uppercase;
+    }
+    .participant-more {
+      font-size: 10px;
+      color: var(--muted);
+      margin-left: 10px;
+    }
+    .participant-names {
+      font-size: 11px;
+      color: var(--muted);
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      margin-left: 6px;
+    }
+
     .family-only-card { opacity: 0.6; }
     .family-only-dot {
       width: 8px;

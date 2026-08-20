@@ -331,6 +331,13 @@ class HuppaClient:
 
         trainers = [t.get("name") for t in (evt.get("trainers") or []) if t.get("name")]
         occurrence_user_status = (evt.get("occurrenceUser") or {}).get("status")
+        # Sinds de Huppa-update levert /users/me/occurrences ook de deelnemers
+        # ("Erik H.", "Ralph D.", ...) met avatar-URL mee, net als in de app.
+        participants = [
+            {"name": p.get("name", ""), "avatar": p.get("avatar")}
+            for p in (evt.get("occurrenceParticipants") or [])
+            if p.get("name")
+        ]
         return {
             "id": evt.get("id"),
             "name": evt.get("name", "CrossFit WOD"),
@@ -345,6 +352,12 @@ class HuppaClient:
             "is_eligible_to_book": evt.get("isEligibleToBook", True),
             "organization_id": (evt.get("category") or {}).get("organizationId"),
             "trainers": trainers,
+            "participants": participants,
+            "description": evt.get("description") or "",
+            "room": (evt.get("room") or {}).get("name", ""),
+            "location": (evt.get("location") or {}).get("name", ""),
+            "credit_cost": evt.get("creditCost"),
+            "in_late_cancellation_window": evt.get("isInLateCancellationWindow", False),
         }
 
     def get_events(self, date: str) -> list[dict]:
@@ -768,6 +781,8 @@ def run(email: str, password: str, subdomain: str, dry_run: bool, days_ahead: in
             "booked": event.get("booked_slots", 0),
             "is_full": is_full,
             "trainers": event.get("trainers", []),
+            "participants": event.get("participants", []),
+            "room": event.get("room", ""),
         }
 
         if state and state.is_cancelled(eid):
@@ -812,10 +827,6 @@ def run(email: str, password: str, subdomain: str, dry_run: bool, days_ahead: in
             else:
                 results["failed"].append(label)
 
-    # Persist capacity data to gist (single save for all slots)
-    if state and capacity_updates:
-        state.batch_update_capacity(capacity_updates)
-
     # Scan ALL upcoming days for manual enrollments, including today and scheduled days.
     # On scheduled days the main loop only handles the one targeted slot; any
     # other manually enrolled class (e.g. Open Gym at a different time) is detected here.
@@ -827,6 +838,18 @@ def run(email: str, password: str, subdomain: str, dry_run: bool, days_ahead: in
         for event in events_cache[date_str]:
             if not event.get("is_booked", False):
                 continue
+            # Bewaar ook deelnemers/capaciteit van geboekte lessen buiten het
+            # vaste schema (bijv. Open Gym), zodat de PWA die ook kan tonen.
+            starts = event.get("starts_at", "")
+            if len(starts) > 15:
+                capacity_updates[f"{date_str}_{starts[11:16]}"] = {
+                    "available": event.get("available_slots", 0),
+                    "booked": event.get("booked_slots", 0),
+                    "is_full": event.get("is_full", False),
+                    "trainers": event.get("trainers", []),
+                    "participants": event.get("participants", []),
+                    "room": event.get("room", ""),
+                }
             eid = str(event["id"])
             if state and state.is_signed_up_by_script(eid):
                 continue
@@ -841,6 +864,10 @@ def run(email: str, password: str, subdomain: str, dry_run: bool, days_ahead: in
             if not create_calendar_event(event, d, sync_calendar):
                 log.warning("Calendar sync failed for manually enrolled %s.", label)
             results["already"].append(f"{label} (manual)")
+
+    # Persist capacity data to gist (single save for all slots)
+    if state and capacity_updates:
+        state.batch_update_capacity(capacity_updates)
 
     # Summary
     log.info("=== Summary ===")
