@@ -4,6 +4,8 @@ import logging
 import os
 
 import requests
+
+from gist_utils import file_content as gist_file_content
 from pywebpush import WebPushException, webpush
 
 log = logging.getLogger(__name__)
@@ -28,10 +30,11 @@ def send_notification(title: str, body: str, url: str = "/sportbit/") -> bool:
         )
         resp.raise_for_status()
         sub_file = resp.json().get("files", {}).get("push_subscription.json")
-        if not sub_file or not sub_file.get("content"):
+        raw = gist_file_content(sub_file or {}, token)
+        if not raw:
             log.info("Geen push_subscription.json gevonden in Gist; notificatie overgeslagen.")
             return False
-        subscription = json.loads(sub_file["content"])
+        subscription = json.loads(raw)
     except Exception as e:
         log.error("Kan push subscription niet lezen uit Gist: %s", e)
         return False
