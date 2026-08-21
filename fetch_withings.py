@@ -62,6 +62,8 @@ from datetime import datetime, timezone
 
 import requests
 
+from gist_utils import file_content as gist_file_content
+
 log = logging.getLogger(__name__)
 
 WITHINGS_API = "https://wbsapi.withings.net"
@@ -100,7 +102,7 @@ def _load_refresh_token_from_gist(gist_id: str, token: str) -> str | None:
             timeout=10,
         )
         resp.raise_for_status()
-        raw = resp.json().get("files", {}).get(_GIST_TOKEN_FILENAME, {}).get("content", "")
+        raw = gist_file_content(resp.json().get("files", {}).get(_GIST_TOKEN_FILENAME, {}), token)
         if raw:
             return json.loads(raw).get("refresh_token")
     except Exception as exc:
