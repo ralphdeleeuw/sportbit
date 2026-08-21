@@ -148,11 +148,9 @@
       const cancelled = type === 'cancelled';
       const _cap = classCapacity[`${item.date}_${item.time}`];
       const _coach = _cap && _cap.trainers && _cap.trainers[0] ? _cap.trainers[0].split(' ')[0] : '';
-      const _room = _cap && _cap.room ? _cap.room : '';
       const metaHtml = `<div class="card-meta">
         <span class="card-time">${item.time}</span>
         ${_coach ? `<span class="card-coach">· ${escapeHtml(_coach)}</span>` : ''}
-        ${_room ? `<span class="card-coach">· ${escapeHtml(_room)}</span>` : ''}
       </div>` + (cancelled ? '' : renderParticipants(item.date, item.time));
 
       // Open Gym: toon gegenereerd programma als beschikbaar
@@ -630,6 +628,25 @@
       return `${days[d.getDay()]} ${d.getDate()} ${months[d.getMonth()]} ${hh}:${mm}`;
     }
 
+    // GitHub kapt gist-bestanden boven ~1 MB af: `truncated: true` en een
+    // onvolledige `content` die niet meer als JSON te parsen is. Zonder deze stap
+    // verdwijnen bijvoorbeeld alle WOD's stilletjes uit de kaarten. Haal de
+    // volledige inhoud in dat geval alsnog op via raw_url.
+    async function hydrateTruncatedFiles(gist, authHeaders) {
+      const files = (gist && gist.files) || {};
+      await Promise.all(Object.values(files).map(async f => {
+        if (!f || !f.raw_url) return;
+        if (!f.truncated && typeof f.content === 'string' && f.content.length > 0) return;
+        try {
+          const r = await fetch(f.raw_url, { headers: authHeaders || {} });
+          if (r.ok) f.content = await r.text();
+          else console.warn(`Gist-bestand ${f.filename}: raw_url gaf ${r.status}`);
+        } catch (e) {
+          console.warn(`Gist-bestand ${f.filename} kon niet volledig geladen worden:`, e);
+        }
+      }));
+    }
+
     function parseGistFiles(gist) {
       // Parse all relevant files from a gist response (single network call)
       const files = gist.files || {};
@@ -687,7 +704,7 @@
               bsEl.className = 'barbell-status';
             }
           }
-        } catch (e) { /* ignore */ }
+        } catch (e) { console.warn('sugarwod_wod.json kon niet gelezen worden:', e); }
       }
 
       // health_input.json
@@ -784,6 +801,7 @@
         const resp = await fetch(`https://api.github.com/gists/${gistId}`, { headers: authHeaders });
         if (!resp.ok) { if (el) el.textContent = `WOD: API fout ${resp.status}`; return; }
         const gist = await resp.json();
+        await hydrateTruncatedFiles(gist, authHeaders);
         parseGistFiles(gist);
         const n = Object.keys(wodByDate).length;
         if (el) el.textContent = n > 0 ? `WOD geladen voor ${n} dag(en)` : 'WOD: geen workouts in by_date (fetch mislukt?)';
@@ -1858,6 +1876,7 @@
         const resp = await fetch(`https://api.github.com/gists/${gistId}`, { headers: authHeaders });
         if (!resp.ok) throw new Error(`GitHub API fout: ${resp.status}`);
         const gist = await resp.json();
+        await hydrateTruncatedFiles(gist, authHeaders);
 
         // Parse all file types from this single response
         parseGistFiles(gist);
