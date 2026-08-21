@@ -27,6 +27,7 @@ from zoneinfo import ZoneInfo
 import requests
 
 import notify
+from gist_utils import file_content as gist_file_content
 from google_calendar_sync import GoogleCalendarSync
 
 # ──────────────────────────────────────────────────────────────
@@ -110,6 +111,7 @@ class GistStateManager:
 
     def __init__(self, gist_id: str, github_token: str):
         self.gist_id = gist_id
+        self.token = github_token
         self.headers = {
             "Authorization": f"token {github_token}",
             "Accept": "application/vnd.github+json",
@@ -128,7 +130,9 @@ class GistStateManager:
             resp.raise_for_status()
             files = resp.json().get("files", {})
             if GIST_FILENAME in files:
-                content = files[GIST_FILENAME].get("content", "{}")
+                # file_content valt terug op raw_url als GitHub het bestand
+                # afkapt (>1 MB); anders zouden we state met niets overschrijven.
+                content = gist_file_content(files[GIST_FILENAME], self.token) or "{}"
                 self.state = json.loads(content)
                 self.state.setdefault("signed_up", {})
                 self.state.setdefault("cancelled", {})

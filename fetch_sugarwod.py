@@ -30,6 +30,7 @@ from zoneinfo import ZoneInfo
 import requests
 from bs4 import BeautifulSoup
 
+from gist_utils import file_content as gist_file_content
 from injuries import format_injuries_prompt, parse_injuries
 
 # ──────────────────────────────────────────────────────────────
@@ -3053,7 +3054,7 @@ def load_health_input(gist_id: str, token: str) -> tuple[dict | None, list[dict]
         )
         resp.raise_for_status()
         files = resp.json().get("files", {})
-        raw = files.get("health_input.json", {}).get("content", "")
+        raw = gist_file_content(files.get("health_input.json", {}), token)
         if not raw:
             log.info("[gist] health_input.json niet gevonden — geen subjectieve hersteldata")
             return None, []
@@ -3139,7 +3140,7 @@ def load_sportbit_attended_dates(gist_id: str, token: str) -> tuple[set[str], di
         )
         resp.raise_for_status()
         files = resp.json().get("files", {})
-        raw = files.get("sportbit_state.json", {}).get("content", "")
+        raw = gist_file_content(files.get("sportbit_state.json", {}), token)
         if not raw:
             log.warning("[gist] sportbit_state.json not found or empty")
             return set(), {}, set(), set()
@@ -3196,7 +3197,7 @@ def load_workout_log(gist_id: str, token: str) -> dict[str, dict]:
             timeout=15,
         )
         resp.raise_for_status()
-        raw = resp.json().get("files", {}).get("workout_log.json", {}).get("content", "")
+        raw = gist_file_content(resp.json().get("files", {}).get("workout_log.json", {}), token)
         if not raw:
             log.info("[gist] workout_log.json not found or empty")
             return {}
@@ -3230,7 +3231,7 @@ def _load_previous_coach_context(gist_id: str, token: str) -> dict:
         files = resp.json().get("files", {})
         # Blessures staan los van sugarwod_wod.json — altijd lezen, ook als die
         # nog leeg is, anders mist de coach ze bij een eerste run.
-        health_raw = files.get("health_input.json", {}).get("content", "")
+        health_raw = gist_file_content(files.get("health_input.json", {}), token)
         try:
             active_injuries = parse_injuries(json.loads(health_raw) if health_raw else {})
         except (ValueError, TypeError):
@@ -3238,13 +3239,14 @@ def _load_previous_coach_context(gist_id: str, token: str) -> dict:
         if active_injuries:
             log.info("[gist] %d actieve blessure(s) geladen uit health_input.json", len(active_injuries))
 
-        raw = files.get(GIST_FILENAME, {}).get("content", "")
+        raw = gist_file_content(files.get(GIST_FILENAME, {}), token)
         if not raw:
+            log.warning("[gist] %s is leeg of onleesbaar — cache wordt niet hergebruikt", GIST_FILENAME)
             return {**empty, "_injuries": active_injuries}
         existing = json.loads(raw)
-        personal_events_raw = files.get("personal_events.json", {}).get("content", "")
+        personal_events_raw = gist_file_content(files.get("personal_events.json", {}), token)
         personal_events = json.loads(personal_events_raw).get("events", []) if personal_events_raw else []
-        running_plan_raw = files.get("running_plan.json", {}).get("content", "")
+        running_plan_raw = gist_file_content(files.get("running_plan.json", {}), token)
         running_plan = json.loads(running_plan_raw) if running_plan_raw else {}
         return {
             "barbell_lifts_history": existing.get("barbell_lifts_history", []),
@@ -3286,11 +3288,16 @@ def save_to_gist(gist_id: str, token: str, wod_data: dict) -> None:
     wod_data["recovery_advice_history"] = advice_history
     log.info("[gist] Recovery advice history: %d entries", len(advice_history))
 
-    files: dict = {
-        GIST_FILENAME: {
-            "content": json.dumps(wod_data, ensure_ascii=False, indent=2)
-        }
-    }
+    content = json.dumps(wod_data, ensure_ascii=False, indent=2)
+    size_kb = len(content.encode()) / 1024
+    if size_kb > 900:
+        # Boven ~1 MB levert de Gist-API het bestand afgekapt uit; lezers vallen
+        # dan terug op raw_url (zie gist_utils.file_content).
+        log.warning("[gist] %s is %.0f KB — dicht bij of over de 1 MB API-limiet",
+                    GIST_FILENAME, size_kb)
+    else:
+        log.info("[gist] %s is %.0f KB", GIST_FILENAME, size_kb)
+    files: dict = {GIST_FILENAME: {"content": content}}
     payload = {"files": files}
     resp = requests.patch(
         f"https://api.github.com/gists/{gist_id}",
