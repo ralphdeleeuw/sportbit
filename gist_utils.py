@@ -11,6 +11,36 @@ _GIST_API = "https://api.github.com/gists/{gist_id}"
 _HEADERS = {"Accept": "application/json"}
 
 
+def file_content(meta: dict, token: str = "", timeout: int = 20) -> str:
+    """Geef de volledige inhoud van één bestand uit een Gist-API-respons.
+
+    GitHub kapt bestanden boven ~1 MB af: `truncated` staat dan op true en
+    `content` is onvolledig of afwezig. Zonder deze fallback lijkt zo'n bestand
+    leeg of stukgelopen, waarna aanroepers hun cache overschrijven met niets.
+    Haal de volledige inhoud in dat geval op via raw_url.
+    """
+    content = meta.get("content") or ""
+    if content and not meta.get("truncated"):
+        return content
+    raw_url = meta.get("raw_url")
+    if not raw_url:
+        return content
+    try:
+        resp = requests.get(
+            raw_url,
+            headers={"Authorization": f"token {token}"} if token else {},
+            timeout=timeout,
+        )
+        resp.raise_for_status()
+        log.info("Gist-bestand %s volledig opgehaald via raw_url (%d bytes)",
+                 meta.get("filename", "?"), len(resp.text))
+        return resp.text
+    except requests.RequestException as exc:
+        log.warning("Gist-bestand %s kon niet via raw_url geladen worden: %s",
+                    meta.get("filename", "?"), exc)
+        return content
+
+
 def load_gist(gist_id: str, token: str, timeout: int = 20) -> dict[str, str]:
     """Laad alle bestanden uit een Gist. Retourneert {bestandsnaam: inhoud}."""
     resp = requests.get(
@@ -20,7 +50,7 @@ def load_gist(gist_id: str, token: str, timeout: int = 20) -> dict[str, str]:
     )
     resp.raise_for_status()
     return {
-        name: meta.get("content", "")
+        name: file_content(meta, token, timeout)
         for name, meta in resp.json().get("files", {}).items()
     }
 
