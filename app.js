@@ -1,7 +1,7 @@
     const DAY_NL = ['Zo', 'Ma', 'Di', 'Wo', 'Do', 'Vr', 'Za'];
     const MONTH_NL = ['jan', 'feb', 'mrt', 'apr', 'mei', 'jun', 'jul', 'aug', 'sep', 'okt', 'nov', 'dec'];
     // Vaste CrossFit rooster — spiegelt SCHEDULE in autosignup.py (JS getDay: 0=Zo, 6=Za)
-    const CROSSFIT_SCHEDULE = [[1,"20:00"],[3,"08:00"],[4,"20:00"],[6,"09:00"],[0,"09:00"]];
+    const CROSSFIT_SCHEDULE = [[1,"20:00"],[3,"08:00"],[4,"20:00"],[0,"09:00"]];
     // Sportvrienden — alleen deze deelnemers tonen bij een les. Huppa levert
     // namen als "Erik H"; matchen gebeurt op voornaam + eerste letter achternaam,
     // zodat ook "Erik Huisman" matcht.
