@@ -128,7 +128,8 @@
           : `<span class="participant-avatar participant-avatar-fallback" title="${name}">${name.charAt(0)}</span>`;
       }).join('');
       const extra = people.length > 6 ? `<span class="participant-more">+${people.length - 6}</span>` : '';
-      const names = people.map(p => escapeHtml(p.name || '')).join(', ');
+      // Huppa levert "Erik H."; alleen de voornaam tonen houdt de regel kort.
+      const names = people.map(p => escapeHtml((p.name || '').split(' ')[0])).join(', ');
       return `<div class="class-participants">
         <div class="participant-avatars">${avatars}${extra}</div>
         <span class="participant-names">${names}</span>
