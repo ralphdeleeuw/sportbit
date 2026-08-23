@@ -5,7 +5,7 @@
     // Sportvrienden — alleen deze deelnemers tonen bij een les. Huppa levert
     // namen als "Erik H"; matchen gebeurt op voornaam + eerste letter achternaam,
     // zodat ook "Erik Huisman" matcht.
-    const SPORT_FRIENDS = ['Erik H', 'Linda W', 'Laura D', 'Eva D', 'Robbert S'];
+    const SPORT_FRIENDS = ['Erik H', 'Linda W', 'Laura D', 'Eva D', 'Robbert S', 'Stefan C'];
     const _FRIEND_KEYS = SPORT_FRIENDS.map(n => n.toLowerCase().replace(/\./g, '').replace(/\s+/g, ' ').trim());
     function isSportFriend(name) {
       const key = (name || '').toLowerCase().replace(/\./g, '').replace(/\s+/g, ' ').trim();
