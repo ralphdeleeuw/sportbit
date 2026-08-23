@@ -130,7 +130,6 @@ TRAINING_SCHEDULE: dict[int, str] = {
     0: "20:00",  # Monday
     2: "08:00",  # Wednesday
     3: "20:00",  # Thursday
-    5: "09:00",  # Saturday
     6: "09:00",  # Sunday
 }
 

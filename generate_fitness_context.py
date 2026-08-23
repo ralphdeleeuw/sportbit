@@ -59,7 +59,6 @@ TRAINING_SCHEDULE = {
     "Maandag": "20:00",
     "Woensdag": "08:00",
     "Donderdag": "20:00",
-    "Zaterdag": "09:00",
     "Zondag": "09:00",
 }
 
@@ -210,7 +209,7 @@ def section_schedule() -> str:
         ["Dag", "Tijd"],
         [[dag, tijd] for dag, tijd in TRAINING_SCHEDULE.items()],
     ))
-    lines.append("\n*5 trainingsdagen per week (CrossFit klassen bij CrossFit Hilversum).*")
+    lines.append("\n*4 trainingsdagen per week (CrossFit klassen bij CrossFit Hilversum).*")
     return "\n".join(lines)
 
 
