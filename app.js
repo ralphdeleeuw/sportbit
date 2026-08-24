@@ -121,17 +121,18 @@
       const cap = classCapacity[`${date}_${time}`];
       const people = ((cap && cap.participants) || []).filter(p => isSportFriend(p.name));
       if (!people.length) return '';
-      const avatars = people.slice(0, 6).map(p => {
+      // Alleen echte profielfoto's; wie er geen heeft staat in de namenregel.
+      const withPhoto = people.filter(p => p.avatar);
+      const avatars = withPhoto.slice(0, 6).map(p => {
         const name = escapeHtml(p.name || '');
-        return p.avatar
-          ? `<img class="participant-avatar" src="${escapeHtml(p.avatar)}" alt="${name}" title="${name}" loading="lazy">`
-          : `<span class="participant-avatar participant-avatar-fallback" title="${name}">${name.charAt(0)}</span>`;
+        return `<img class="participant-avatar" src="${escapeHtml(p.avatar)}" alt="${name}" title="${name}" loading="lazy">`;
       }).join('');
-      const extra = people.length > 6 ? `<span class="participant-more">+${people.length - 6}</span>` : '';
+      const extra = withPhoto.length > 6 ? `<span class="participant-more">+${withPhoto.length - 6}</span>` : '';
+      const avatarRow = avatars ? `<div class="participant-avatars">${avatars}${extra}</div>` : '';
       // Huppa levert "Erik H."; alleen de voornaam tonen houdt de regel kort.
       const names = people.map(p => escapeHtml((p.name || '').split(' ')[0])).join(', ');
       return `<div class="class-participants">
-        <div class="participant-avatars">${avatars}${extra}</div>
+        ${avatarRow}
         <span class="participant-names">${names}</span>
       </div>`;
     }

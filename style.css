@@ -2188,15 +2188,6 @@
       margin-right: -6px;
       background: var(--border);
     }
-    .participant-avatar-fallback {
-      display: inline-flex;
-      align-items: center;
-      justify-content: center;
-      font-size: 10px;
-      font-weight: 700;
-      color: var(--muted);
-      text-transform: uppercase;
-    }
     .participant-more {
       font-size: 10px;
       color: var(--muted);
