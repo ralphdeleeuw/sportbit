@@ -2178,28 +2178,12 @@
       margin-top: 5px;
       min-width: 0;
     }
-    .participant-avatars { display: flex; align-items: center; }
-    .participant-avatar {
-      width: 20px;
-      height: 20px;
-      border-radius: 50%;
-      object-fit: cover;
-      border: 1.5px solid var(--surface-deep);
-      margin-right: -6px;
-      background: var(--border);
-    }
-    .participant-more {
-      font-size: 10px;
-      color: var(--muted);
-      margin-left: 10px;
-    }
     .participant-names {
       font-size: 11px;
       color: var(--muted);
       overflow: hidden;
       text-overflow: ellipsis;
       white-space: nowrap;
-      margin-left: 6px;
     }
 
     .family-only-card { opacity: 0.6; }

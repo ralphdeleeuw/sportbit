@@ -115,24 +115,14 @@
       return `<span class="capacity-badge ${cls}">${cap.available} vrij</span>`;
     }
 
-    // Deelnemers van een les (sinds de Huppa-update levert de API
-    // occurrenceParticipants mee: naam + avatar-URL, zoals in de app).
+    // Deelnemers van een les: alleen de voornamen van sportvrienden, geen
+    // avatars (Huppa levert namen als "Erik H." plus een optionele foto-URL).
     function renderParticipants(date, time) {
       const cap = classCapacity[`${date}_${time}`];
       const people = ((cap && cap.participants) || []).filter(p => isSportFriend(p.name));
       if (!people.length) return '';
-      // Alleen echte profielfoto's; wie er geen heeft staat in de namenregel.
-      const withPhoto = people.filter(p => p.avatar);
-      const avatars = withPhoto.slice(0, 6).map(p => {
-        const name = escapeHtml(p.name || '');
-        return `<img class="participant-avatar" src="${escapeHtml(p.avatar)}" alt="${name}" title="${name}" loading="lazy">`;
-      }).join('');
-      const extra = withPhoto.length > 6 ? `<span class="participant-more">+${withPhoto.length - 6}</span>` : '';
-      const avatarRow = avatars ? `<div class="participant-avatars">${avatars}${extra}</div>` : '';
-      // Huppa levert "Erik H."; alleen de voornaam tonen houdt de regel kort.
       const names = people.map(p => escapeHtml((p.name || '').split(' ')[0])).join(', ');
       return `<div class="class-participants">
-        ${avatarRow}
         <span class="participant-names">${names}</span>
       </div>`;
     }
