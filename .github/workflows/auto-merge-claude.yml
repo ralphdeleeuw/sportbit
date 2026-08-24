@@ -34,12 +34,24 @@ jobs:
           PR_URL=$(gh pr list --head "$BRANCH" --json url -q '.[0].url')
 
           if [ -z "$PR_URL" ]; then
+            # `gh pr create` faalt als Claude de PR net zelf heeft aangemaakt,
+            # tussen de list en de create in. Vraag de URL dan opnieuw op in
+            # plaats van de hele run te laten klappen vóór de merge.
             PR_URL=$(gh pr create \
               --title "Auto: $BRANCH" \
               --body "Automatisch aangemaakt door Claude." \
               --base main \
-              --head "$BRANCH")
-            echo "PR aangemaakt: $PR_URL"
+              --head "$BRANCH") || PR_URL=""
+            if [ -z "$PR_URL" ]; then
+              PR_URL=$(gh pr list --head "$BRANCH" --json url -q '.[0].url')
+              if [ -z "$PR_URL" ]; then
+                echo "PR aanmaken mislukt en geen bestaande PR gevonden."
+                exit 1
+              fi
+              echo "PR bestond al: $PR_URL"
+            else
+              echo "PR aangemaakt: $PR_URL"
+            fi
           else
             echo "Bestaande PR gevonden: $PR_URL"
             # Los eventuele merge-conflicten op door main te mergen in de branch
