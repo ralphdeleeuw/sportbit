@@ -1,0 +1,34 @@
+name: Huppa Pattern-Slot Boekingsprobe
+
+on:
+  workflow_dispatch:
+    inputs:
+      book:
+        description: 'Daadwerkelijk boekingspogingen doen (anders alleen tonen)'
+        required: false
+        default: 'false'
+        type: choice
+        options: ['false', 'true']
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: pip install requests
+
+      - name: Probe boeking van pattern slot
+        env:
+          HUPPA_EMAIL: ${{ secrets.HUPPA_EMAIL }}
+          HUPPA_PASSWORD: ${{ secrets.HUPPA_PASSWORD }}
+          HUPPA_SUBDOMAIN: ${{ secrets.HUPPA_SUBDOMAIN }}
+        run: python3 huppa_probe_book_pattern.py ${{ inputs.book == 'true' && '--book' || '' }}
