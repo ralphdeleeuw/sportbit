@@ -348,6 +348,11 @@ class HuppaClient:
         ]
         return {
             "id": evt.get("id"),
+            # Huppa maakt een occurrence pas aan zodra iemand de les boekt. Tot
+            # dan komt de les binnen als "pattern_slot": geen id, wel een
+            # schedulePatternSlotId + datum, waarmee we hem alsnog kunnen boeken.
+            "schedule_pattern_slot_id": evt.get("schedulePatternSlotId"),
+            "date": evt.get("date") or (evt.get("startsAt") or "")[:10],
             "name": evt.get("name", "CrossFit WOD"),
             "starts_at": parse_utc(evt.get("startsAt", "")),
             "ends_at": parse_utc(evt.get("endsAt", "")),
@@ -435,13 +440,29 @@ class HuppaClient:
     def signup(self, event: dict) -> bool:
         org_id = event.get("organization_id")
         occ_id = event.get("id")
-        if not org_id or not occ_id:
+        slot_id = event.get("schedule_pattern_slot_id")
+        if not org_id or not (occ_id or slot_id):
             log.error("Cannot sign up: missing organization_id or id in event %s", event)
             return False
-        url = f"{HUPPA_API_BASE}/organizations/{org_id}/occurrences/{occ_id}/booking"
-        resp = self.session.post(url, json={}, timeout=20)
+
+        if occ_id:
+            # Bestaande occurrence: boeken op het occurrence-id.
+            url = f"{HUPPA_API_BASE}/organizations/{org_id}/occurrences/{occ_id}/booking"
+            payload: dict = {}
+            label = f"occurrence {occ_id}"
+        else:
+            # Nog geen occurrence (pattern slot): Huppa maakt hem aan op basis
+            # van het slot-id plus de datum van de les.
+            url = f"{HUPPA_API_BASE}/organizations/{org_id}/occurrences/booking"
+            payload = {
+                "schedulePatternSlotId": slot_id,
+                "schedulePatternSlotDate": event.get("date") or event.get("starts_at", "")[:10],
+            }
+            label = f"pattern slot {slot_id} op {payload['schedulePatternSlotDate']}"
+
+        resp = self.session.post(url, json=payload, timeout=20)
         if resp.status_code in (200, 201, 204):
-            log.info("Signed up for occurrence %s.", occ_id)
+            log.info("Signed up for %s.", label)
             return True
         # Huppa vereist een specifiek abonnement als er meerdere actief zijn
         if resp.status_code == 422:
@@ -451,11 +472,12 @@ class HuppaClient:
                 if products:
                     product_id = products[0]["id"]
                     log.info("Meerdere abonnementen beschikbaar, gebruik product %s.", product_id)
-                    resp = self.session.post(url, json={"userProductId": product_id}, timeout=20)
+                    resp = self.session.post(
+                        url, json={**payload, "userProductId": product_id}, timeout=20)
                     if resp.status_code in (200, 201, 204):
-                        log.info("Signed up for occurrence %s (product %s).", occ_id, product_id)
+                        log.info("Signed up for %s (product %s).", label, product_id)
                         return True
-        log.error("Sign-up failed for occurrence %s: %s %s", occ_id, resp.status_code, resp.text[:200])
+        log.error("Sign-up failed for %s: %s %s", label, resp.status_code, resp.text[:200])
         return False
 
     def cancel(self, event: dict) -> bool:
@@ -794,19 +816,16 @@ def run(email: str, password: str, subdomain: str, dry_run: bool, days_ahead: in
             "room": event.get("room", ""),
         }
 
-        # Huppa maakt de occurrence pas aan zodra het boekingsvenster opengaat
-        # (7 dagen voor de les). Tot dat moment staat de les wel in het rooster,
-        # maar komt hij zonder occurrence-id binnen en valt er niets te boeken.
-        # Dat is geen fout: de run van de volgende nacht pakt hem alsnog op.
-        if not eid:
+        # Zonder occurrence-id én zonder pattern-slot-id valt er niets te boeken.
+        if not eid and not event.get("schedule_pattern_slot_id"):
             log.info(
-                "Boekingsvenster nog niet open voor %s at %s (%s) — les heeft nog geen occurrence-id.",
+                "Nog niet boekbaar: %s at %s (%s) — geen occurrence-id en geen pattern slot.",
                 title, target_time, spots,
             )
             results["not_open"].append(label)
             continue
 
-        if state and state.is_cancelled(eid):
+        if eid and state and state.is_cancelled(eid):
             log.info("Skipping %s at %s — manually cancelled. [%s]", title, target_time, eid)
             results["skipped"].append(f"{label} (manually cancelled)")
             continue
@@ -834,16 +853,31 @@ def run(email: str, password: str, subdomain: str, dry_run: bool, days_ahead: in
             )
             results["signed_up"].append(f"{label} (dry-run)")
         else:
-            log.info("Signing up for %s at %s (%s, %s) [%s] ...", title, target_time, spots, status, eid)
+            log.info("Signing up for %s at %s (%s, %s) [%s] ...", title, target_time, spots, status,
+                     eid or f"pattern slot {event.get('schedule_pattern_slot_id')}")
             if client.signup(event):
                 results["signed_up"].append(label)
-                if state:
+                if not eid:
+                    # Bij een pattern slot bestaat de occurrence nu pas: haal de
+                    # dag opnieuw op zodat we het verse id hebben voor de state
+                    # en het agenda-item.
+                    events_cache[date_str] = fetch_events(date_str)
+                    booked = find_event_at_time(events_cache[date_str], date_str, target_time)
+                    if booked and booked.get("id"):
+                        event = booked
+                        eid = str(booked["id"])
+                        log.info("Occurrence aangemaakt door de boeking: %s", eid)
+                    else:
+                        log.warning(
+                            "Boeking geslaagd, maar geen occurrence-id gevonden voor %s; "
+                            "state en agenda worden bij de volgende run bijgewerkt.", label)
+                if state and eid:
                     state.mark_signed_up(eid, date_str, target_time, title)
                 notify.send_notification(
                     "CrossFit Inschrijving ✅",
                     f"Ingeschreven voor {title} op {day_name} {date_str} om {target_time} 💪",
                 )
-                if not create_calendar_event(event, date, sync_calendar):
+                if eid and not create_calendar_event(event, date, sync_calendar):
                     log.warning("Calendar sync failed for %s, but signup was successful.", label)
             else:
                 results["failed"].append(label)
