@@ -95,6 +95,21 @@ def main():
     if not login(session, email, password, subdomain):
         sys.exit(1)
 
+    # Eerst: welke boekingen staan er volgens Huppa écht op naam?
+    resp = session.get(f"{HUPPA_API_BASE}/users/me/bookings-and-waitlists",
+                       params={"filter": "upcoming"}, timeout=20)
+    log.info("=== Huidige boekingen (bookings-and-waitlists) -> HTTP %s ===", resp.status_code)
+    if resp.ok:
+        for group in resp.json().get("data", []):
+            for occ in group.get("occurrences", []):
+                booking = occ.get("booking") or {}
+                starts = occ.get("startsAt", "")
+                when = (datetime.fromisoformat(starts.replace("Z", "+00:00")).astimezone(AMS)
+                        .strftime("%a %Y-%m-%d %H:%M") if starts else "?")
+                log.info("    %s  %-22s id=%s cancelledAt=%s",
+                         when, (occ.get("name") or "")[:22], occ.get("id"),
+                         booking.get("cancelledAt"))
+
     date_str, evt = find_target(session)
     if not evt:
         log.info("Geen pattern slot uit het vaste schema gevonden.")
