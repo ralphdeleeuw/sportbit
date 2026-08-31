@@ -93,22 +93,23 @@ def scan_frontend(subdomain: str) -> None:
             continue
         log.info("Bundle %s: %d tekens", url.split("/")[-1], len(body))
 
-        # Endpoint-achtige strings rond pattern slots en boekingen.
-        patterns = [
-            r"[`\"'][^`\"']{0,80}(?:pattern[-_]?slot|patternSlot)[^`\"']{0,80}[`\"']",
-            r"[`\"'][^`\"']{0,60}occurrences?/[^`\"']{0,60}booking[^`\"']{0,40}[`\"']",
-            r"[`\"']/?(?:organizations|users)/[^`\"']{0,90}[`\"']",
-        ]
-        for pat in patterns:
-            for match in re.findall(pat, body):
-                text = match if isinstance(match, str) else match[0]
-                if len(text) > 200 or text in seen:
+        # Minified JS bouwt URL's vaak met variabelen, dus zoek niet naar hele
+        # strings maar dump de context rond de sleutelwoorden.
+        keywords = ["schedulePatternSlot", "pattern_slot", "patternSlot",
+                    "/booking", "bookingWindowOpensAt"]
+        for keyword in keywords:
+            for match in re.finditer(re.escape(keyword), body):
+                start = max(0, match.start() - 130)
+                snippet = body[start:match.end() + 130].replace("\n", " ")
+                if snippet in seen:
                     continue
-                if not any(k in text.lower() for k in ("pattern", "booking", "occurrence")):
-                    continue
-                seen.add(text)
+                seen.add(snippet)
+                if len(seen) >= 40:
+                    break
+            if len(seen) >= 40:
+                break
     for text in sorted(seen):
-        log.info("    bundle-string: %s", text)
+        log.info("    ...%s...", text)
 
 
 def main():
