@@ -248,6 +248,10 @@ class GistStateManager:
         booked_occurrence_ids = booked_occurrence_ids or set()
         newly_cancelled = []
         for event in events:
+            # Lessen buiten het boekingsvenster komen zonder occurrence-id binnen;
+            # daar valt niets aan te matchen.
+            if not event.get("id"):
+                continue
             eid = str(event["id"])
             if eid in self.state["signed_up"] and eid not in self.state["cancelled"]:
                 # Bepaal of de sporter nog ingeschreven staat in Huppa. We schrijven
@@ -675,7 +679,8 @@ def run(email: str, password: str, subdomain: str, dry_run: bool, days_ahead: in
         ", ".join(f"{DAY_NAMES[d.weekday()]} {d} {t}" for d, t in slots),
     )
 
-    results = {"signed_up": [], "already": [], "full_waitlist": [], "not_found": [], "failed": [], "skipped": []}
+    results = {"signed_up": [], "already": [], "full_waitlist": [], "not_found": [],
+               "failed": [], "skipped": [], "not_open": []}
 
     events_cache: dict[str, list[dict]] = {}
     capacity_updates: dict[str, dict] = {}  # {"YYYY-MM-DD_HH:MM": {"available": int, "is_full": bool}}
@@ -772,7 +777,7 @@ def run(email: str, password: str, subdomain: str, dry_run: bool, days_ahead: in
             results["not_found"].append(label)
             continue
 
-        eid = str(event["id"])
+        eid = str(event["id"]) if event.get("id") else None
         title = event.get("name", "?")
         available_slots = event.get("available_slots", 0)
         is_full = event.get("is_full", False)
@@ -788,6 +793,18 @@ def run(email: str, password: str, subdomain: str, dry_run: bool, days_ahead: in
             "participants": event.get("participants", []),
             "room": event.get("room", ""),
         }
+
+        # Huppa maakt de occurrence pas aan zodra het boekingsvenster opengaat
+        # (7 dagen voor de les). Tot dat moment staat de les wel in het rooster,
+        # maar komt hij zonder occurrence-id binnen en valt er niets te boeken.
+        # Dat is geen fout: de run van de volgende nacht pakt hem alsnog op.
+        if not eid:
+            log.info(
+                "Boekingsvenster nog niet open voor %s at %s (%s) — les heeft nog geen occurrence-id.",
+                title, target_time, spots,
+            )
+            results["not_open"].append(label)
+            continue
 
         if state and state.is_cancelled(eid):
             log.info("Skipping %s at %s — manually cancelled. [%s]", title, target_time, eid)
@@ -885,6 +902,8 @@ def run(email: str, password: str, subdomain: str, dry_run: bool, days_ahead: in
         log.info("Skipped (cancelled): %s", ", ".join(results["skipped"]))
     if results["not_found"]:
         log.info("Not found:           %s", ", ".join(results["not_found"]))
+    if results["not_open"]:
+        log.info("Nog niet boekbaar:   %s", ", ".join(results["not_open"]))
     if results["failed"]:
         log.error("Failed:              %s", ", ".join(results["failed"]))
 
