@@ -93,23 +93,42 @@ def scan_frontend(subdomain: str) -> None:
             continue
         log.info("Bundle %s: %d tekens", url.split("/")[-1], len(body))
 
-        # Minified JS bouwt URL's vaak met variabelen, dus zoek niet naar hele
-        # strings maar dump de context rond de sleutelwoorden.
-        keywords = ["schedulePatternSlot", "pattern_slot", "patternSlot",
-                    "/booking", "bookingWindowOpensAt"]
-        for keyword in keywords:
-            for match in re.finditer(re.escape(keyword), body):
-                start = max(0, match.start() - 130)
-                snippet = body[start:match.end() + 130].replace("\n", " ")
-                if snippet in seen:
-                    continue
-                seen.add(snippet)
-                if len(seen) >= 40:
-                    break
-            if len(seen) >= 40:
+        scan_text(body, seen)
+
+        # De routes worden lazy geladen: haal de losse chunks er ook bij.
+        chunks = sorted(set(re.findall(r'"\./([A-Za-z0-9_.\-]+-[A-Za-z0-9_\-]{8}\.js)"', body)))
+        log.info("Chunks in bundle: %d", len(chunks))
+        for chunk in chunks:
+            if len(seen) >= 30:
                 break
+            try:
+                chunk_body = requests.get(f"{base}/assets/{chunk}", timeout=30)
+            except Exception:
+                continue
+            if not chunk_body.ok:
+                continue
+            before = len(seen)
+            scan_text(chunk_body.text, seen)
+            if len(seen) > before:
+                log.info("  treffer in chunk %s", chunk)
+
     for text in sorted(seen):
         log.info("    ...%s...", text)
+
+
+def scan_text(body: str, seen: set) -> None:
+    """Dump de context rond boekings-sleutelwoorden in minified JS."""
+    keywords = ["schedulePatternSlot", "pattern_slot", "patternSlot", "/booking`",
+                '/booking"', "/booking'", "bookingWindowOpensAt"]
+    for keyword in keywords:
+        for match in re.finditer(re.escape(keyword), body):
+            start = max(0, match.start() - 180)
+            snippet = body[start:match.end() + 120].replace("\n", " ")
+            if snippet in seen:
+                continue
+            seen.add(snippet)
+            if len(seen) >= 30:
+                return
 
 
 def main():
