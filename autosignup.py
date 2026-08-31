@@ -460,6 +460,7 @@ class HuppaClient:
             }
             label = f"pattern slot {slot_id} op {payload['schedulePatternSlotDate']}"
 
+        self.last_signup_error = None
         resp = self.session.post(url, json=payload, timeout=20)
         if resp.status_code in (200, 201, 204):
             log.info("Signed up for %s.", label)
@@ -467,6 +468,12 @@ class HuppaClient:
         # Huppa vereist een specifiek abonnement als er meerdere actief zijn
         if resp.status_code == 422:
             body = resp.json()
+            # Een les buiten het boekingsvenster is geen fout: de run van de
+            # volgende nacht ligt dichter bij de les en kan hem wél boeken.
+            if "booking window" in str(body.get("message", "")).lower():
+                log.info("Boekingsvenster nog niet open voor %s.", label)
+                self.last_signup_error = "outside_window"
+                return False
             if body.get("code") == "multiple_booking_products_available":
                 products = body.get("data", {}).get("userProducts", [])
                 if products:
@@ -879,6 +886,8 @@ def run(email: str, password: str, subdomain: str, dry_run: bool, days_ahead: in
                 )
                 if eid and not create_calendar_event(event, date, sync_calendar):
                     log.warning("Calendar sync failed for %s, but signup was successful.", label)
+            elif getattr(client, "last_signup_error", None) == "outside_window":
+                results["not_open"].append(label)
             else:
                 results["failed"].append(label)
 
