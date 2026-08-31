@@ -131,6 +131,11 @@ def main():
                  resp.status_code)
 
     candidates = [
+        # De API vroeg zelf om schedulePatternSlotDate zodra schedulePatternSlotId
+        # meegestuurd wordt; de datum staat als 'date' in het event zelf.
+        (f"/organizations/{org_id}/occurrences/booking",
+         {"schedulePatternSlotId": slot_id,
+          "schedulePatternSlotDate": evt.get("date") or date_str}),
         (f"/organizations/{org_id}/occurrences/booking",
          {"schedulePatternSlotId": slot_id, "startsAt": starts_at}),
         (f"/organizations/{org_id}/schedule-pattern-slots/{slot_id}/booking",
