@@ -1694,6 +1694,50 @@
     .capacity-badge.full      { color: var(--accent2); border-color: #5a2020; }
     .capacity-badge.open      { color: #4caf50; border-color: #1a3a1a; }
 
+    /* ── Maandtelling lessen (abonnement 13x/maand) ──────────── */
+    .month-count-badge {
+      font-size: 0.66rem;
+      color: var(--muted);
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      border-radius: 20px;
+      padding: 0.1rem 0.45rem;
+      margin-left: 0.35rem;
+      white-space: nowrap;
+      letter-spacing: 0.03em;
+      font-variant-numeric: tabular-nums;
+    }
+    .month-count-badge.over { color: var(--accent2); border-color: #5a2020; }
+
+    .month-quota {
+      background: var(--surface-deep);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-sm);
+      padding: 12px 14px;
+      margin-bottom: 14px;
+    }
+    .month-quota-head {
+      display: flex; align-items: baseline; justify-content: space-between;
+    }
+    .month-quota-title { font-size: 12px; color: var(--muted); letter-spacing: 0.02em; }
+    .month-quota-count {
+      font-size: 15px; font-weight: 700; color: var(--text);
+      font-variant-numeric: tabular-nums;
+    }
+    .month-quota-track {
+      height: 6px; background: #222; border-radius: 3px; margin-top: 8px; overflow: hidden;
+    }
+    .month-quota-fill {
+      height: 100%; background: var(--accent); border-radius: 3px; transition: width 0.6s ease;
+    }
+    .month-quota-note { margin-top: 6px; font-size: 11px; color: var(--faint); }
+    .month-quota.full .month-quota-count,
+    .month-quota.full .month-quota-note { color: var(--neutral); }
+    .month-quota.full .month-quota-fill { background: var(--neutral); }
+    .month-quota.over .month-quota-count,
+    .month-quota.over .month-quota-note { color: var(--accent2); }
+    .month-quota.over .month-quota-fill { background: var(--accent2); }
+
     /* ── Barbell lift table ──────────────────────────────────── */
     .barbell-lift-list {
       display: flex;
