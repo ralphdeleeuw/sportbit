@@ -2,6 +2,8 @@
     const MONTH_NL = ['jan', 'feb', 'mrt', 'apr', 'mei', 'jun', 'jul', 'aug', 'sep', 'okt', 'nov', 'dec'];
     // Vaste CrossFit rooster — spiegelt SCHEDULE in autosignup.py (JS getDay: 0=Zo, 6=Za)
     const CROSSFIT_SCHEDULE = [[1,"20:00"],[3,"08:00"],[4,"20:00"],[0,"09:00"]];
+    // Abonnement: maximaal aantal CrossFit-lessen per kalendermaand
+    const MONTHLY_CLASS_QUOTA = 13;
     // Sportvrienden — alleen deze deelnemers tonen bij een les. Huppa levert
     // namen als "Erik H"; matchen gebeurt op voornaam + eerste letter achternaam,
     // zodat ook "Erik Huisman" matcht.
@@ -136,6 +138,59 @@
       return `<div class="family-badges">${badges}</div>`;
     }
 
+    // ── Maandtelling lessen (abonnement 13x per maand) ──────────
+    // Bouwt per ingeschreven les een volgnummer binnen de kalendermaand,
+    // zodat elke reservering toont de hoeveelste les van die maand het is.
+    function buildMonthlyClassIndex(signedUp) {
+      monthlyClassIndex = {};
+      monthlyClassTotals = {};
+      const sorted = [...signedUp].sort((a, b) =>
+        a.date.localeCompare(b.date) || (a.time || '').localeCompare(b.time || ''));
+      const counters = {};
+      for (const e of sorted) {
+        if (!e.date) continue;
+        const month = e.date.slice(0, 7);
+        counters[month] = (counters[month] || 0) + 1;
+        monthlyClassIndex[e.event_id || `${e.date}_${e.time}`] = { index: counters[month], month };
+      }
+      monthlyClassTotals = counters;
+    }
+
+    function monthCountFor(item) {
+      return monthlyClassIndex[item.event_id || `${item.date}_${item.time}`] || null;
+    }
+
+    function renderMonthCountBadge(item) {
+      const info = monthCountFor(item);
+      if (!info) return '';
+      const cls = info.index > MONTHLY_CLASS_QUOTA ? 'month-count-badge over' : 'month-count-badge';
+      const title = `Les ${info.index} van ${MONTHLY_CLASS_QUOTA} in ${MONTH_NL[parseInt(info.month.slice(5, 7), 10) - 1]}`;
+      return `<span class="${cls}" title="${title}">${info.index}/${MONTHLY_CLASS_QUOTA}</span>`;
+    }
+
+    // Samenvatting van het maandtegoed voor de huidige maand.
+    const MONTH_NL_FULL = ['januari','februari','maart','april','mei','juni',
+                           'juli','augustus','september','oktober','november','december'];
+    function renderMonthQuotaSummary() {
+      const now = new Date();
+      const month = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+      const used = monthlyClassTotals[month] || 0;
+      const left = MONTHLY_CLASS_QUOTA - used;
+      const pct = Math.min(100, Math.round(used / MONTHLY_CLASS_QUOTA * 100));
+      const cls = used > MONTHLY_CLASS_QUOTA ? 'over' : (used === MONTHLY_CLASS_QUOTA ? 'full' : '');
+      const note = left > 0
+        ? `nog ${left} te gaan`
+        : (left === 0 ? 'tegoed precies op' : `${-left} boven je abonnement`);
+      return `<div class="month-quota ${cls}">
+        <div class="month-quota-head">
+          <span class="month-quota-title">Lessen ${MONTH_NL_FULL[now.getMonth()]}</span>
+          <span class="month-quota-count">${used}/${MONTHLY_CLASS_QUOTA}</span>
+        </div>
+        <div class="month-quota-track"><div class="month-quota-fill" style="width:${pct}%"></div></div>
+        <div class="month-quota-note">${note}</div>
+      </div>`;
+    }
+
     function renderCard(item, type, delay, wods) {
       const cancelled = type === 'cancelled';
       const _cap = classCapacity[`${item.date}_${item.time}`];
@@ -143,6 +198,7 @@
       const metaHtml = `<div class="card-meta">
         <span class="card-time">${item.time}</span>
         ${_coach ? `<span class="card-coach">· ${escapeHtml(_coach)}</span>` : ''}
+        ${cancelled ? '' : renderMonthCountBadge(item)}
       </div>` + (cancelled ? '' : renderParticipants(item.date, item.time));
 
       // Open Gym: toon gegenereerd programma als beschikbaar
@@ -315,6 +371,8 @@
     let healthInput = {}; // Subjectieve hersteldata {slaap, energie, spierpijn, stress}
     let healthHistory = []; // [{date, slaap, energie, spierpijn, stress}]
     let classCapacity = {}; // {"YYYY-MM-DD_HH:MM": {available, is_full, checked_at}}
+    let monthlyClassIndex = {}; // event_id of "date_time" → {index, month, total}
+    let monthlyClassTotals = {}; // "YYYY-MM" → aantal ingeschreven lessen
     let exclusions = {};   // {"YYYY-MM-DD_HH:MM": {excluded_at}}
     let familyBookings = {}; // {"YYYY-MM-DD_HH:MM": ["Laura", "Eva"]}
     let personalEvents = []; // [{id, title, date, time?, location?, notes?, created_at}]
@@ -906,6 +964,7 @@
       const eventId = item.event_id || '';
       const metaHtml = `<div class="card-meta">
         <span class="card-time">${item.time}</span>
+        ${renderMonthCountBadge(item)}
       </div>`;
 
       const logHtml = renderLogSection(item.date);
@@ -1897,6 +1956,9 @@
         signedUp.sort((a, b) => a.date.localeCompare(b.date));
         cancelled.sort((a, b) => a.date.localeCompare(b.date));
 
+        // Volgnummer per kalendermaand voor het abonnement (13x per maand)
+        buildMonthlyClassIndex(signedUp);
+
         const upcoming = signedUp.filter(e => isUpcoming(e.date, e.time));
         const past = signedUp.filter(e => !isUpcoming(e.date, e.time));
 
@@ -2169,6 +2231,7 @@
         <button class="add-event-btn" onclick="showAddEventForm()">+ Toevoegen</button>
       </div>
       <div id="addEventFormWrapper"></div>
+      ${renderMonthQuotaSummary()}
       <div class="cards" id="upcomingCards">`;
       if (allUpcoming.length === 0) {
         h += `<div class="empty"><span class="empty-icon">📅</span>Geen aankomende events</div>`;
