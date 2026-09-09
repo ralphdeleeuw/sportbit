@@ -1708,6 +1708,12 @@
       font-variant-numeric: tabular-nums;
     }
     .month-count-badge.over { color: var(--accent2); border-color: #5a2020; }
+    .month-count-badge.pending {
+      color: var(--faint);
+      background: transparent;
+      border-style: dashed;
+    }
+    .month-count-badge.pending.over { color: var(--accent2); opacity: 0.75; }
 
     .month-quota {
       background: var(--surface-deep);
@@ -1725,18 +1731,24 @@
       font-variant-numeric: tabular-nums;
     }
     .month-quota-track {
-      height: 6px; background: #222; border-radius: 3px; margin-top: 8px; overflow: hidden;
+      position: relative; height: 6px; background: #222;
+      border-radius: 3px; margin-top: 8px; overflow: hidden;
     }
     .month-quota-fill {
-      height: 100%; background: var(--accent); border-radius: 3px; transition: width 0.6s ease;
+      position: absolute; top: 0; left: 0; height: 100%;
+      background: var(--accent); border-radius: 3px; transition: width 0.6s ease;
     }
+    /* Geplande, nog niet ingeschreven lessen: gedempt achter de harde balk */
+    .month-quota-fill.projected { background: var(--accent); opacity: 0.28; }
     .month-quota-note { margin-top: 6px; font-size: 11px; color: var(--faint); }
     .month-quota.full .month-quota-count,
     .month-quota.full .month-quota-note { color: var(--neutral); }
     .month-quota.full .month-quota-fill { background: var(--neutral); }
+    .month-quota.full .month-quota-fill.projected { opacity: 0.28; }
     .month-quota.over .month-quota-count,
     .month-quota.over .month-quota-note { color: var(--accent2); }
     .month-quota.over .month-quota-fill { background: var(--accent2); }
+    .month-quota.over .month-quota-fill.projected { opacity: 0.3; }
 
     /* ── Barbell lift table ──────────────────────────────────── */
     .barbell-lift-list {

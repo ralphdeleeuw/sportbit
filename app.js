@@ -141,19 +141,28 @@
     // ── Maandtelling lessen (abonnement 13x per maand) ──────────
     // Bouwt per ingeschreven les een volgnummer binnen de kalendermaand,
     // zodat elke reservering toont de hoeveelste les van die maand het is.
-    function buildMonthlyClassIndex(signedUp) {
+    // Geplande maar nog niet ingeschreven slots tellen door in dezelfde reeks,
+    // zodat je vooruit ziet waar je die maand op uitkomt. Overgeslagen slots
+    // (exclusions) tellen niet mee.
+    function buildMonthlyClassIndex(signedUp, pendingSlots = []) {
       monthlyClassIndex = {};
       monthlyClassTotals = {};
-      const sorted = [...signedUp].sort((a, b) =>
-        a.date.localeCompare(b.date) || (a.time || '').localeCompare(b.time || ''));
-      const counters = {};
-      for (const e of sorted) {
-        if (!e.date) continue;
+      monthlyProjectedTotals = {};
+      const entries = [
+        ...signedUp
+          .filter(e => e.date)
+          .map(e => ({ date: e.date, time: e.time || '', key: e.event_id || `${e.date}_${e.time}`, pending: false })),
+        ...pendingSlots
+          .filter(sl => sl.date && !exclusions[sl.key])
+          .map(sl => ({ date: sl.date, time: sl.time || '', key: sl.key, pending: true })),
+      ].sort((a, b) => a.date.localeCompare(b.date) || a.time.localeCompare(b.time));
+
+      for (const e of entries) {
         const month = e.date.slice(0, 7);
-        counters[month] = (counters[month] || 0) + 1;
-        monthlyClassIndex[e.event_id || `${e.date}_${e.time}`] = { index: counters[month], month };
+        monthlyProjectedTotals[month] = (monthlyProjectedTotals[month] || 0) + 1;
+        if (!e.pending) monthlyClassTotals[month] = (monthlyClassTotals[month] || 0) + 1;
+        monthlyClassIndex[e.key] = { index: monthlyProjectedTotals[month], month, pending: e.pending };
       }
-      monthlyClassTotals = counters;
     }
 
     function monthCountFor(item) {
@@ -163,8 +172,13 @@
     function renderMonthCountBadge(item) {
       const info = monthCountFor(item);
       if (!info) return '';
-      const cls = info.index > MONTHLY_CLASS_QUOTA ? 'month-count-badge over' : 'month-count-badge';
-      const title = `Les ${info.index} van ${MONTHLY_CLASS_QUOTA} in ${MONTH_NL[parseInt(info.month.slice(5, 7), 10) - 1]}`;
+      let cls = 'month-count-badge';
+      if (info.pending) cls += ' pending';
+      if (info.index > MONTHLY_CLASS_QUOTA) cls += ' over';
+      const monthLabel = MONTH_NL[parseInt(info.month.slice(5, 7), 10) - 1];
+      const title = info.pending
+        ? `Wordt les ${info.index} van ${MONTHLY_CLASS_QUOTA} in ${monthLabel} als je je inschrijft`
+        : `Les ${info.index} van ${MONTHLY_CLASS_QUOTA} in ${monthLabel}`;
       return `<span class="${cls}" title="${title}">${info.index}/${MONTHLY_CLASS_QUOTA}</span>`;
     }
 
@@ -175,18 +189,27 @@
       const now = new Date();
       const month = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
       const used = monthlyClassTotals[month] || 0;
-      const left = MONTHLY_CLASS_QUOTA - used;
+      const projected = monthlyProjectedTotals[month] || used;
+      const planned = projected - used;
+      const left = MONTHLY_CLASS_QUOTA - projected;
       const pct = Math.min(100, Math.round(used / MONTHLY_CLASS_QUOTA * 100));
-      const cls = used > MONTHLY_CLASS_QUOTA ? 'over' : (used === MONTHLY_CLASS_QUOTA ? 'full' : '');
-      const note = left > 0
+      const pctProjected = Math.min(100, Math.round(projected / MONTHLY_CLASS_QUOTA * 100));
+      const cls = projected > MONTHLY_CLASS_QUOTA ? 'over' : (projected === MONTHLY_CLASS_QUOTA ? 'full' : '');
+      const outlook = left > 0
         ? `nog ${left} te gaan`
         : (left === 0 ? 'tegoed precies op' : `${-left} boven je abonnement`);
+      const note = planned > 0
+        ? `${used} ingeschreven + ${planned} gepland → ${projected}/${MONTHLY_CLASS_QUOTA} · ${outlook}`
+        : `${used} ingeschreven · ${outlook}`;
       return `<div class="month-quota ${cls}">
         <div class="month-quota-head">
           <span class="month-quota-title">Lessen ${MONTH_NL_FULL[now.getMonth()]}</span>
-          <span class="month-quota-count">${used}/${MONTHLY_CLASS_QUOTA}</span>
+          <span class="month-quota-count">${projected}/${MONTHLY_CLASS_QUOTA}</span>
         </div>
-        <div class="month-quota-track"><div class="month-quota-fill" style="width:${pct}%"></div></div>
+        <div class="month-quota-track">
+          <div class="month-quota-fill projected" style="width:${pctProjected}%"></div>
+          <div class="month-quota-fill" style="width:${pct}%"></div>
+        </div>
         <div class="month-quota-note">${note}</div>
       </div>`;
     }
@@ -371,8 +394,9 @@
     let healthInput = {}; // Subjectieve hersteldata {slaap, energie, spierpijn, stress}
     let healthHistory = []; // [{date, slaap, energie, spierpijn, stress}]
     let classCapacity = {}; // {"YYYY-MM-DD_HH:MM": {available, is_full, checked_at}}
-    let monthlyClassIndex = {}; // event_id of "date_time" → {index, month, total}
+    let monthlyClassIndex = {}; // event_id of "date_time" → {index, month, pending}
     let monthlyClassTotals = {}; // "YYYY-MM" → aantal ingeschreven lessen
+    let monthlyProjectedTotals = {}; // "YYYY-MM" → ingeschreven + nog te boeken geplande lessen
     let exclusions = {};   // {"YYYY-MM-DD_HH:MM": {excluded_at}}
     let familyBookings = {}; // {"YYYY-MM-DD_HH:MM": ["Laura", "Eva"]}
     let personalEvents = []; // [{id, title, date, time?, location?, notes?, created_at}]
@@ -1956,9 +1980,6 @@
         signedUp.sort((a, b) => a.date.localeCompare(b.date));
         cancelled.sort((a, b) => a.date.localeCompare(b.date));
 
-        // Volgnummer per kalendermaand voor het abonnement (13x per maand)
-        buildMonthlyClassIndex(signedUp);
-
         const upcoming = signedUp.filter(e => isUpcoming(e.date, e.time));
         const past = signedUp.filter(e => !isUpcoming(e.date, e.time));
 
@@ -2047,25 +2068,35 @@
           ...personalEvents.filter(e => !isUpcoming(e.date, e.time || null) && e.date >= cutoffStr).map(e => ({ type: 'personal', date: e.date, item: e })),
         ].sort((a, b) => b.date.localeCompare(a.date)).slice(0, 8);
 
-        // Bereken geplande slots die nog niet ingeschreven zijn (komende 14 dagen)
+        // Bereken geplande slots die nog niet ingeschreven zijn. De kaarten tonen
+        // 14 dagen vooruit; voor de maandtelling kijken we door tot het einde van
+        // de huidige maand, zodat de prognose de hele maand dekt.
         const signedUpKeys = new Set(signedUp.map(e => `${e.date}_${e.time}`));
-        const pendingSlots = [];
-        for (let i = 1; i <= 14; i++) {
+        const _now = new Date();
+        const _daysLeftInMonth = new Date(_now.getFullYear(), _now.getMonth() + 1, 0).getDate() - _now.getDate();
+        const _horizon = Math.max(14, _daysLeftInMonth);
+        const allPendingSlots = [];
+        for (let i = 1; i <= _horizon; i++) {
           const d = new Date(); d.setDate(d.getDate() + i);
           const dateStr = d.toISOString().slice(0, 10);
           for (const [jsDay, time] of CROSSFIT_SCHEDULE) {
             if (d.getDay() === jsDay && !signedUpKeys.has(`${dateStr}_${time}`)) {
-              pendingSlots.push({ date: dateStr, time, key: `${dateStr}_${time}` });
+              allPendingSlots.push({ date: dateStr, time, key: `${dateStr}_${time}`, withinWindow: i <= 14 });
             }
           }
         }
-        pendingSlots.sort((a, b) => a.date.localeCompare(b.date) || a.time.localeCompare(b.time));
+        allPendingSlots.sort((a, b) => a.date.localeCompare(b.date) || a.time.localeCompare(b.time));
+        const pendingSlots = allPendingSlots.filter(sl => sl.withinWindow);
 
         // Bereken slots waar alleen familie ingeschreven is (niet Ralph zelf)
         const familyOnlySlots = Object.entries(familyBookings)
           .filter(([key]) => key.slice(0, 10) >= todayStr && !signedUpKeys.has(key))
           .map(([key, members]) => ({ date: key.slice(0, 10), time: key.slice(11), members }))
           .sort((a, b) => a.date.localeCompare(b.date) || a.time.localeCompare(b.time));
+
+        // Volgnummer per kalendermaand voor het abonnement (13x per maand),
+        // inclusief de geplande slots waar nog niet op ingeschreven is
+        buildMonthlyClassIndex(signedUp, allPendingSlots);
 
         // Render each tab
         renderTodayTab(upcoming, past, allUpcoming);
@@ -2270,7 +2301,7 @@
             <div class="card-dot" style="background:${isExcl?'#ff6b6b':'var(--accent)'};opacity:${isExcl?'0.7':'0.35'}"></div>
             <div class="card-info">
               <div class="card-title">CrossFit WOD</div>
-              <div class="card-meta"><span class="card-time">${slot.time}</span>&nbsp;·&nbsp;${isExcl ? '<span style="color:#ff6b6b">Overgeslagen</span>' : '<span style="color:var(--text-muted)">Nog niet ingeschreven</span>'}</div>
+              <div class="card-meta"><span class="card-time">${slot.time}</span>&nbsp;·&nbsp;${isExcl ? '<span style="color:#ff6b6b">Overgeslagen</span>' : '<span style="color:var(--text-muted)">Nog niet ingeschreven</span>'}${renderMonthCountBadge(slot)}</div>
               <div style="margin-top:0.5rem">
                 ${isExcl
                   ? `<button class="niet-gedaan-btn" onclick="removeExclusion('${slot.key}', this)">Toch inschrijven</button>`
