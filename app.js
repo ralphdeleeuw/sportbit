@@ -2069,19 +2069,19 @@
         ].sort((a, b) => b.date.localeCompare(a.date)).slice(0, 8);
 
         // Bereken geplande slots die nog niet ingeschreven zijn. De kaarten tonen
-        // 14 dagen vooruit; voor de maandtelling kijken we door tot het einde van
+        // 21 dagen vooruit; voor de maandtelling kijken we door tot het einde van
         // de huidige maand, zodat de prognose de hele maand dekt.
         const signedUpKeys = new Set(signedUp.map(e => `${e.date}_${e.time}`));
         const _now = new Date();
         const _daysLeftInMonth = new Date(_now.getFullYear(), _now.getMonth() + 1, 0).getDate() - _now.getDate();
-        const _horizon = Math.max(14, _daysLeftInMonth);
+        const _horizon = Math.max(21, _daysLeftInMonth);
         const allPendingSlots = [];
         for (let i = 1; i <= _horizon; i++) {
           const d = new Date(); d.setDate(d.getDate() + i);
           const dateStr = d.toISOString().slice(0, 10);
           for (const [jsDay, time] of CROSSFIT_SCHEDULE) {
             if (d.getDay() === jsDay && !signedUpKeys.has(`${dateStr}_${time}`)) {
-              allPendingSlots.push({ date: dateStr, time, key: `${dateStr}_${time}`, withinWindow: i <= 14 });
+              allPendingSlots.push({ date: dateStr, time, key: `${dateStr}_${time}`, withinWindow: i <= 21 });
             }
           }
         }
