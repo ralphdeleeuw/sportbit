@@ -2303,6 +2303,8 @@
 
     .injury-actions {
       display: flex;
+      flex-wrap: wrap;
+      justify-content: flex-end;
       align-items: center;
       gap: 0.35rem;
       flex-shrink: 0;
@@ -2327,6 +2329,24 @@
       padding: 0.25rem 0.4rem;
       cursor: pointer;
     }
+    .injury-row.injury-worsened {
+      border-color: var(--accent2);
+      border-left-width: 5px;
+    }
+
+    .injury-worse {
+      background: transparent;
+      border: 1px solid var(--accent2);
+      border-radius: var(--radius-sm);
+      color: var(--accent2);
+      font-size: 0.68rem;
+      font-weight: 600;
+      line-height: 1;
+      padding: 0.25rem 0.4rem;
+      cursor: pointer;
+      white-space: nowrap;
+    }
+
     .injury-del:hover { color: var(--accent2); border-color: var(--accent2); }
 
     .injury-form {
