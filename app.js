@@ -2131,7 +2131,7 @@
       const activeInjuries = getInjuries().filter(i => i.status !== 'hersteld');
       if (activeInjuries.length) {
         const items = activeInjuries.map(i => {
-          const bits = [i.severity, i.status === 'herstellend' ? 'herstellend' : ''].filter(Boolean);
+          const bits = [i.severity, i.status === 'herstellend' ? 'herstellend' : '', _isWorsened(i) ? `verergerd ${i.worsened_on}` : ''].filter(Boolean);
           const label = i.area + (bits.length ? ` (${bits.join(', ')})` : '');
           return `<li>${escapeHtml(label)}${i.description ? ` — ${escapeHtml(i.description)}` : ''}</li>`;
         }).join('');
@@ -4488,7 +4488,14 @@
         since: String(raw.since || ''),
         avoid,
         notes: String(raw.notes || '').trim(),
+        worsened_on: String(raw.worsened_on || ''),
+        worsened_note: String(raw.worsened_note || '').trim(),
       };
+    }
+
+    // Verergerd telt alleen zolang de blessure niet (deels) hersteld is
+    function _isWorsened(inj) {
+      return !!inj.worsened_on && inj.status === 'actief';
     }
 
     function getInjuries() {
@@ -4512,16 +4519,21 @@
           const meta = [];
           if (inj.severity) meta.push(inj.severity);
           if (inj.since) meta.push(`sinds ${inj.since}`);
+          if (inj.worsened_on) meta.push(`verergerd op ${inj.worsened_on}${inj.worsened_note ? `: ${inj.worsened_note}` : ''}`);
           if (inj.avoid.length) meta.push(`vermijden: ${inj.avoid.join(', ')}`);
           const opts = INJURY_STATUSES.map(s =>
             `<option value="${s}"${s === inj.status ? ' selected' : ''}>${s}</option>`).join('');
-          return `<div class="injury-row${inj.status === 'hersteld' ? ' injury-resolved' : ''}">
+          const worsenBtn = inj.status !== 'hersteld'
+            ? `<button class="injury-worse" onclick="markInjuryWorsened('${escapeHtml(inj.id)}')" title="Klachten verergerd">⬆ Erger</button>`
+            : '';
+          return `<div class="injury-row${inj.status === 'hersteld' ? ' injury-resolved' : ''}${_isWorsened(inj) ? ' injury-worsened' : ''}">
             <div class="injury-main">
               <div class="injury-area">${escapeHtml(inj.area)}</div>
               ${inj.description ? `<div class="injury-desc">${escapeHtml(inj.description)}</div>` : ''}
               ${meta.length ? `<div class="injury-meta">${escapeHtml(meta.join(' · '))}</div>` : ''}
             </div>
             <div class="injury-actions">
+              ${worsenBtn}
               <select class="injury-status" onchange="setInjuryStatus('${escapeHtml(inj.id)}', this.value)">${opts}</select>
               <button class="injury-del" onclick="removeInjury('${escapeHtml(inj.id)}')" title="Verwijderen">✕</button>
             </div>
@@ -4601,6 +4613,22 @@
     async function setInjuryStatus(id, status) {
       const list = getInjuries().map(i => i.id === id ? { ...i, status } : i);
       await _saveInjuries(list, status === 'hersteld' ? '✓ Gemarkeerd als hersteld' : '✓ Status bijgewerkt');
+    }
+
+    async function markInjuryWorsened(id) {
+      const inj = getInjuries().find(i => i.id === id);
+      if (!inj) return;
+      const note = prompt(`Klachten "${inj.area}" verergerd — wat merk je? (optioneel)`, '');
+      if (note === null) return;  // geannuleerd
+      const d = new Date();
+      const today = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+      // Ernst één stap omhoog (geen ernst → matig)
+      const idx = INJURY_SEVERITIES.indexOf(inj.severity);
+      const severity = INJURY_SEVERITIES[Math.min(idx < 0 ? 1 : idx + 1, INJURY_SEVERITIES.length - 1)];
+      const list = getInjuries().map(i => i.id === id
+        ? { ...i, status: 'actief', severity, worsened_on: today, worsened_note: note.trim() }
+        : i);
+      await _saveInjuries(list, `✓ Verergerd gemeld — ernst nu ${severity}, coaches schalen verder terug`);
     }
 
     async function removeInjury(id) {
