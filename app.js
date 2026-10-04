@@ -4,14 +4,22 @@
     const CROSSFIT_SCHEDULE = [[1,"20:00"],[3,"08:00"],[4,"20:00"],[0,"09:00"]];
     // Abonnement: maximaal aantal CrossFit-lessen per kalendermaand
     const MONTHLY_CLASS_QUOTA = 13;
-    // Sportvrienden — alleen deze deelnemers tonen bij een les. Huppa levert
-    // namen als "Erik H"; matchen gebeurt op voornaam + eerste letter achternaam,
-    // zodat ook "Erik Huisman" matcht.
+    // Sportvrienden — alleen deze deelnemers tonen bij een les. Huppa leverde
+    // eerst "Erik H." maar sinds okt 2026 alleen nog de voornaam ("Erik").
+    // Matchen gaat daarom op voornaam; staat er toch een achternaam(-initiaal)
+    // bij, dan moet die eerste letter ook kloppen ("Erik Huisman" matcht wel,
+    // "Erik Jansen" niet).
     const SPORT_FRIENDS = ['Erik H', 'Linda W', 'Laura D', 'Eva D', 'Robbert S', 'Stefan C'];
-    const _FRIEND_KEYS = SPORT_FRIENDS.map(n => n.toLowerCase().replace(/\./g, '').replace(/\s+/g, ' ').trim());
+    function _nameParts(name) {
+      const parts = (name || '').toLowerCase().replace(/\./g, '').split(/\s+/).filter(Boolean);
+      return { first: parts[0] || '', initial: (parts[1] || '')[0] || '' };
+    }
+    const _FRIEND_KEYS = SPORT_FRIENDS.map(_nameParts).filter(f => f.first);
     function isSportFriend(name) {
-      const key = (name || '').toLowerCase().replace(/\./g, '').replace(/\s+/g, ' ').trim();
-      return _FRIEND_KEYS.some(f => key === f || key.startsWith(f));
+      const p = _nameParts(name);
+      if (!p.first) return false;
+      // Ontbreekt aan één van beide kanten de achternaam, dan telt de voornaam.
+      return _FRIEND_KEYS.some(f => f.first === p.first && (!p.initial || !f.initial || p.initial === f.initial));
     }
 
     // Blessures — zie het blessure-blok verderop; hier gedeclareerd omdat de eerste
