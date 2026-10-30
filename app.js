@@ -4500,12 +4500,41 @@
         worsened_note: String(raw.worsened_note || '').trim(),
         improved_on: String(raw.improved_on || ''),
         improved_note: String(raw.improved_note || '').trim(),
+        history: _normaliseInjuryHistory(raw),
       };
     }
 
     // Verergerd telt alleen zolang de blessure niet (deels) hersteld is
     function _isWorsened(inj) {
       return !!inj.worsened_on && inj.status === 'actief';
+    }
+
+    // Verloop: lijst met {date, type: 'erger'|'beter', note, severity}. Oudere
+    // blessures zonder history krijgen een afgeleid verloop uit worsened_on/improved_on.
+    function _normaliseInjuryHistory(raw) {
+      const hist = Array.isArray(raw.history)
+        ? raw.history
+            .filter(h => h && h.date && (h.type === 'erger' || h.type === 'beter'))
+            .map(h => ({ date: String(h.date), type: h.type,
+                         note: String(h.note || '').trim(), severity: String(h.severity || '') }))
+        : [];
+      if (hist.length) return hist;
+      const derived = [];
+      if (raw.worsened_on) derived.push({ date: String(raw.worsened_on), type: 'erger', note: String(raw.worsened_note || '').trim(), severity: '' });
+      if (raw.improved_on) derived.push({ date: String(raw.improved_on), type: 'beter', note: String(raw.improved_note || '').trim(), severity: '' });
+      return derived.sort((a, b) => a.date.localeCompare(b.date));
+    }
+
+    function _renderInjuryHistory(inj) {
+      if (!inj.history.length) return '';
+      const items = [...inj.history].reverse().map(h => {
+        const icon = h.type === 'erger' ? '⬆' : '⬇';
+        const label = h.type === 'erger' ? 'Erger' : 'Beter';
+        const sev = h.severity ? ` → ${escapeHtml(h.severity)}` : '';
+        const note = h.note ? ` — ${escapeHtml(h.note)}` : '';
+        return `<li class="injury-hist-${h.type}"><span class="injury-hist-tag">${icon} ${label}</span> ${escapeHtml(h.date)}${sev}${note}</li>`;
+      }).join('');
+      return `<details class="injury-history"><summary>Verloop (${inj.history.length})</summary><ul>${items}</ul></details>`;
     }
 
     function getInjuries() {
@@ -4543,6 +4572,7 @@
               <div class="injury-area">${escapeHtml(inj.area)}</div>
               ${inj.description ? `<div class="injury-desc">${escapeHtml(inj.description)}</div>` : ''}
               ${meta.length ? `<div class="injury-meta">${escapeHtml(meta.join(' · '))}</div>` : ''}
+              ${_renderInjuryHistory(inj)}
             </div>
             <div class="injury-actions">
               ${worsenBtn}
@@ -4642,7 +4672,8 @@
       const severity = idx > 0 ? INJURY_SEVERITIES[idx - 1] : 'licht';
       const list = getInjuries().map(i => i.id === id
         ? { ...i, status: 'herstellend', severity, improved_on: _todayLocal(), improved_note: note.trim(),
-            worsened_on: '', worsened_note: '' }
+            worsened_on: '', worsened_note: '',
+            history: [...i.history, { date: _todayLocal(), type: 'beter', note: note.trim(), severity }] }
         : i);
       await _saveInjuries(list, `✓ Verbetering gemeld — ernst nu ${severity}, status herstellend`);
     }
@@ -4658,7 +4689,8 @@
       const severity = INJURY_SEVERITIES[Math.min(idx < 0 ? 1 : idx + 1, INJURY_SEVERITIES.length - 1)];
       const list = getInjuries().map(i => i.id === id
         ? { ...i, status: 'actief', severity, worsened_on: today, worsened_note: note.trim(),
-            improved_on: '', improved_note: '' }
+            improved_on: '', improved_note: '',
+            history: [...i.history, { date: today, type: 'erger', note: note.trim(), severity }] }
         : i);
       await _saveInjuries(list, `✓ Verergerd gemeld — ernst nu ${severity}, coaches schalen verder terug`);
     }
