@@ -2302,6 +2302,13 @@
     .injury-desc { font-size: 0.72rem; color: var(--text); opacity: 0.85; margin-top: 1px; }
     .injury-meta { font-size: 0.68rem; color: var(--muted); margin-top: 2px; }
 
+    .injury-history { margin-top: 4px; font-size: 0.68rem; color: var(--muted); }
+    .injury-history summary { cursor: pointer; color: var(--text); opacity: 0.8; }
+    .injury-history ul { margin: 0.25rem 0 0; padding-left: 0; list-style: none; display: flex; flex-direction: column; gap: 2px; }
+    .injury-hist-tag { font-weight: 600; }
+    .injury-hist-erger .injury-hist-tag { color: var(--accent2); }
+    .injury-hist-beter .injury-hist-tag { color: #00c853; }
+
     .injury-actions {
       display: flex;
       flex-wrap: wrap;
