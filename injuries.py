@@ -18,7 +18,9 @@ Formaat in health_input.json:
         "avoid": ["overhead press", "snatch"],
         "notes": "fysio adviseert geen belasting boven schouderhoogte",
         "worsened_on": "2026-08-02",    // optioneel: datum waarop klachten verergerden
-        "worsened_note": "pijn ook in rust"
+        "worsened_note": "pijn ook in rust",
+        "improved_on": "",              // optioneel: datum waarop klachten verminderden
+        "improved_note": ""
       }
     ]
 
@@ -62,7 +64,8 @@ def _normalise_entry(raw) -> dict | None:
         area = _clean(raw)
         return {"area": area, "description": "", "severity": "", "status": "actief",
                 "since": "", "avoid": [], "notes": "",
-                "worsened_on": "", "worsened_note": ""} if area else None
+                "worsened_on": "", "worsened_note": "",
+                "improved_on": "", "improved_note": ""} if area else None
 
     if not isinstance(raw, dict):
         return None
@@ -101,6 +104,8 @@ def _normalise_entry(raw) -> dict | None:
         "notes": _clean(raw.get("notes") or raw.get("notitie") or raw.get("opmerking")),
         "worsened_on": _clean(raw.get("worsened_on") or raw.get("verergerd")),
         "worsened_note": _clean(raw.get("worsened_note")),
+        "improved_on": _clean(raw.get("improved_on") or raw.get("verbeterd")),
+        "improved_note": _clean(raw.get("improved_note")),
     }
 
 
@@ -154,6 +159,8 @@ def _describe(inj: dict, lang: str) -> str:
         meta.append(inj["status"] if nl else _STATUS_LABEL_EN.get(inj["status"], inj["status"]))
     if is_worsened(inj):
         meta.append(f"VERERGERD op {inj['worsened_on']}" if nl else f"WORSENED on {inj['worsened_on']}")
+    if inj["improved_on"] and not is_worsened(inj):
+        meta.append(f"verbeterd op {inj['improved_on']}" if nl else f"improving since {inj['improved_on']}")
     if meta:
         parts.append(f"({', '.join(meta)})")
     line = "- " + " ".join(parts)
@@ -167,6 +174,8 @@ def _describe(inj: dict, lang: str) -> str:
         extra.append((f"vermijden: {joined}" if nl else f"avoid: {joined}"))
     if is_worsened(inj) and inj["worsened_note"]:
         extra.append((f"verergering: {inj['worsened_note']}" if nl else f"worsening: {inj['worsened_note']}"))
+    if inj["improved_on"] and not is_worsened(inj) and inj["improved_note"]:
+        extra.append((f"verbetering: {inj['improved_note']}" if nl else f"improvement: {inj['improved_note']}"))
     if inj["notes"]:
         extra.append(inj["notes"])
     if extra:
@@ -202,6 +211,16 @@ _WORSENED_EN = (
 )
 
 
+_IMPROVED_NL = (
+    "Bij blessures die als VERBETERD zijn gemeld mag de belasting voorzichtig en "
+    "geleidelijk worden opgebouwd, zolang het pijnvrij blijft; \"vermijden\" blijft gelden."
+)
+_IMPROVED_EN = (
+    "For injuries reported as IMPROVING, load may be rebuilt cautiously and gradually "
+    "as long as it stays pain-free; the \"avoid\" list still applies."
+)
+
+
 def format_injuries_prompt(injuries: list[dict], lang: str = "nl") -> str:
     """Bouw het prompt-blok met actieve blessures. Lege string als er geen zijn."""
     if not injuries:
@@ -216,6 +235,8 @@ def format_injuries_prompt(injuries: list[dict], lang: str = "nl") -> str:
     instructions = _INSTRUCTIONS_NL if nl else _INSTRUCTIONS_EN
     if any(is_worsened(inj) for inj in injuries):
         instructions += " " + (_WORSENED_NL if nl else _WORSENED_EN)
+    if any(inj["improved_on"] and not is_worsened(inj) for inj in injuries):
+        instructions += " " + (_IMPROVED_NL if nl else _IMPROVED_EN)
     return "\n" + header + "\n" + "\n".join(lines) + "\n" + instructions + "\n"
 
 

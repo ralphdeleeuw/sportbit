@@ -4498,6 +4498,8 @@
         notes: String(raw.notes || '').trim(),
         worsened_on: String(raw.worsened_on || ''),
         worsened_note: String(raw.worsened_note || '').trim(),
+        improved_on: String(raw.improved_on || ''),
+        improved_note: String(raw.improved_note || '').trim(),
       };
     }
 
@@ -4528,11 +4530,13 @@
           if (inj.severity) meta.push(inj.severity);
           if (inj.since) meta.push(`sinds ${inj.since}`);
           if (inj.worsened_on) meta.push(`verergerd op ${inj.worsened_on}${inj.worsened_note ? `: ${inj.worsened_note}` : ''}`);
+          if (inj.improved_on) meta.push(`verbeterd op ${inj.improved_on}${inj.improved_note ? `: ${inj.improved_note}` : ''}`);
           if (inj.avoid.length) meta.push(`vermijden: ${inj.avoid.join(', ')}`);
           const opts = INJURY_STATUSES.map(s =>
             `<option value="${s}"${s === inj.status ? ' selected' : ''}>${s}</option>`).join('');
           const worsenBtn = inj.status !== 'hersteld'
-            ? `<button class="injury-worse" onclick="markInjuryWorsened('${escapeHtml(inj.id)}')" title="Klachten verergerd">⬆ Erger</button>`
+            ? `<button class="injury-better" onclick="markInjuryImproved('${escapeHtml(inj.id)}')" title="Klachten verminderd">⬇ Beter</button>
+               <button class="injury-worse" onclick="markInjuryWorsened('${escapeHtml(inj.id)}')" title="Klachten verergerd">⬆ Erger</button>`
             : '';
           return `<div class="injury-row${inj.status === 'hersteld' ? ' injury-resolved' : ''}${_isWorsened(inj) ? ' injury-worsened' : ''}">
             <div class="injury-main">
@@ -4623,18 +4627,38 @@
       await _saveInjuries(list, status === 'hersteld' ? '✓ Gemarkeerd als hersteld' : '✓ Status bijgewerkt');
     }
 
+    function _todayLocal() {
+      const d = new Date();
+      return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+    }
+
+    async function markInjuryImproved(id) {
+      const inj = getInjuries().find(i => i.id === id);
+      if (!inj) return;
+      const note = prompt(`Klachten "${inj.area}" verminderd — wat merk je? (optioneel)`, '');
+      if (note === null) return;  // geannuleerd
+      // Ernst één stap omlaag (minimaal licht), status herstellend, verergering vervalt
+      const idx = INJURY_SEVERITIES.indexOf(inj.severity);
+      const severity = idx > 0 ? INJURY_SEVERITIES[idx - 1] : 'licht';
+      const list = getInjuries().map(i => i.id === id
+        ? { ...i, status: 'herstellend', severity, improved_on: _todayLocal(), improved_note: note.trim(),
+            worsened_on: '', worsened_note: '' }
+        : i);
+      await _saveInjuries(list, `✓ Verbetering gemeld — ernst nu ${severity}, status herstellend`);
+    }
+
     async function markInjuryWorsened(id) {
       const inj = getInjuries().find(i => i.id === id);
       if (!inj) return;
       const note = prompt(`Klachten "${inj.area}" verergerd — wat merk je? (optioneel)`, '');
       if (note === null) return;  // geannuleerd
-      const d = new Date();
-      const today = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+      const today = _todayLocal();
       // Ernst één stap omhoog (geen ernst → matig)
       const idx = INJURY_SEVERITIES.indexOf(inj.severity);
       const severity = INJURY_SEVERITIES[Math.min(idx < 0 ? 1 : idx + 1, INJURY_SEVERITIES.length - 1)];
       const list = getInjuries().map(i => i.id === id
-        ? { ...i, status: 'actief', severity, worsened_on: today, worsened_note: note.trim() }
+        ? { ...i, status: 'actief', severity, worsened_on: today, worsened_note: note.trim(),
+            improved_on: '', improved_note: '' }
         : i);
       await _saveInjuries(list, `✓ Verergerd gemeld — ernst nu ${severity}, coaches schalen verder terug`);
     }
