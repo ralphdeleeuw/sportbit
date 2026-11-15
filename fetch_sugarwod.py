@@ -555,74 +555,45 @@ def _scrape_benchmark_table_js(page, category: str) -> list[dict]:
 
 
 
-def _benchmarks_from_pr_rows(pr_rows: list[dict], captured: list[dict]) -> list[dict]:
+def _benchmarks_from_pr_rows(pr_rows: list[dict], captured: list[dict] | None = None) -> list[dict]:
     """Leid benchmark workouts af uit de PR-XHR (/api/results?prsOnly=true).
 
-    Rijen met een gevuld 'libraryWorkout' zijn bibliotheek-workouts (Girls,
-    Heroes, Notables, ...). De categorienaam komt uit /api/librarytypes.
+    Rijen met een gevuld 'lwId' (library workout id) zijn bibliotheek-workouts
+    (Girls, Heroes, Notables, ...). SugarWOD geeft geen categorie mee; de
+    bekende Girls worden op naam herkend, de rest heet 'Benchmark'.
     """
-    type_names: dict[str, str] = {}
-    for item in captured:
-        if "/api/librarytypes" not in item.get("url", ""):
-            continue
-        data = item.get("data")
-        arr = data.get("data") if isinstance(data, dict) else data
-        for t in arr or []:
-            if isinstance(t, dict) and t.get("id") is not None:
-                type_names[str(t["id"])] = t.get("name") or ""
-                if t.get("slug"):
-                    type_names[str(t["slug"])] = t.get("name") or ""
-
-    if pr_rows:
-        log.info("[browser] PR-rij keys: %s", sorted(pr_rows[0].keys()))
-        lib_rows = [r for r in pr_rows if any(
-            k.lower().startswith("library") or k in ("isBenchmark", "benchmark") for k in r)]
-        log.info("[browser] PR-rijen met library-velden: %d — voorbeeld: %s",
-                 len(lib_rows), str({k: v for k, v in (lib_rows or pr_rows)[0].items()
-                                     if "ibrary" in k or "enchmark" in k})[:400])
-
-    logged_sample = False
     out: list[dict] = []
     for r in pr_rows:
-        lw = (r.get("libraryWorkout") or r.get("libraryWorkoutId") or r.get("libraryId")
-              or r.get("libraryType") or r.get("libraryTypeId") or r.get("isBenchmark"))
-        if not lw:
+        if not (r.get("lwId") or r.get("libraryWorkout") or r.get("libraryId")):
             continue
-        if not isinstance(lw, dict):
-            lw = {k: r.get(k) for k in ("libraryType", "libraryTypeId", "libraryTypeName")
-                  if r.get(k) not in (None, "")}
-        if not logged_sample:
-            log.info("[browser] libraryWorkout voorbeeld: %s", str(lw)[:300])
-            logged_sample = True
-        category = ""
-        name = ""
-        if isinstance(lw, dict):
-            name = lw.get("title") or lw.get("name") or ""
-            for k in ("libraryTypeName", "libraryType", "libraryTypeId", "type", "typeId", "category"):
-                v = lw.get(k)
-                if isinstance(v, dict):
-                    v = v.get("name") or v.get("id")
-                if v not in (None, ""):
-                    category = type_names.get(str(v), str(v) if not str(v).isdigit() else "")
-                    if category:
-                        break
-        name = name or r.get("workoutTitle") or r.get("title") or ""
+        name = (r.get("title") or r.get("workoutTitle") or "").strip()
+        if not name:
+            continue
         date_raw = str(r.get("dateInt") or r.get("datePerformedInteger") or "")
         date = (f"{date_raw[:4]}-{date_raw[4:6]}-{date_raw[6:8]}"
                 if len(date_raw) == 8 and date_raw.isdigit() else date_raw)
         scaling = r.get("scalingOption") or ""
         if isinstance(scaling, dict):
             scaling = scaling.get("name") or ""
-        if not scaling and r.get("isRx") is not None:
-            scaling = "Rx" if r.get("isRx") else "Scaled"
+        rx = r.get("rx", r.get("isRx"))
+        if not scaling and rx is not None:
+            scaling = "Rx" if rx else "Scaled"
         out.append({
             "name": name,
-            "result": str(r.get("bestResultDisplayString") or r.get("bestResult") or ""),
+            "result": str(r.get("bestResultDisplayString") or r.get("result") or r.get("bestResult") or ""),
             "scaling": str(scaling),
             "date": date,
-            "category": category or "Benchmark",
+            "category": "Girls" if name.split()[0].lower() in _GIRLS_WODS else "Benchmark",
         })
-    return [b for b in out if b["name"]]
+    return out
+
+
+_GIRLS_WODS = {
+    "amanda", "angie", "annie", "barbara", "candy", "chelsea", "cindy", "diane",
+    "elizabeth", "eva", "fran", "grace", "gwen", "helen", "hope", "isabel",
+    "jackie", "karen", "kelly", "linda", "lynne", "maggie", "mary", "nancy", "nicole",
+}
+
 
 def _extract_benchmarks_from_page(page) -> list[dict]:
     """Extract all Benchmark Workouts by iterating through each category.
