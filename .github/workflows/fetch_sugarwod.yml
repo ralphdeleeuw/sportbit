@@ -2,11 +2,10 @@ name: Fetch SugarWOD
 
 on:
   schedule:
-    # Dagelijks om 07:00 Amsterdam tijd
-    # 05:00 UTC zomertijd (CEST, UTC+2) — maart t/m oktober
-    - cron: '0 5 * * *'
-    # 06:00 UTC wintertijd (CET, UTC+1) — november t/m februari
-    - cron: '0 6 * * *'
+    # Eén keer per dag, 04:37 UTC (05:37 winter / 06:37 zomer Amsterdam).
+    # Bewust geen :00 — GitHub vertraagt runs op het hele uur sterk (zag 7+ uur).
+    # Eerder stonden hier twee crons (05:00 én 06:00 UTC) die béide dagelijks draaiden.
+    - cron: '37 4 * * *'
   workflow_dispatch:
     inputs:
       skip_ai:

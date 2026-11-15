@@ -554,6 +554,64 @@ def _scrape_benchmark_table_js(page, category: str) -> list[dict]:
         return []
 
 
+
+def _benchmarks_from_pr_rows(pr_rows: list[dict], captured: list[dict]) -> list[dict]:
+    """Leid benchmark workouts af uit de PR-XHR (/api/results?prsOnly=true).
+
+    Rijen met een gevuld 'libraryWorkout' zijn bibliotheek-workouts (Girls,
+    Heroes, Notables, ...). De categorienaam komt uit /api/librarytypes.
+    """
+    type_names: dict[str, str] = {}
+    for item in captured:
+        if "/api/librarytypes" not in item.get("url", ""):
+            continue
+        data = item.get("data")
+        arr = data.get("data") if isinstance(data, dict) else data
+        for t in arr or []:
+            if isinstance(t, dict) and t.get("id") is not None:
+                type_names[str(t["id"])] = t.get("name") or ""
+                if t.get("slug"):
+                    type_names[str(t["slug"])] = t.get("name") or ""
+
+    logged_sample = False
+    out: list[dict] = []
+    for r in pr_rows:
+        lw = r.get("libraryWorkout")
+        if not lw:
+            continue
+        if not logged_sample:
+            log.info("[browser] libraryWorkout voorbeeld: %s", str(lw)[:300])
+            logged_sample = True
+        category = ""
+        name = ""
+        if isinstance(lw, dict):
+            name = lw.get("title") or lw.get("name") or ""
+            for k in ("libraryTypeName", "libraryType", "libraryTypeId", "type", "typeId", "category"):
+                v = lw.get(k)
+                if isinstance(v, dict):
+                    v = v.get("name") or v.get("id")
+                if v not in (None, ""):
+                    category = type_names.get(str(v), str(v) if not str(v).isdigit() else "")
+                    if category:
+                        break
+        name = name or r.get("workoutTitle") or r.get("title") or ""
+        date_raw = str(r.get("dateInt") or r.get("datePerformedInteger") or "")
+        date = (f"{date_raw[:4]}-{date_raw[4:6]}-{date_raw[6:8]}"
+                if len(date_raw) == 8 and date_raw.isdigit() else date_raw)
+        scaling = r.get("scalingOption") or ""
+        if isinstance(scaling, dict):
+            scaling = scaling.get("name") or ""
+        if not scaling and r.get("isRx") is not None:
+            scaling = "Rx" if r.get("isRx") else "Scaled"
+        out.append({
+            "name": name,
+            "result": str(r.get("bestResultDisplayString") or r.get("bestResult") or ""),
+            "scaling": str(scaling),
+            "date": date,
+            "category": category or "Benchmark",
+        })
+    return [b for b in out if b["name"]]
+
 def _extract_benchmarks_from_page(page) -> list[dict]:
     """Extract all Benchmark Workouts by iterating through each category.
 
@@ -882,6 +940,7 @@ def fetch_all_workouts_playwright(
 
             # ── 4. Scrape personal records ────────────────────────────────────
             personal_records: list[dict] = []
+            _pr_raw_rows: list[dict] = []  # ruwe PR-XHR rijen (voor benchmarks)
             debug_html: dict[str, str] = {}  # saved to gist for diagnostics
             log.info("[browser] Navigating to personal records page")
             try:
@@ -924,6 +983,7 @@ def fetch_all_workouts_playwright(
                                 "notes": str(r.get("notes") or ""),
                             })
                         if personal_records:
+                            _pr_raw_rows = [r for r in arr if isinstance(r, dict)]
                             break
 
                 # Strategy 2: shape-based match across ALL captured XHRs
@@ -964,61 +1024,71 @@ def fetch_all_workouts_playwright(
 
             # ── 5. Scrape benchmark workouts ──────────────────────────────────
             benchmark_workouts: list[dict] = []
-            log.info("[browser] Navigating to benchmark workouts page")
+            # Strategy 0: de PR-XHR bevat 'libraryWorkout' — PR's van Girls/Heroes/
+            # Notables zijn de benchmarks. De benchmarks-pagina laadt zelf geen
+            # benchmark-XHR meer, dus dit is de betrouwbare bron.
             try:
-                # Navigate away first to force fresh XHRs
-                page.goto(f"{SUGARWOD_BASE}/workouts", wait_until="domcontentloaded", timeout=15000)
-                captured.clear()
-                page.goto(
-                    f"{SUGARWOD_BASE}/athletes/me?date_from=20100101&date_to={datetime.now(AMS).strftime('%Y%m%d')}#benchmarks",
-                    wait_until="networkidle",
-                    timeout=30000,
-                )
-                try:
-                    debug_html["benchmarks"] = page.content()[:80000]
-                except Exception:
-                    pass
-
-                log.info("[browser] Captured %d XHRs on benchmarks page; URLs: %s",
-                         len(captured), [c["url"] for c in captured])
-
-                # Combine current + barbell-page captured (React may skip re-fetching)
-                all_captured_for_benchmarks = _barbell_page_captured + captured
-
-                # Strategy 1: dedicated extractor (tries select + click interactions)
-                benchmark_workouts = _extract_benchmarks_from_page(page)
-
-                # Strategy 2: shape-based XHR scan if DOM gave nothing
-                if not benchmark_workouts:
-                    log.info("[browser] DOM extraction empty; trying shape-based XHR scan for benchmarks")
-                    for item in all_captured_for_benchmarks:
-                        data = item["data"]
-                        arr = data if isinstance(data, list) else (
-                            data.get("data") or data.get("results") or data.get("benchmarks") or []
-                        )
-                        if not arr or not isinstance(arr, list):
-                            continue
-                        sample = arr[0] if arr else {}
-                        if not isinstance(sample, dict):
-                            continue
-                        has_name = any(k in sample for k in ("name", "workout", "benchmark", "title"))
-                        has_result = any(k in sample for k in ("result", "score", "time", "reps", "value"))
-                        if has_name and has_result:
-                            log.info("[browser] Shape-matched benchmark data from %s (%d items)", item["url"], len(arr))
-                            for r in arr:
-                                benchmark_workouts.append({
-                                    "name": r.get("name") or r.get("workout") or r.get("benchmark") or r.get("title") or "",
-                                    "result": str(r.get("result") or r.get("score") or r.get("time") or r.get("reps") or ""),
-                                    "scaling": r.get("scaling") or r.get("scaled") or "",
-                                    "date": str(r.get("date") or r.get("achieved_at") or r.get("performed_at") or ""),
-                                    "category": r.get("category") or r.get("type") or r.get("workout_type") or "Benchmark",
-                                })
-                            if benchmark_workouts:
-                                break
-
-                log.info("[browser] Extracted %d benchmark workouts", len(benchmark_workouts))
+                benchmark_workouts = _benchmarks_from_pr_rows(
+                    _pr_raw_rows, _barbell_page_captured + captured)
+                log.info("[browser] Benchmarks afgeleid uit PR-data: %d", len(benchmark_workouts))
             except Exception as exc:
-                log.warning("[browser] Benchmark workouts fetch failed: %s", exc)
+                log.warning("[browser] Benchmarks uit PR-data mislukt: %s", exc)
+            if not benchmark_workouts:
+                log.info("[browser] Navigating to benchmark workouts page")
+                try:
+                    # Navigate away first to force fresh XHRs
+                    page.goto(f"{SUGARWOD_BASE}/workouts", wait_until="domcontentloaded", timeout=15000)
+                    captured.clear()
+                    page.goto(
+                        f"{SUGARWOD_BASE}/athletes/me?date_from=20100101&date_to={datetime.now(AMS).strftime('%Y%m%d')}#benchmarks",
+                        wait_until="networkidle",
+                        timeout=30000,
+                    )
+                    try:
+                        debug_html["benchmarks"] = page.content()[:80000]
+                    except Exception:
+                        pass
+
+                    log.info("[browser] Captured %d XHRs on benchmarks page; URLs: %s",
+                             len(captured), [c["url"] for c in captured])
+
+                    # Combine current + barbell-page captured (React may skip re-fetching)
+                    all_captured_for_benchmarks = _barbell_page_captured + captured
+
+                    # Strategy 1: dedicated extractor (tries select + click interactions)
+                    benchmark_workouts = _extract_benchmarks_from_page(page)
+
+                    # Strategy 2: shape-based XHR scan if DOM gave nothing
+                    if not benchmark_workouts:
+                        log.info("[browser] DOM extraction empty; trying shape-based XHR scan for benchmarks")
+                        for item in all_captured_for_benchmarks:
+                            data = item["data"]
+                            arr = data if isinstance(data, list) else (
+                                data.get("data") or data.get("results") or data.get("benchmarks") or []
+                            )
+                            if not arr or not isinstance(arr, list):
+                                continue
+                            sample = arr[0] if arr else {}
+                            if not isinstance(sample, dict):
+                                continue
+                            has_name = any(k in sample for k in ("name", "workout", "benchmark", "title"))
+                            has_result = any(k in sample for k in ("result", "score", "time", "reps", "value"))
+                            if has_name and has_result:
+                                log.info("[browser] Shape-matched benchmark data from %s (%d items)", item["url"], len(arr))
+                                for r in arr:
+                                    benchmark_workouts.append({
+                                        "name": r.get("name") or r.get("workout") or r.get("benchmark") or r.get("title") or "",
+                                        "result": str(r.get("result") or r.get("score") or r.get("time") or r.get("reps") or ""),
+                                        "scaling": r.get("scaling") or r.get("scaled") or "",
+                                        "date": str(r.get("date") or r.get("achieved_at") or r.get("performed_at") or ""),
+                                        "category": r.get("category") or r.get("type") or r.get("workout_type") or "Benchmark",
+                                    })
+                                if benchmark_workouts:
+                                    break
+
+                    log.info("[browser] Extracted %d benchmark workouts", len(benchmark_workouts))
+                except Exception as exc:
+                    log.warning("[browser] Benchmark workouts fetch failed: %s", exc)
 
             # ── 6. Scrape athlete logbook (actual attended workouts) ──────────
             athlete_logbook: list[dict] = []
