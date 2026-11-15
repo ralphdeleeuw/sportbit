@@ -573,12 +573,24 @@ def _benchmarks_from_pr_rows(pr_rows: list[dict], captured: list[dict]) -> list[
                 if t.get("slug"):
                     type_names[str(t["slug"])] = t.get("name") or ""
 
+    if pr_rows:
+        log.info("[browser] PR-rij keys: %s", sorted(pr_rows[0].keys()))
+        lib_rows = [r for r in pr_rows if any(
+            k.lower().startswith("library") or k in ("isBenchmark", "benchmark") for k in r)]
+        log.info("[browser] PR-rijen met library-velden: %d — voorbeeld: %s",
+                 len(lib_rows), str({k: v for k, v in (lib_rows or pr_rows)[0].items()
+                                     if "ibrary" in k or "enchmark" in k})[:400])
+
     logged_sample = False
     out: list[dict] = []
     for r in pr_rows:
-        lw = r.get("libraryWorkout")
+        lw = (r.get("libraryWorkout") or r.get("libraryWorkoutId") or r.get("libraryId")
+              or r.get("libraryType") or r.get("libraryTypeId") or r.get("isBenchmark"))
         if not lw:
             continue
+        if not isinstance(lw, dict):
+            lw = {k: r.get(k) for k in ("libraryType", "libraryTypeId", "libraryTypeName")
+                  if r.get(k) not in (None, "")}
         if not logged_sample:
             log.info("[browser] libraryWorkout voorbeeld: %s", str(lw)[:300])
             logged_sample = True
