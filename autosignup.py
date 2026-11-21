@@ -153,6 +153,10 @@ class GistStateManager:
                     k: v for k, v in self.state["exclusions"].items()
                     if k[:10] >= today_str
                 }
+                self.state["vacations"] = [
+                    v for v in self.state.get("vacations", []) or []
+                    if (v.get("to") or "") >= today_str
+                ]
                 self.state.setdefault("family_bookings", {})
                 self.state["family_bookings"] = {
                     k: v for k, v in self.state["family_bookings"].items()
@@ -185,6 +189,16 @@ class GistStateManager:
 
     def is_excluded(self, date: str, time: str) -> bool:
         return f"{date}_{time}" in self.state.get("exclusions", {})
+
+    def vacation_for(self, date: str) -> dict | None:
+        """Geef de vakantieperiode (uit de PWA) waar `date` in valt, of None.
+
+        Perioden staan in state["vacations"] als [{"from": "YYYY-MM-DD", "to": ..., "note": ...}].
+        """
+        for v in self.state.get("vacations", []) or []:
+            if (v.get("from") or "") <= date <= (v.get("to") or ""):
+                return v
+        return None
 
     def is_cancelled(self, occurrence_id: str) -> bool:
         return str(occurrence_id) in self.state["cancelled"]
@@ -793,6 +807,12 @@ def run(email: str, password: str, subdomain: str, dry_run: bool, days_ahead: in
         if state and state.is_excluded(date_str, target_time):
             log.info("Skipping %s — excluded by user.", label)
             results["skipped"].append(f"{label} (excluded)")
+            continue
+
+        vacation = state.vacation_for(date_str) if state else None
+        if vacation:
+            log.info("Skipping %s — vakantiemodus (%s t/m %s).", label, vacation.get("from"), vacation.get("to"))
+            results["skipped"].append(f"{label} (vakantie)")
             continue
 
         if date_str not in events_cache:

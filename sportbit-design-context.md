@@ -21,7 +21,7 @@
 | Sport | CrossFit + recreational running |
 | Box | CrossFit Hilversum, Netherlands |
 | Weekly schedule | Mon 20:00 / Wed 08:00 / Thu 20:00 / Sat 09:00 / Sun 09:00 |
-| Running goal | Improve 5K from 28:00 → 26:00 |
+| Running goal | Defensie fitnesstest: 12 min ≥ 2200 m (eis), streef 2700 m; 5K ≈ 28:00 |
 | Strength focus | Back squat, deadlift, Olympic lifts |
 | Language | Dutch (nl) |
 | Timezone | Europe/Amsterdam (CET/CEST) |
@@ -32,14 +32,14 @@
 
 | Layer | Technology |
 |-------|------------|
-| Frontend | Vanilla JS, single HTML file (SPA) |
+| Frontend | Vanilla JS PWA — `index.html` + modules in `js/` (classic scripts, `main.js` laatst) |
 | Charts | Chart.js v4 |
 | Markdown rendering | marked.js |
 | PWA | Service Worker + Web App Manifest |
 | Backend/automation | Python 3.12, GitHub Actions (cron) |
 | Data storage | GitHub Gist (JSON files, no database) |
 | AI coaching | Anthropic Claude API |
-| Notifications | Pushover API |
+| Notifications | Web Push (VAPID, via `notify.py`) |
 | Calendar sync | Google Calendar API |
 
 **Data sources integrated:**
@@ -47,7 +47,6 @@
 - Strava (running & outdoor activities)
 - Intervals.icu / Garmin Connect (wellness: HRV, sleep, training load)
 - Withings (body composition: weight, fat %, muscle mass)
-- MyFitnessPal (nutrition diary)
 - Open-Meteo + WAQI (weather & air quality)
 
 ---
@@ -99,71 +98,39 @@
 
 ## Screen Architecture
 
-Single-page app — no routing. All sections on one scrollable page with collapsible panels.
+Vijf tabs met een vaste bottom-navigatie. Bovenaan verschijnt een **sync-balk**
+zodra er een workflow loopt (op elke tab zichtbaar), en een **offline-banner** als
+de app op lokaal bewaarde data draait. Meldingen gaan via **toasts** onderaan
+(met "Ongedaan maken" bij verwijderen); bevestigen via een bottom-sheet.
 
-### 1. Configuration Bar (sticky top)
-- GitHub Gist ID input + Personal Access Token input
-- Last updated timestamp
-- Four workflow trigger buttons:
-  - ⚡ **Inschrijven** — trigger auto-signup
-  - ↻ **SugarWOD Sync** — fetch WOD + AI coaching
-  - ♥ **Health Refresh** — sync Strava / Intervals / Withings
-  - 🏃 **Hardloopplan** — generate running plan
+### 1. Vandaag
+- Waarschuwingschip als een databron te oud is of een workflow mislukte
+- **Dagadvies**: groen "Vol gas" / oranje "Rustig aan" / rood "Rust", op basis van
+  HRV, rusthartslag, slaap, TSB, Garmin-gereedheid, blessures en belasting 7:28;
+  uitklapbaar met de redenen
+- Weekreview (zondag gegenereerd, een week zichtbaar)
+- Actieve blessures, thuistraining, herstelblok + AI-coach
+- Pull-to-refresh
 
-### 2. Stats Bar
-- 3-column grid of key numbers:
-  - Upcoming classes count
-  - Past classes count
-  - Third metric (configurable)
+### 2. Schema
+- Komende CrossFit-lessen, hardloopworkouts en eigen events
+- Nog niet ingeschreven slots (vakantiedagen uitgesloten), maandquotum 13 lessen
+- Geannuleerd + verleden activiteiten
 
-### 3. Recovery Status Block
-- Resting HR, HRV, sleep quality, TSB (Training Stress Balance)
-- Color-coded badges: Fresh / Neutral / Fatigued
-- AI-generated recovery advice (rendered markdown)
-- Collapsible
+### 3. Hardlopen
+- Prestatievoorspeller: 5K-tijd + 12-minutenafstand (Riegel, snelste run per week),
+  grafiek met lijnen voor 2200 m en 2700 m
+- Hardloopplan, run-analyse en aanpassingsvoorstellen
 
-### 4. Upcoming Events
-- "**+ Toevoegen**" (Add Event) button
-- Event cards (CrossFit classes, personal events, running workouts)
-- Each card shows:
-  - Colored status dot
-  - Title, date/time, relative label ("Morgen", "Overmorgen")
-  - Capacity badge (e.g. "10/15")
-  - Weather/air quality badge
-  - Expandable: WOD description, athlete notes, barbell weight suggestions
-  - Inline Strava/Intervals activity summary for same day
-  - Running plan details (distance, pace, lap splits)
+### 4. CrossFit
+- PR's, benchmarks, barbell-progressie (grafiek + tabel)
 
-### 5. Cancelled Events
-- Last 8 days of cancellations
-- "Undo" button to restore
-
-### 6. Past Activities
-- Standalone activities without an associated class
-- CrossFit completion summaries
-
-### 7. Running Plan Block
-- 5K progress bar (current pace → goal 26:00)
-- List of scheduled runs with lap/split data
-- 📅 Reschedule button + inline date/time form
-
-### 8. Strength Training
-- Personal Records table (Back Squat, Deadlift, Bench Press, etc.)
-- Barbell Lifts table: 1RM per lift + percentage grid (65–105%)
-- Trend chart (Chart.js line chart, lift selector dropdown)
-
-### 9. Benchmark Workouts
-- Tabbed interface by WOD type (Amrap, Emom, Chipper, etc.)
-- Results table: benchmark name / result / scaling / date
-
-### 10. Data Sources (debug panel)
-- Collapsible tables showing raw data from each integration
-- API status, latest sync timestamps
-
-### 11. Footer
-- Last sync time
-- Data source attribution
-- Workflow status indicators
+### 5. Acties
+- Instellingen (Gist ID, token) + uitleg fine-grained token
+- Databronnen-versheid (groen/rood per bron, link naar mislukte run)
+- Trainingsbelasting (acuut:chronisch, alle sporten samen)
+- Blessures, vakantiemodus
+- Workflowknoppen met laatste-run-status, notificaties, ruwe data-tabellen
 
 ---
 
@@ -291,32 +258,19 @@ vert_oscillation_mm, vert_ratio_pct   # running dynamics (Fenix 8, zonder borstb
 
 ```
 sportbit/
-├── index.html                    # Main SPA (~3900 lines)
-├── manifest.json                 # PWA manifest
-├── sw.js                         # Service Worker
-├── icon.svg / icon-maskable.svg  # App icons
-│
-├── autosignup.py                 # Auto class registration
-├── fetch_sugarwod.py             # WOD + AI coaching data
-├── fetch_intervals.py            # Garmin/wellness data
-├── fetch_strava.py               # Running activities
-├── fetch_withings.py             # Body composition
-├── fetch_myfitnesspal.py         # Nutrition diary
-├── fetch_environmental.py        # Weather + air quality
-│
-├── generate_fitness_context.py   # Aggregate athlete data for AI
-├── generate_running_workout.py   # Claude-powered run plan generator
-├── reschedule_running_workout.py # Date override + Garmin sync
-├── send_preworkout_briefing.py   # 30min pre-class push notification
-├── google_calendar_sync.py       # Google Calendar integration
-│
-├── .github/workflows/            # GitHub Actions automation
-│   ├── autosignup.yml
-│   ├── fetch_sugarwod.yml
-│   ├── fetch_health_data.yml
-│   ├── generate_running_workout.yml
-│   └── [6 more workflows]
-│
-├── requirements.txt
-└── README.md
+├── index.html, style.css, sw.js, manifest.json
+├── js/                     # PWA-modules: core, ui, push, state, wod, activities,
+│                           # data, tabs, workflows, health, personal, running,
+│                           # injuries, homeworkout, insights, main (laatst)
+├── autosignup.py           # Huppa-inschrijving (+ vakantiemodus)
+├── fetch_sugarwod.py       # SugarWOD-scrape + health-orchestratie
+├── sugarwod_coach.py       # AI-coaching (herstel, workout-plannen, deload)
+├── sugarwod_config.py      # Atletenprofiel en constanten
+├── fetch_intervals.py / fetch_garmin.py / fetch_strava.py / fetch_withings.py / fetch_environmental.py
+├── generate_*.py           # AI-generatie (hardlopen, open gym, thuistraining, context)
+├── weekly_review.py        # Zondagse weekreview
+├── pr_alerts.py            # Push bij nieuw PR
+├── notify.py / notify_failure.py  # Web Push + melding bij mislukte workflow
+├── gist_utils.py, injuries.py
+└── .github/workflows/      # Crons + handmatige workflows (concurrency per Gist-groep)
 ```
