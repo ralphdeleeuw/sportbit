@@ -2,6 +2,12 @@
     // (acuut:chronisch), prestatievoorspeller, versheid per databron, weekreview,
     // vakantiemodus en token-uitleg.
 
+    // Een inzicht-blok mag nooit de hele tab breken: bij een fout leeg teruggeven.
+    function _safeHtml(name, fn) {
+      try { return fn() || ''; }
+      catch (e) { console.error(`${name} mislukt:`, e); return ''; }
+    }
+
     function _isoDay(offset = 0) {
       const d = new Date(); d.setDate(d.getDate() + offset);
       return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
@@ -67,7 +73,8 @@
       return { acute, chronic, acwr, zone, sport7, days };
     }
 
-    function renderLoadCard({ compact = false } = {}) {
+    function renderLoadCard(opts) { return _safeHtml('renderLoadCard', () => _renderLoadCard(opts)); }
+    function _renderLoadCard({ compact = false } = {}) {
       const L = computeTrainingLoad();
       if (L.acwr == null) return '';
       const pct = Math.min(100, Math.max(0, (L.acwr / 2) * 100));
@@ -153,7 +160,8 @@
       return { level, ...meta, reasons, wDate, stale: wDate && wDate !== today };
     }
 
-    function renderDayAdviceCard() {
+    function renderDayAdviceCard() { return _safeHtml('renderDayAdviceCard', () => _renderDayAdviceCard()); }
+    function _renderDayAdviceCard() {
       const a = computeDayAdvice();
       if (!a) return '';
       const reasons = a.reasons
@@ -198,7 +206,8 @@
       });
     }
 
-    function renderFreshnessBlock() {
+    function renderFreshnessBlock() { return _safeHtml('renderFreshnessBlock', () => _renderFreshnessBlock()); }
+    function _renderFreshnessBlock() {
       const rows = sourceFreshness().map(s => {
         const cls = s.failUrl || s.state !== 'ok' ? 'fresh-bad' : 'fresh-ok';
         const age = s.ts ? relTime(s.ts) : 'nog nooit';
@@ -218,7 +227,8 @@
     }
 
     // Klein waarschuwingsregeltje op Vandaag als er iets mis is.
-    function renderFreshnessChip() {
+    function renderFreshnessChip() { return _safeHtml('renderFreshnessChip', () => _renderFreshnessChip()); }
+    function _renderFreshnessChip() {
       const bad = sourceFreshness().filter(s => s.failUrl || s.state === 'stale');
       if (!bad.length) return '';
       const txt = bad.map(s => `${s.name} ${s.failUrl ? 'mislukt' : (s.ageH != null ? Math.round(s.ageH) + 'u oud' : '')}`).join(' · ');
@@ -271,7 +281,8 @@
     }
 
     let _perfChart = null;
-    function renderPerformanceCard() {
+    function renderPerformanceCard() { return _safeHtml('renderPerformanceCard', () => _renderPerformanceCard()); }
+    function _renderPerformanceCard() {
       const t = computePerformanceTrend();
       if (!t) return '';
       const cur = t.best;
@@ -292,6 +303,9 @@
     }
 
     function initPerformanceChart() {
+      try { _initPerformanceChart(); } catch (e) { console.error('Grafiek mislukt:', e); }
+    }
+    function _initPerformanceChart() {
       const cv = document.getElementById('perfChart');
       const t = computePerformanceTrend();
       if (!cv || !t || typeof Chart === 'undefined') return;
@@ -324,7 +338,8 @@
     }
 
     // ── Weekreview ────────────────────────────────────────────────────────
-    function renderWeeklyReviewCard() {
+    function renderWeeklyReviewCard() { return _safeHtml('renderWeeklyReviewCard', () => _renderWeeklyReviewCard()); }
+    function _renderWeeklyReviewCard() {
       const r = weeklyReview?.latest;
       if (!r) return '';
       const ageDays = (Date.now() - new Date(r.generated_at).getTime()) / 86400000;
@@ -359,7 +374,8 @@
       return (vacations || []).some(v => v.from <= dateStr && dateStr <= v.to);
     }
 
-    function renderVacationCard() {
+    function renderVacationCard() { return _safeHtml('renderVacationCard', () => _renderVacationCard()); }
+    function _renderVacationCard() {
       const today = _isoDay(0);
       const list = (vacations || []).filter(v => v.to >= today).sort((a, b) => a.from.localeCompare(b.from));
       const rows = list.map(v => `<div class="vac-row">
