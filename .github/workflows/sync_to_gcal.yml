@@ -2,7 +2,7 @@ name: Sync naar Google Agenda
 
 on:
   schedule:
-    # Elke dag om 07:30 UTC (09:30 Amsterdam zomertijd)
+    # Elke dag om 07:22 UTC (08:22 winter / 09:22 zomer Amsterdam)
     - cron: '22 7 * * *'
   workflow_dispatch:
 
