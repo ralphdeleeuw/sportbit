@@ -2,9 +2,15 @@ name: Sync naar Google Agenda
 
 on:
   schedule:
-    # Elke dag om 07:30 UTC (09:30 Amsterdam zomertijd)
-    - cron: '30 7 * * *'
+    # Elke dag om 07:22 UTC (08:22 winter / 09:22 zomer Amsterdam)
+    - cron: '22 7 * * *'
   workflow_dispatch:
+
+# Eén run tegelijk per Gist-bestandsgroep: voorkomt dat twee workflows
+# hetzelfde bestand lezen en elkaars wijzigingen overschrijven.
+concurrency:
+  group: gist-running
+  cancel-in-progress: false
 
 jobs:
   sync:
@@ -30,3 +36,12 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GIST_TOKEN }}
           GOOGLE_CREDENTIALS: ${{ secrets.GOOGLE_CREDENTIALS }}
           CALENDAR_ID: ${{ secrets.CALENDAR_ID }}
+
+      - name: Meld mislukte run
+        if: failure()
+        env:
+          GIST_ID: ${{ secrets.GIST_ID }}
+          GITHUB_TOKEN: ${{ secrets.GIST_TOKEN }}
+          VAPID_PRIVATE_KEY: ${{ secrets.VAPID_PRIVATE_KEY }}
+          VAPID_CLAIMS_EMAIL: ${{ secrets.VAPID_CLAIMS_EMAIL }}
+        run: pip install -q requests pywebpush && python3 notify_failure.py

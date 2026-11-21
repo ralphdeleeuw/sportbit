@@ -1,63 +1,67 @@
-# CrossFit Auto Sign-Up for Huppa
+# SportBit (RalphFit)
 
-Automated sign-up system for CrossFit classes at CrossFit Hilversum using the Huppa platform. The system automatically registers you for predefined weekly workout slots, syncs with Google Calendar, and sends notifications about your registrations.
+Persoonlijk CrossFit- en hardloopdashboard voor CrossFit Hilversum. Python-scripts
+halen data op (Huppa, SugarWOD, Garmin/intervals.icu, Strava, Withings, weer/lucht),
+bewaren die in één GitHub Gist en laten AI-coaches (Claude) trainingsadvies en
+hardloopschema's maken. De PWA (`index.html` + `js/`) toont alles op de telefoon.
 
-## Project Description
+## Wat het doet
 
-This project automates the process of signing up for CrossFit WOD (Workout of the Day) classes on a fixed weekly schedule. It runs daily via GitHub Actions to:
+- **Automatisch inschrijven** voor de vaste lessen (ma 20:00, wo 08:00, do 20:00,
+  zo 09:00) via Huppa, incl. Google Agenda-sync. **Vakantiemodus** pauzeert dit
+  voor een datumbereik.
+- **Data verzamelen** elke 4 uur (health) en dagelijks (SugarWOD).
+- **AI-coaching on-demand**: herstel-advies, workout-plannen, hardloopschema,
+  open gym-programma, thuistraining (alleen via knoppen in de app — kostenbesparing).
+- **Weekreview** elke zondagavond: cijfers + kort AI-advies, als pushmelding.
+- **Pushmeldingen** bij nieuwe PR's, mislukte workflows (max. 1× per 12 uur per
+  workflow), pre-workout briefing en weekoverzicht.
 
-- Check for available classes matching your preferred schedule
-- Automatically sign up for classes (or join the waitlist if full)
-- Sync confirmed registrations to your Google Calendar
-- Send push notifications about new registrations
-- Track registration state to avoid duplicate sign-ups
-- Detect manual cancellations and update calendar accordingly
-- Send a weekly summary of upcoming classes every Sunday
+## De app
 
-The system is designed for members of CrossFit Hilversum who want to maintain a consistent training schedule without manually booking classes each week.
+| Tab | Inhoud |
+|-----|--------|
+| Vandaag | Dagadvies (vol gas / rustig aan / rust), weekreview, blessures, herstel + AI-coach |
+| Schema | Komende lessen, runs en eigen events; nog niet ingeschreven slots |
+| Hardlopen | Prestatievoorspeller (5K + 12-minutentest), hardloopplan, analyses |
+| CrossFit | PR's, benchmarks, barbell-progressie |
+| Acties | Databronnen-versheid, trainingsbelasting, blessures, vakantiemodus, workflowknoppen |
 
-## Configuration
+Werkt ook offline: de laatst geladen data staat lokaal (IndexedDB) en wordt bij
+opstarten direct getoond. Trek omlaag op Vandaag/Schema om te verversen.
 
-The following secrets must be configured in your GitHub repository settings:
+## Workflows (GitHub Actions)
 
-### Huppa Credentials
-- **`HUPPA_EMAIL`** — Your Huppa account email address
-- **`HUPPA_PASSWORD`** — Your Huppa account password  
-- **`HUPPA_SUBDOMAIN`** — The gym's subdomain (e.g., `crossfithilversum`)
+| Workflow | Wanneer |
+|----------|---------|
+| `autosignup.yml` | dagelijks 00:07 UTC + weekoverzicht zo 17:03 UTC |
+| `fetch_health_data.yml` | elke 4 uur op :13 |
+| `fetch_sugarwod.yml` | dagelijks 04:37 UTC |
+| `cancel_running_workout.yml` | elke 4 uur op :43 |
+| `sync_to_gcal.yml` | dagelijks 07:22 UTC |
+| `preworkout_briefing.yml` | 30 min vóór elke les |
+| `weekly_review.yml` | zondag 17:23 UTC |
+| overige | alleen handmatig / via de app |
 
-### Google Calendar Integration
-- **`GOOGLE_CREDENTIALS`** — Google service account credentials JSON for calendar access
-- **`CALENDAR_ID`** — Target Google Calendar ID (use `primary` for your main calendar)
+Workflows die hetzelfde Gist-bestand schrijven delen een `concurrency`-groep
+(`gist-wod`, `gist-running`, `gist-state`), zodat ze elkaars wijzigingen niet
+overschrijven. Crons staan bewust niet op `:00` (GitHub vertraagt die runs).
 
-### State Management
-- **`GIST_ID`** — GitHub Gist ID for storing registration state between runs
-- **`GIST_TOKEN`** — GitHub personal access token with gist permissions
+## Secrets
 
-### Push Notifications (Optional)
-- **`PUSHOVER_USER_KEY`** — Pushover user key for receiving notifications
-- **`PUSHOVER_API_TOKEN`** — Pushover application API token
-- **`VAPID_PRIVATE_KEY`** — VAPID private key for web push notifications
-- **`VAPID_CLAIMS_EMAIL`** — Email address for VAPID claims
+`GIST_ID`, `GIST_TOKEN`, `ANTHROPIC_API_KEY`, `VAPID_PRIVATE_KEY`,
+`VAPID_CLAIMS_EMAIL`, `HUPPA_*`, `SUGARWOD_*`, `GARMIN_*`, `INTERVALS_*`,
+`STRAVA_*`, `WITHINGS_*`, `WAQI_API_TOKEN`, `GOOGLE_CREDENTIALS`, `CALENDAR_ID`.
 
-### Documentation Generation
-- **`ANTHROPIC_API_KEY`** — Anthropic API key for automated README generation
+Het GitHub-token in de app moet een **fine-grained token** zijn met alleen
+*Actions: read/write* op deze repo en *Gists: read/write* (uitleg staat in de app
+onder Acties → Instellingen).
 
-## Schedule
+## Code-indeling
 
-The automation runs on two schedules via GitHub Actions:
-
-### Daily Sign-Up Run
-- **Time**: Every day at 00:01 UTC (01:01 CET / 02:01 CEST)
-- **Purpose**: Checks for classes in the next 8 days and signs up for any matching the configured schedule
-- **Current schedule**:
-  - Monday 20:00
-  - Wednesday 08:00
-  - Thursday 20:00
-  - Saturday 09:00
-  - Sunday 09:00
-
-### Weekly Summary
-- **Time**: Sundays at 17:00 UTC (18:00 Amsterdam time)
-- **Purpose**: Sends a push notification with an overview of all registered classes for the upcoming week
-
-The workflow can also be triggered manually from the GitHub Actions tab for immediate sign-ups or testing.
+- `js/` — PWA, één bestand per onderdeel; `main.js` laadt als laatste.
+- `fetch_sugarwod.py` — SugarWOD-scrape + health-orchestratie;
+  `sugarwod_coach.py` (AI-coaching) en `sugarwod_config.py` (profiel/constanten).
+- `fetch_*.py` — databronnen; `generate_*.py` — AI-generatie; `gist_utils.py`,
+  `notify.py` — gedeelde helpers.
+- `weekly_review.py`, `pr_alerts.py`, `notify_failure.py` — review en meldingen.

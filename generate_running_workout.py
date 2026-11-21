@@ -1883,11 +1883,6 @@ def main() -> None:
     logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
 
     repush = "--repush" in sys.argv
-    test_workout = "--test-workout" in sys.argv
-    inspect_event_id = None
-    for i, arg in enumerate(sys.argv):
-        if arg == "--inspect-event" and i + 1 < len(sys.argv):
-            inspect_event_id = sys.argv[i + 1]
 
     athlete_id      = os.environ.get("INTERVALS_ATHLETE_ID", "").strip()
     api_key         = os.environ.get("INTERVALS_API_KEY", "").strip()
@@ -1895,75 +1890,6 @@ def main() -> None:
     github_token    = os.environ.get("GITHUB_TOKEN", "").strip()
     garmin_email    = os.environ.get("GARMIN_EMAIL", "").strip()
     garmin_password = os.environ.get("GARMIN_PASSWORD", "").strip()
-
-    if test_workout:
-        # Duwt een vaste mini-workout naar intervals.icu om de Garmin naald te testen.
-        # Geen HR-targets — alleen pace-bereiken. Workout is vandaag over ~1 uur.
-        if not athlete_id or not api_key:
-            log.error("INTERVALS_ATHLETE_ID en INTERVALS_API_KEY zijn vereist voor --test-workout")
-            sys.exit(1)
-        _ensure_pace_workout_order(athlete_id, api_key)
-        now_ams = datetime.now(AMS)
-        test_date = now_ams.date().isoformat()
-        # Plan 1 uur vanaf nu, afgerond naar het eerstvolgende hele uur
-        test_hour = (now_ams.hour + 1) % 24
-        test_time = f"{test_hour:02d}:00:00"
-        spec = {
-            "date": test_date,
-            "session": "speed",
-            "type": "interval_run",
-            "name": "Naald-test (verwijder na test)",
-            "description": "Mini-workout om Garmin pace-naald te testen. Geen HR-doel, alleen tempobereik.",
-            "total_distance_km": 2.0,
-            "time": test_time,
-            "steps": [
-                {"type": "warmup",   "distance_m": 500,  "pace_min": "6:20", "pace_max": "6:40"},
-                {"type": "run",      "distance_m": 1000, "pace_min": "6:00", "pace_max": "6:20"},
-                {"type": "cooldown", "distance_m": 500,  "pace_min": "6:20", "pace_max": "6:40"},
-            ],
-        }
-        event = _build_intervals_event(spec)
-        log.info("Test-workout aanmaken: '%s' op %s om %s", spec["name"], test_date, test_time)
-        results = _push_to_intervals(athlete_id, api_key, [event])
-        if results and results[0]:
-            log.info("✓ Test-workout gepusht naar intervals.icu (id: %s)", results[0].get("id"))
-            log.info("Stappen:")
-            for s in (results[0].get("workout_doc") or {}).get("steps", []):
-                log.info("  %s", json.dumps({k: v for k, v in s.items() if k in ("text","pace","hr","distance","duration","warmup","cooldown","rest")}))
-        else:
-            log.error("Test-workout aanmaken mislukt")
-            sys.exit(1)
-
-        if garmin_email and garmin_password:
-            log.info("Native Garmin workout pushen (pace step-targets)...")
-            _push_to_garmin_connect([spec], garmin_email, garmin_password)
-        else:
-            log.warning("GARMIN_EMAIL/GARMIN_PASSWORD niet ingesteld — Garmin native push overgeslagen")
-        return
-
-    if inspect_event_id:
-        # Fetch and print a single event's workout_doc — used to verify pace format
-        if not athlete_id or not api_key:
-            log.error("INTERVALS_ATHLETE_ID en INTERVALS_API_KEY zijn vereist voor --inspect-event")
-            sys.exit(1)
-        resp = requests.get(
-            f"{INTERVALS_BASE}/{athlete_id}/events/{inspect_event_id}",
-            auth=("API_KEY", api_key),
-            timeout=20,
-        )
-        if not resp.ok:
-            log.error("Fout bij ophalen event %s: %s — %s", inspect_event_id, resp.status_code, resp.text[:300])
-            sys.exit(1)
-        event = resp.json()
-        print(f"\n=== Event: {event.get('name')} ({event.get('start_date_local', '')[:10]}) ===\n")
-        workout_doc = event.get("workout_doc")
-        if not workout_doc:
-            print("Geen workout_doc aanwezig.")
-        else:
-            print("workout_doc.steps:")
-            for i, step in enumerate(workout_doc.get("steps", [])):
-                print(f"\n  Stap {i+1}: {json.dumps(step, indent=4)}")
-        return
 
     required = [
         ("INTERVALS_ATHLETE_ID", athlete_id),

@@ -2,8 +2,8 @@ name: Refresh Health Data
 
 on:
   schedule:
-    # Elke 4 uur (00:00, 04:00, 08:00, 12:00, 16:00, 20:00 UTC)
-    - cron: '0 */4 * * *'
+    # Elke 4 uur op :13 (00:13, 04:13, … UTC) — bewust niet op :00 (GitHub vertraagt die runs)
+    - cron: '13 */4 * * *'
   workflow_dispatch:
     inputs:
       skip_strava:
@@ -31,6 +31,12 @@ on:
         required: false
         default: 'false'
         type: boolean
+
+# Eén run tegelijk per Gist-bestandsgroep: voorkomt dat twee workflows
+# hetzelfde bestand lezen en elkaars wijzigingen overschrijven.
+concurrency:
+  group: gist-wod
+  cancel-in-progress: false
 
 jobs:
   refresh-health:
@@ -78,3 +84,12 @@ jobs:
           INTERVALS_DEBUG_KEYS: ${{ inputs.debug_intervals_keys && '1' || '' }}
           GARMIN_DEBUG_KEYS: ${{ inputs.debug_garmin_keys && '1' || '' }}
         run: python3 fetch_sugarwod.py
+
+      - name: Meld mislukte run
+        if: failure()
+        env:
+          GIST_ID: ${{ secrets.GIST_ID }}
+          GITHUB_TOKEN: ${{ secrets.GIST_TOKEN }}
+          VAPID_PRIVATE_KEY: ${{ secrets.VAPID_PRIVATE_KEY }}
+          VAPID_CLAIMS_EMAIL: ${{ secrets.VAPID_CLAIMS_EMAIL }}
+        run: pip install -q requests pywebpush && python3 notify_failure.py

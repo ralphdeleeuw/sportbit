@@ -31,3 +31,12 @@ jobs:
           DRY_RUN: ${{ github.event.inputs.dry_run }}
           DAYS_BACK: ${{ github.event.inputs.days_back }}
           DAYS_FORWARD: ${{ github.event.inputs.days_forward }}
+
+      - name: Meld mislukte run
+        if: failure()
+        env:
+          GIST_ID: ${{ secrets.GIST_ID }}
+          GITHUB_TOKEN: ${{ secrets.GIST_TOKEN }}
+          VAPID_PRIVATE_KEY: ${{ secrets.VAPID_PRIVATE_KEY }}
+          VAPID_CLAIMS_EMAIL: ${{ secrets.VAPID_CLAIMS_EMAIL }}
+        run: pip install -q requests pywebpush && python3 notify_failure.py

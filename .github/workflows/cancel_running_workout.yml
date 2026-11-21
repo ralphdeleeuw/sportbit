@@ -2,14 +2,20 @@ name: Cancel Running Workout
 
 on:
   schedule:
-    # Elke 4 uur (00:00, 04:00, 08:00, 12:00, 16:00, 20:00 UTC)
-    - cron: '0 */4 * * *'
+    # Elke 4 uur op :43 — bewust niet op :00 en niet tegelijk met de health-refresh (:13)
+    - cron: '43 */4 * * *'
   workflow_dispatch:
     inputs:
       date:
         description: 'Datum (YYYY-MM-DD) van de run die geannuleerd moet worden. Leeg = alleen reeds geannuleerde runs opruimen.'
         required: false
         default: ''
+
+# Eén run tegelijk per Gist-bestandsgroep: voorkomt dat twee workflows
+# hetzelfde bestand lezen en elkaars wijzigingen overschrijven.
+concurrency:
+  group: gist-running
+  cancel-in-progress: false
 
 jobs:
   cancel:
@@ -30,3 +36,12 @@ jobs:
           CALENDAR_ID: ${{ secrets.CALENDAR_ID }}
           GARMIN_EMAIL: ${{ secrets.GARMIN_EMAIL }}
           GARMIN_PASSWORD: ${{ secrets.GARMIN_PASSWORD }}
+
+      - name: Meld mislukte run
+        if: failure()
+        env:
+          GIST_ID: ${{ secrets.GIST_ID }}
+          GITHUB_TOKEN: ${{ secrets.GIST_TOKEN }}
+          VAPID_PRIVATE_KEY: ${{ secrets.VAPID_PRIVATE_KEY }}
+          VAPID_CLAIMS_EMAIL: ${{ secrets.VAPID_CLAIMS_EMAIL }}
+        run: pip install -q requests pywebpush && python3 notify_failure.py

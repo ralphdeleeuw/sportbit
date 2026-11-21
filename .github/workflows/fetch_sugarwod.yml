@@ -19,6 +19,12 @@ on:
         default: 'false'
         type: boolean
 
+# Eén run tegelijk per Gist-bestandsgroep: voorkomt dat twee workflows
+# hetzelfde bestand lezen en elkaars wijzigingen overschrijven.
+concurrency:
+  group: gist-wod
+  cancel-in-progress: false
+
 jobs:
   fetch-wod:
     runs-on: ubuntu-latest
@@ -31,7 +37,7 @@ jobs:
           python-version: '3.12'
 
       - name: Install dependencies
-        run: pip install requests beautifulsoup4 playwright anthropic
+        run: pip install requests beautifulsoup4 playwright anthropic pywebpush
 
       - name: Install Playwright browsers
         run: playwright install chromium --with-deps
@@ -42,6 +48,8 @@ jobs:
           SUGARWOD_PASSWORD: ${{ secrets.SUGARWOD_PASSWORD }}
           GIST_ID: ${{ secrets.GIST_ID }}
           GITHUB_TOKEN: ${{ secrets.GIST_TOKEN }}
+          VAPID_PRIVATE_KEY: ${{ secrets.VAPID_PRIVATE_KEY }}
+          VAPID_CLAIMS_EMAIL: ${{ secrets.VAPID_CLAIMS_EMAIL }}
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
@@ -55,3 +63,12 @@ jobs:
           SKIP_MYFITNESSPAL: ${{ inputs.skip_myfitnesspal || 'false' }}
           # HEALTH_ONLY is false (default): alleen SugarWOD ophalen, gecachte health data uit Gist gebruiken
         run: python3 fetch_sugarwod.py
+
+      - name: Meld mislukte run
+        if: failure()
+        env:
+          GIST_ID: ${{ secrets.GIST_ID }}
+          GITHUB_TOKEN: ${{ secrets.GIST_TOKEN }}
+          VAPID_PRIVATE_KEY: ${{ secrets.VAPID_PRIVATE_KEY }}
+          VAPID_CLAIMS_EMAIL: ${{ secrets.VAPID_CLAIMS_EMAIL }}
+        run: pip install -q requests pywebpush && python3 notify_failure.py
