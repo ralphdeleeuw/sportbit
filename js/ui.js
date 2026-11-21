@@ -183,6 +183,7 @@
       try {
         const slim = { updated_at: gist.updated_at, files: {} };
         for (const [name, f] of Object.entries(gist.files || {})) {
+          if (f && f._incomplete) return; // onvolledig (afgekapt) — niet cachen
           if (f && typeof f.content === 'string') slim.files[name] = { filename: name, content: f.content };
         }
         const db = await _idb();

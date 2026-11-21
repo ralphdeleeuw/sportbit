@@ -25,13 +25,20 @@
       await Promise.all(Object.values(files).map(async f => {
         if (!f || !f.raw_url) return;
         if (!f.truncated && typeof f.content === 'string' && f.content.length > 0) return;
-        try {
-          const r = await fetch(f.raw_url, { headers: authHeaders || {} });
-          if (r.ok) f.content = await r.text();
-          else console.warn(`Gist-bestand ${f.filename}: raw_url gaf ${r.status}`);
-        } catch (e) {
-          console.warn(`Gist-bestand ${f.filename} kon niet volledig geladen worden:`, e);
+        // Eerst zónder token: gist.githubusercontent.com staat geen Authorization-
+        // header toe in een cross-origin verzoek (CORS-preflight faalt), en de
+        // raw_url bevat het Gist-ID al. Pas als dat mislukt mét token proberen.
+        const attempts = [{}, authHeaders || {}].filter((h, i) => i === 0 || Object.keys(h).length);
+        for (const headers of attempts) {
+          try {
+            const r = await fetch(f.raw_url, { headers });
+            if (r.ok) { f.content = await r.text(); f.truncated = false; return; }
+            console.warn(`Gist-bestand ${f.filename}: raw_url gaf ${r.status}`);
+          } catch (e) {
+            console.warn(`Gist-bestand ${f.filename} kon niet volledig geladen worden:`, e);
+          }
         }
+        f._incomplete = true;
       }));
     }
 
