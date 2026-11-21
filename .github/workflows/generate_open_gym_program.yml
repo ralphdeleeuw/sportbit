@@ -15,6 +15,12 @@ on:
 permissions:
   contents: read
 
+# Eén run tegelijk per Gist-bestandsgroep: voorkomt dat twee workflows
+# hetzelfde bestand lezen en elkaars wijzigingen overschrijven.
+concurrency:
+  group: gist-state
+  cancel-in-progress: false
+
 jobs:
   generate:
     runs-on: ubuntu-latest
@@ -43,3 +49,12 @@ jobs:
           FORCE_DATE: ${{ github.event.inputs.force_date }}
           FORCE_TIME: ${{ github.event.inputs.force_time }}
         run: python3 generate_open_gym_program.py
+
+      - name: Meld mislukte run
+        if: failure()
+        env:
+          GIST_ID: ${{ secrets.GIST_ID }}
+          GITHUB_TOKEN: ${{ secrets.GIST_TOKEN }}
+          VAPID_PRIVATE_KEY: ${{ secrets.VAPID_PRIVATE_KEY }}
+          VAPID_CLAIMS_EMAIL: ${{ secrets.VAPID_CLAIMS_EMAIL }}
+        run: pip install -q requests pywebpush && python3 notify_failure.py

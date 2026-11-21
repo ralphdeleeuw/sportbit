@@ -2,13 +2,19 @@ name: CrossFit Auto Sign-Up (Huppa)
 
 on:
   schedule:
-    - cron: "1 0 * * *"     # 01:01 CET (winter) / 02:01 CEST (zomer) — middernacht UTC
-    - cron: "0 17 * * 0"    # 18:00 Amsterdam op zondag — weekoverzicht
+    - cron: "7 0 * * *"     # 01:07 CET (winter) / 02:07 CEST (zomer) — net na middernacht UTC, niet op :00
+    - cron: "3 17 * * 0"    # 18:03 Amsterdam op zondag — weekoverzicht
   workflow_dispatch: # Allow manual trigger from GitHub UI
 
 permissions:
   contents: write
   actions: read
+
+# Eén run tegelijk per Gist-bestandsgroep: voorkomt dat twee workflows
+# hetzelfde bestand lezen en elkaars wijzigingen overschrijven.
+concurrency:
+  group: gist-state
+  cancel-in-progress: false
 
 jobs:
   signup:
@@ -24,7 +30,7 @@ jobs:
         run: pip install -r requirements.txt
 
       - name: Run auto sign-up with calendar sync
-        if: github.event.schedule != '0 17 * * 0'
+        if: github.event.schedule != '3 17 * * 0'
         env:
           HUPPA_EMAIL: ${{ secrets.HUPPA_EMAIL }}
           HUPPA_PASSWORD: ${{ secrets.HUPPA_PASSWORD }}
@@ -42,7 +48,7 @@ jobs:
         run: python3 autosignup.py --live --sync-calendar
 
       - name: Stuur weekoverzicht
-        if: github.event.schedule == '0 17 * * 0'
+        if: github.event.schedule == '3 17 * * 0'
         env:
           HUPPA_EMAIL: ${{ secrets.HUPPA_EMAIL }}
           HUPPA_PASSWORD: ${{ secrets.HUPPA_PASSWORD }}
@@ -52,3 +58,12 @@ jobs:
           VAPID_PRIVATE_KEY: ${{ secrets.VAPID_PRIVATE_KEY }}
           VAPID_CLAIMS_EMAIL: ${{ secrets.VAPID_CLAIMS_EMAIL }}
         run: python3 autosignup.py --weekly-summary
+
+      - name: Meld mislukte run
+        if: failure()
+        env:
+          GIST_ID: ${{ secrets.GIST_ID }}
+          GITHUB_TOKEN: ${{ secrets.GIST_TOKEN }}
+          VAPID_PRIVATE_KEY: ${{ secrets.VAPID_PRIVATE_KEY }}
+          VAPID_CLAIMS_EMAIL: ${{ secrets.VAPID_CLAIMS_EMAIL }}
+        run: pip install -q requests pywebpush && python3 notify_failure.py
