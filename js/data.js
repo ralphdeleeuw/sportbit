@@ -52,7 +52,12 @@
       let gist;
       try {
         // Single fetch — parse all files from one response
-        const resp = await fetch(`https://api.github.com/gists/${gistId}`, { headers: authHeaders, cache: 'no-store' });
+        let resp = await fetch(`https://api.github.com/gists/${gistId}`, { headers: authHeaders, cache: 'no-store' });
+        if ((resp.status === 401 || resp.status === 403) && token) {
+          // Token ongeldig/zonder Gist-rechten: de Gist is ook zonder token leesbaar.
+          showToast(`GitHub-token geweigerd (${resp.status}) — data geladen zonder token. Controleer je token in Acties.`, { type: 'error', duration: 7000 });
+          resp = await fetch(`https://api.github.com/gists/${gistId}`, { cache: 'no-store' });
+        }
         if (!resp.ok) throw new Error(`GitHub API fout: ${resp.status}`);
         gist = await resp.json();
         await hydrateTruncatedFiles(gist, authHeaders);
@@ -75,6 +80,15 @@
       } catch (e) {
         const el = document.getElementById('today-content');
         if (el) el.innerHTML = `<div class="error-msg">❌ ${escapeHtml(e.message)}</div>`;
+      }
+    }
+
+    function _safeRender(elId, fn) {
+      try { fn(); }
+      catch (e) {
+        console.error(`Render ${elId} mislukt:`, e);
+        const el = document.getElementById(elId);
+        if (el) el.insertAdjacentHTML('afterbegin', `<div class="error-msg">❌ Weergavefout: ${escapeHtml(e.message)}</div>`);
       }
     }
 
@@ -227,10 +241,11 @@
         buildMonthlyClassIndex(signedUp, allPendingSlots);
 
         // Render each tab
-        renderTodayTab(upcoming, past, allUpcoming);
-        renderSchemaTab(allUpcoming, recentCancelled, pastItems, pendingSlots, familyOnlySlots);
-        renderStatsTab();
-        renderPlanTab();
-        renderActiesTab(gist.updated_at);
+        // Elke tab apart: een fout in één tab mag de andere tabs niet leeg laten.
+        _safeRender('today-content', () => renderTodayTab(upcoming, past, allUpcoming));
+        _safeRender('schema-content', () => renderSchemaTab(allUpcoming, recentCancelled, pastItems, pendingSlots, familyOnlySlots));
+        _safeRender('stats-content', () => renderStatsTab());
+        _safeRender('plan-content', () => renderPlanTab());
+        _safeRender('acties-content', () => renderActiesTab(gist.updated_at));
     }
 
