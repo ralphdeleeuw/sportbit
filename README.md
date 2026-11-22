@@ -34,7 +34,7 @@ opstarten direct getoond. Trek omlaag op Vandaag/Schema om te verversen.
 
 | Workflow | Wanneer |
 |----------|---------|
-| `autosignup.yml` | dagelijks 00:07 UTC + weekoverzicht zo 17:03 UTC |
+| `autosignup.yml` | dagelijks 23:13, 01:41 en 03:17 UTC + weekoverzicht zo 17:03 UTC |
 | `fetch_health_data.yml` | elke 4 uur op :13 |
 | `fetch_sugarwod.yml` | dagelijks 04:37 UTC |
 | `cancel_running_workout.yml` | elke 4 uur op :43 |

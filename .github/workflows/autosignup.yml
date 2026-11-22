@@ -2,7 +2,12 @@ name: CrossFit Auto Sign-Up (Huppa)
 
 on:
   schedule:
-    - cron: "7 0 * * *"     # 01:07 CET (winter) / 02:07 CEST (zomer) — net na middernacht UTC, niet op :00
+    # GitHub start runs rond 00:00 UTC vaak uren te laat (gezien: 3,5–6,5 uur).
+    # Daarom meerdere momenten, buiten het drukke middernacht-UTC-uur. Elke run is
+    # veilig te herhalen: al geboekte lessen worden overgeslagen.
+    - cron: "13 23 * * *"   # 00:13 winter / 01:13 zomer Amsterdam
+    - cron: "41 1 * * *"    # 02:41 winter / 03:41 zomer
+    - cron: "17 3 * * *"    # 04:17 winter / 05:17 zomer (vangnet)
     - cron: "3 17 * * 0"    # 18:03 Amsterdam op zondag — weekoverzicht
   workflow_dispatch: # Allow manual trigger from GitHub UI
 
