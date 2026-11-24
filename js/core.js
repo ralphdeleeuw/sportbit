@@ -5,22 +5,26 @@
     const CROSSFIT_SCHEDULE = [[1,"20:00"],[3,"08:00"],[4,"20:00"],[0,"09:00"]];
     // Abonnement: maximaal aantal CrossFit-lessen per kalendermaand
     const MONTHLY_CLASS_QUOTA = 13;
-    // Sportvrienden — alleen deze deelnemers tonen bij een les. Huppa leverde
-    // eerst "Erik H." maar sinds okt 2026 alleen nog de voornaam ("Erik").
-    // Matchen gaat daarom op voornaam; staat er toch een achternaam(-initiaal)
-    // bij, dan moet die eerste letter ook kloppen ("Erik Huisman" matcht wel,
-    // "Erik Jansen" niet).
+    // Sportvrienden — alleen deze deelnemers tonen bij een les. Het naamformaat
+    // van Huppa is al een paar keer gewisseld: "Erik H.", daarna alleen de
+    // voornaam ("Erik"), sinds nov 2026 de volledige naam ("Erik Huisman",
+    // "Eline de Roock"). Matchen gaat daarom op voornaam; hebben beide kanten
+    // een achternaam, dan moet één van de achternaamdelen met dezelfde letter
+    // beginnen. Tussenvoegsels tellen als los deel, zodat zowel "Laura D" als
+    // "Laura L" op "Laura de Leeuw" matcht en "Erik Jansen" niet op "Erik H".
     const SPORT_FRIENDS = ['Erik H', 'Linda W', 'Laura D', 'Eva D', 'Robbert S', 'Stefan C'];
     function _nameParts(name) {
       const parts = (name || '').toLowerCase().replace(/\./g, '').split(/\s+/).filter(Boolean);
-      return { first: parts[0] || '', initial: (parts[1] || '')[0] || '' };
+      return { first: parts[0] || '', initials: parts.slice(1).map(w => w[0]) };
     }
     const _FRIEND_KEYS = SPORT_FRIENDS.map(_nameParts).filter(f => f.first);
     function isSportFriend(name) {
       const p = _nameParts(name);
       if (!p.first) return false;
       // Ontbreekt aan één van beide kanten de achternaam, dan telt de voornaam.
-      return _FRIEND_KEYS.some(f => f.first === p.first && (!p.initial || !f.initial || p.initial === f.initial));
+      return _FRIEND_KEYS.some(f => f.first === p.first && (
+        !p.initials.length || !f.initials.length || p.initials.some(i => f.initials.includes(i))
+      ));
     }
 
     // Blessures — zie het blessure-blok verderop; hier gedeclareerd omdat de eerste
