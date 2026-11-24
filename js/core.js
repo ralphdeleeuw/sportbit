@@ -119,15 +119,20 @@
     // zodat elke reservering toont de hoeveelste les van die maand het is.
     // Geplande maar nog niet ingeschreven slots tellen door in dezelfde reeks,
     // zodat je vooruit ziet waar je die maand op uitkomt. Overgeslagen slots
-    // (exclusions) tellen niet mee.
-    function buildMonthlyClassIndex(signedUp, pendingSlots = []) {
+    // (exclusions) tellen niet mee. Late afmeldingen (< 1 uur van tevoren,
+    // handmatig gemarkeerd met late_cancel) kosten wél een credit en tellen mee.
+    function buildMonthlyClassIndex(signedUp, pendingSlots = [], cancelled = []) {
       monthlyClassIndex = {};
       monthlyClassTotals = {};
       monthlyProjectedTotals = {};
+      monthlyLateCancelTotals = {};
       const entries = [
         ...signedUp
           .filter(e => e.date)
           .map(e => ({ date: e.date, time: e.time || '', key: e.event_id || `${e.date}_${e.time}`, pending: false })),
+        ...cancelled
+          .filter(e => e.date && e.late_cancel)
+          .map(e => ({ date: e.date, time: e.time || '', key: e.event_id || `${e.date}_${e.time}`, pending: false, late: true })),
         ...pendingSlots
           .filter(sl => sl.date && !exclusions[sl.key])
           .map(sl => ({ date: sl.date, time: sl.time || '', key: sl.key, pending: true })),
@@ -137,7 +142,8 @@
         const month = e.date.slice(0, 7);
         monthlyProjectedTotals[month] = (monthlyProjectedTotals[month] || 0) + 1;
         if (!e.pending) monthlyClassTotals[month] = (monthlyClassTotals[month] || 0) + 1;
-        monthlyClassIndex[e.key] = { index: monthlyProjectedTotals[month], month, pending: e.pending };
+        if (e.late) monthlyLateCancelTotals[month] = (monthlyLateCancelTotals[month] || 0) + 1;
+        monthlyClassIndex[e.key] = { index: monthlyProjectedTotals[month], month, pending: e.pending, late: !!e.late };
       }
     }
 
@@ -152,9 +158,12 @@
       if (info.pending) cls += ' pending';
       if (info.index > MONTHLY_CLASS_QUOTA) cls += ' over';
       const monthLabel = MONTH_NL[parseInt(info.month.slice(5, 7), 10) - 1];
+      if (info.late) cls += ' late';
       const title = info.pending
         ? `Wordt les ${info.index} van ${MONTHLY_CLASS_QUOTA} in ${monthLabel} als je je inschrijft`
-        : `Les ${info.index} van ${MONTHLY_CLASS_QUOTA} in ${monthLabel}`;
+        : info.late
+          ? `Late afmelding — kost credit ${info.index} van ${MONTHLY_CLASS_QUOTA} in ${monthLabel}`
+          : `Les ${info.index} van ${MONTHLY_CLASS_QUOTA} in ${monthLabel}`;
       return `<span class="${cls}" title="${title}">${info.index}/${MONTHLY_CLASS_QUOTA}</span>`;
     }
 
@@ -174,9 +183,13 @@
       const outlook = left > 0
         ? `nog ${left} te gaan`
         : (left === 0 ? 'tegoed precies op' : `${-left} boven je abonnement`);
+      const late = monthlyLateCancelTotals[month] || 0;
+      const usedLabel = late > 0
+        ? `${used - late} ingeschreven + ${late} late afmelding${late > 1 ? 'en' : ''}`
+        : `${used} ingeschreven`;
       const note = planned > 0
-        ? `${used} ingeschreven + ${planned} gepland → ${projected}/${MONTHLY_CLASS_QUOTA} · ${outlook}`
-        : `${used} ingeschreven · ${outlook}`;
+        ? `${usedLabel} + ${planned} gepland → ${projected}/${MONTHLY_CLASS_QUOTA} · ${outlook}`
+        : `${usedLabel} · ${outlook}`;
       return `<div class="month-quota ${cls}">
         <div class="month-quota-head">
           <span class="month-quota-title">Lessen ${MONTH_NL_FULL[now.getMonth()]}</span>
@@ -197,7 +210,8 @@
       const metaHtml = `<div class="card-meta">
         <span class="card-time">${item.time}</span>
         ${_coach ? `<span class="card-coach">· ${escapeHtml(_coach)}</span>` : ''}
-        ${cancelled ? '' : renderMonthCountBadge(item)}
+        ${cancelled && !item.late_cancel ? '' : renderMonthCountBadge(item)}
+        ${cancelled && item.late_cancel ? '<span class="late-cancel-label">Late afmelding · kost credit</span>' : ''}
       </div>` + (cancelled ? '' : renderParticipants(item.date, item.time));
 
       // Open Gym: toon gegenereerd programma als beschikbaar
@@ -277,6 +291,10 @@
           <button class="niet-gedaan-btn" id="undo-${item.event_id}"
             onclick="markOngedaanGemaakt('${item.event_id}','${item.date}','${item.time}','${escapeHtml(item.title)}',this)">
             Ongedaan maken
+          </button>
+          <button class="niet-gedaan-btn" id="late-${item.event_id}"
+            onclick="toggleLateCancel('${item.event_id}',${item.late_cancel ? 'false' : 'true'},this)">
+            ${item.late_cancel ? 'Geen late afmelding' : 'Late afmelding (kost credit)'}
           </button>
         </div>` : '';
 

@@ -147,7 +147,12 @@
 
         const todayStr = new Date().toISOString().slice(0, 10);
         const maxDateStr = (() => { const d = new Date(); d.setDate(d.getDate() + 8); return d.toISOString().slice(0, 10); })();
-        const recentCancelled = cancelled.filter(e => e.date >= todayStr && e.date <= maxDateStr);
+        // Ook de afgelopen 7 dagen tonen, zodat je een late afmelding achteraf
+        // nog kunt markeren; late afmeldingen van deze maand blijven zichtbaar.
+        const _cancelFrom = (() => { const d = new Date(); d.setDate(d.getDate() - 7); return d.toISOString().slice(0, 10); })();
+        const _monthStart = todayStr.slice(0, 7) + '-01';
+        const recentCancelled = cancelled.filter(e => e.date <= maxDateStr
+          && (e.date >= _cancelFrom || (e.late_cancel && e.date >= _monthStart)));
 
         const classDates = new Set(signedUp.map(e => e.date));
         const cutoff21 = new Date(); cutoff21.setDate(cutoff21.getDate() - 21);
@@ -238,7 +243,7 @@
 
         // Volgnummer per kalendermaand voor het abonnement (13x per maand),
         // inclusief de geplande slots waar nog niet op ingeschreven is
-        buildMonthlyClassIndex(signedUp, allPendingSlots);
+        buildMonthlyClassIndex(signedUp, allPendingSlots, cancelled);
 
         // Render each tab
         // Elke tab apart: een fout in één tab mag de andere tabs niet leeg laten.

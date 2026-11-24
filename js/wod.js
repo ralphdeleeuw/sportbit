@@ -491,6 +491,42 @@
       }
     }
 
+    // Markeer een afgemelde les als late afmelding (< 1 uur van tevoren):
+    // die kost een credit en telt mee in de maandtelling.
+    async function toggleLateCancel(eventId, isLate, btn) {
+      const token = document.getElementById('githubToken').value.trim();
+      if (!token) { btn.textContent = '⚠ Token nodig'; return; }
+      btn.disabled = true;
+      btn.textContent = 'Opslaan…';
+      try {
+        const resp = await fetch(`https://api.github.com/gists/${currentGistId}`, {
+          headers: { Authorization: `token ${token}` },
+        });
+        if (!resp.ok) throw new Error(`GitHub API ${resp.status}`);
+        const gist = await resp.json();
+        const stateRaw = gist.files['sportbit_state.json']?.content;
+        if (!stateRaw) throw new Error('sportbit_state.json niet gevonden');
+        const state = JSON.parse(stateRaw);
+        const entry = (state.cancelled || {})[eventId];
+        if (!entry) throw new Error('Afmelding niet gevonden');
+        if (isLate) entry.late_cancel = true;
+        else delete entry.late_cancel;
+
+        const patch = await fetch(`https://api.github.com/gists/${currentGistId}`, {
+          method: 'PATCH',
+          headers: { Authorization: `token ${token}`, 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            files: { 'sportbit_state.json': { content: JSON.stringify(state, null, 2) } }
+          }),
+        });
+        if (!patch.ok) throw new Error(`Opslaan mislukt ${patch.status}`);
+        await loadData();
+      } catch(e) {
+        btn.disabled = false;
+        btn.textContent = `❌ ${e.message}`;
+      }
+    }
+
     async function _patchExclusions(updatedExclusions) {
       const token = document.getElementById('githubToken').value.trim();
       if (!token) throw new Error('Token nodig');
