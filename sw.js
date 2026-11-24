@@ -1,4 +1,4 @@
-const CACHE = 'sportbit-v15';
+const CACHE = 'sportbit-v16';
 const ASSETS = [
   '/sportbit/',
   '/sportbit/index.html',
