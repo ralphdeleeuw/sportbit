@@ -1714,6 +1714,14 @@
       border-style: dashed;
     }
     .month-count-badge.pending.over { color: var(--accent2); opacity: 0.75; }
+    .month-count-badge.late { color: #ffb74d; border-color: #5a4020; }
+    .late-cancel-label {
+      font-size: 0.66rem;
+      color: #ffb74d;
+      margin-left: 0.35rem;
+      white-space: nowrap;
+    }
+    .cancelled-undo .niet-gedaan-btn + .niet-gedaan-btn { margin-left: 0.4rem; }
 
     .month-quota {
       background: var(--surface-deep);

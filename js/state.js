@@ -20,6 +20,7 @@
     let monthlyClassIndex = {}; // event_id of "date_time" → {index, month, pending}
     let monthlyClassTotals = {}; // "YYYY-MM" → aantal ingeschreven lessen
     let monthlyProjectedTotals = {}; // "YYYY-MM" → ingeschreven + nog te boeken geplande lessen
+    let monthlyLateCancelTotals = {}; // "YYYY-MM" → late afmeldingen (kosten een credit)
     let exclusions = {};   // {"YYYY-MM-DD_HH:MM": {excluded_at}}
     let familyBookings = {}; // {"YYYY-MM-DD_HH:MM": ["Laura", "Eva"]}
     let personalEvents = []; // [{id, title, date, time?, location?, notes?, created_at}]
