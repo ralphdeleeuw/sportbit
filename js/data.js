@@ -219,6 +219,7 @@
         // 21 dagen vooruit; voor de maandtelling kijken we door tot het einde van
         // de huidige maand, zodat de prognose de hele maand dekt.
         const signedUpKeys = new Set(signedUp.map(e => `${e.date}_${e.time}`));
+        const cancelledKeys = new Set(cancelled.map(e => `${e.date}_${e.time}`));
         const _now = new Date();
         const _daysLeftInMonth = new Date(_now.getFullYear(), _now.getMonth() + 1, 0).getDate() - _now.getDate();
         const _horizon = Math.max(21, _daysLeftInMonth);
@@ -227,7 +228,8 @@
           const d = new Date(); d.setDate(d.getDate() + i);
           const dateStr = d.toISOString().slice(0, 10);
           for (const [jsDay, time] of CROSSFIT_SCHEDULE) {
-            if (d.getDay() === jsDay && !signedUpKeys.has(`${dateStr}_${time}`) && !isOnVacation(dateStr)) {
+            // Afgemelde lessen boekt de inschrijfrobot niet opnieuw: niet als gepland tellen.
+            if (d.getDay() === jsDay && !signedUpKeys.has(`${dateStr}_${time}`) && !cancelledKeys.has(`${dateStr}_${time}`) && !isOnVacation(dateStr)) {
               allPendingSlots.push({ date: dateStr, time, key: `${dateStr}_${time}`, withinWindow: i <= 21 });
             }
           }
