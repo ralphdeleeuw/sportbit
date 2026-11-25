@@ -160,26 +160,30 @@
       return { level, ...meta, reasons, wDate, stale: wDate && wDate !== today };
     }
 
-    function renderDayAdviceCard() { return _safeHtml('renderDayAdviceCard', () => _renderDayAdviceCard()); }
-    function _renderDayAdviceCard() {
-      const a = computeDayAdvice();
-      if (!a) return '';
+    function renderDayAdviceCard(opts = {}) { return _safeHtml('renderDayAdviceCard', () => _renderDayAdviceCard(opts)); }
+    // opts.alert: korte waarschuwing die altijd zichtbaar is (bijv. herstelweek)
+    // opts.extra: html onder de redenen in het uitklapdeel (herstelcijfers + AI-coach)
+    function _renderDayAdviceCard({ alert = '', extra = '' } = {}) {
+      const a = computeDayAdvice() || { level: 'none', icon: '🧠', title: 'Herstel & coach', text: '', reasons: [] };
+      if (a.level === 'none' && !extra && !alert) return '';
       const reasons = a.reasons
         .sort((x, y) => y.pts - x.pts)
         .map(r => `<li class="${r.pts ? 'da-bad' : 'da-ok'}">${escapeHtml(r.txt)}</li>`).join('');
-      return `<div class="day-advice day-advice-${a.level}" onclick="this.classList.toggle('open')">
-        <div class="day-advice-head">
+      return `<div class="day-advice day-advice-${a.level}">
+        <div class="day-advice-head" onclick="this.parentElement.classList.toggle('open')">
           <span class="day-advice-icon">${a.icon}</span>
           <div class="day-advice-main">
             <div class="day-advice-title">${a.title}</div>
-            <div class="day-advice-text">${a.text}</div>
+            ${a.text ? `<div class="day-advice-text">${a.text}</div>` : ''}
+            ${alert ? `<div class="day-advice-alert">${alert}</div>` : ''}
           </div>
           <div class="wod-chevron">▾</div>
         </div>
         <div class="day-advice-body">
           ${a.stale ? `<div class="day-advice-note">Meting van ${a.wDate} — vandaag nog geen data.</div>` : ''}
-          <ul class="day-advice-reasons">${reasons}</ul>
-          ${renderLoadCard({ compact: true })}
+          ${reasons ? `<ul class="day-advice-reasons">${reasons}</ul>` : ''}
+          ${a.level !== 'none' ? renderLoadCard({ compact: true }) : ''}
+          ${extra}
         </div>
       </div>`;
     }
@@ -231,8 +235,13 @@
     function _renderFreshnessChip() {
       const bad = sourceFreshness().filter(s => s.failUrl || s.state === 'stale');
       if (!bad.length) return '';
-      const txt = bad.map(s => `${s.name} ${s.failUrl ? 'mislukt' : (s.ageH != null ? Math.round(s.ageH) + 'u oud' : '')}`).join(' · ');
-      return `<div class="fresh-chip" onclick="switchTab('acties')">⚠️ ${escapeHtml(txt)}</div>`;
+      const failed = bad.filter(s => s.failUrl).length;
+      const maxH = Math.max(0, ...bad.map(s => s.ageH || 0));
+      const txt = bad.length === 1
+        ? `${bad[0].name} ${bad[0].failUrl ? 'mislukt' : Math.round(maxH) + 'u oud'}`
+        : `${bad.length} bronnen ${failed ? `(${failed} mislukt)` : `tot ${Math.round(maxH)}u oud`}`;
+      const tip = bad.map(s => s.name).join(', ');
+      return `<div class="today-pill today-pill-warn" onclick="switchTab('acties')" title="${escapeHtml(tip)}">⚠️ ${escapeHtml(txt)}</div>`;
     }
 
     // ── Prestatievoorspeller (5K + 12-minutentest) ────────────────────────
@@ -335,38 +344,6 @@
           },
         },
       });
-    }
-
-    // ── Weekreview ────────────────────────────────────────────────────────
-    function renderWeeklyReviewCard() { return _safeHtml('renderWeeklyReviewCard', () => _renderWeeklyReviewCard()); }
-    function _renderWeeklyReviewCard() {
-      const r = weeklyReview?.latest;
-      if (!r) return '';
-      const ageDays = (Date.now() - new Date(r.generated_at).getTime()) / 86400000;
-      if (ageDays > 7.5) return '';
-      const delta = (a, b, unit, dec = 1) => (a == null || b == null) ? '' :
-        ` <span class="wr-delta">(${a - b >= 0 ? '+' : ''}${(a - b).toFixed(dec).replace('.', ',')}${unit})</span>`;
-      const fmt = (v, dec = 1) => v == null ? '—' : Number(v).toFixed(dec).replace('.', ',');
-      return `<div class="weekly-review" onclick="this.classList.toggle('open')">
-        <div class="ai-coach-toggle">
-          <div class="ai-coach-toggle-left">
-            <div class="ai-coach-label">📈 Weekreview ${r.week_start.slice(5)} – ${r.week_end.slice(5)}</div>
-            <div class="ai-coach-timestamp">${r.crossfit_classes}× CrossFit · ${fmt(r.run_km)} km · slaap ${fmt(r.sleep_avg_h)} u</div>
-          </div>
-          <div class="wod-chevron">▾</div>
-        </div>
-        <div class="weekly-review-body">
-          <div class="wr-grid">
-            <div><span>CrossFit</span><strong>${r.crossfit_classes}×</strong></div>
-            <div><span>Hardlopen</span><strong>${r.runs}× · ${fmt(r.run_km)} km</strong></div>
-            <div><span>Slaap gem.</span><strong>${fmt(r.sleep_avg_h)} u${delta(r.sleep_avg_h, r.sleep_avg_h_prev, 'u')}</strong></div>
-            <div><span>HRV gem.</span><strong>${fmt(r.hrv_avg, 0)}${delta(r.hrv_avg, r.hrv_avg_prev, '', 0)}</strong></div>
-            <div><span>Gewicht</span><strong>${fmt(r.weight_kg)} kg${delta(r.weight_kg, r.weight_kg_prev, ' kg')}</strong></div>
-            <div><span>Belasting 7:28</span><strong>${r.acwr == null ? '—' : fmt(r.acwr, 2)}</strong></div>
-          </div>
-          ${r.advice ? `<div class="ai-coach-body">${safeMarkdown(r.advice)}</div>` : ''}
-        </div>
-      </div>`;
     }
 
     // ── Vakantiemodus ─────────────────────────────────────────────────────

@@ -122,17 +122,17 @@
     }
 
     /* ── Today tab header ──────────────────────────────────── */
-    .today-header { padding: 20px 0 8px; position: relative; }
+    .today-header { padding: 14px 0 4px; position: relative; }
     .today-date {
       font-size: 11px; color: #666; font-weight: 500;
       letter-spacing: 0.1em; text-transform: uppercase; margin-bottom: 2px;
     }
     .today-greeting {
       font-family: 'Bebas Neue', sans-serif;
-      font-size: 28px; color: var(--text); letter-spacing: 0.04em; margin-bottom: 16px;
+      font-size: 26px; color: var(--text); letter-spacing: 0.04em; margin-bottom: 10px;
     }
     .refresh-btn {
-      position: absolute; top: 20px; right: 0;
+      position: absolute; top: 14px; right: 0;
       background: transparent; border: 1px solid #2a4a20; border-radius: 8px;
       color: var(--accent); font-size: 1.2rem; line-height: 1;
       padding: 4px 10px; cursor: pointer; transition: opacity 0.2s;
@@ -1404,18 +1404,6 @@
       margin-left: 2px;
     }
 
-    .deload-banner {
-      background: linear-gradient(135deg, #2d1a00, #1a0000);
-      border: 1px solid #ff6b00;
-      border-radius: 10px;
-      padding: 0.85rem 1.1rem;
-      margin-bottom: 1.2rem;
-      color: #ffb347;
-      font-size: 0.88rem;
-      font-weight: 600;
-      animation: fadeUp 0.4s ease both;
-    }
-
     .recovery-block {
       background: #0a0f1a;
       border: 1px solid #1a2a4a;
@@ -2083,7 +2071,7 @@
       height: 3px;
       background: linear-gradient(90deg, var(--purple), rgba(154, 112, 255, 0.3));
     }
-    .hw-card-inner { padding: 14px 16px; }
+    .hw-card-inner { padding: 12px 14px; }
     .hw-card-header {
       display: flex;
       justify-content: space-between;
@@ -2411,35 +2399,6 @@
     }
     .injury-form-row .injury-select { flex: 1; min-width: 0; }
 
-    .injury-banner {
-      background: var(--surface);
-      border: 1px solid var(--accent2);
-      border-radius: var(--radius-sm);
-      padding: 0.6rem 0.8rem;
-      margin: 0 0 0.75rem;
-      cursor: pointer;
-    }
-
-    .injury-banner-title {
-      font-size: 0.78rem;
-      font-weight: 700;
-      color: var(--accent2);
-      letter-spacing: 0.02em;
-    }
-
-    .injury-banner-list {
-      margin: 0.25rem 0 0;
-      padding-left: 1.1rem;
-      font-size: 0.74rem;
-      color: var(--text);
-    }
-
-    .injury-banner-hint {
-      font-size: 0.66rem;
-      color: var(--muted);
-      margin-top: 0.3rem;
-    }
-
     /* ── Toasts ────────────────────────────────────────────── */
     .toast-wrap {
       position: fixed; left: 50%; transform: translateX(-50%);
@@ -2509,35 +2468,55 @@
     }
     .ptr-indicator.show { opacity: 1; }
 
-    /* ── Dagadvies ─────────────────────────────────────────── */
+    /* ── Dagadvies (+ herstel + AI-coach in één kaart) ───── */
     .day-advice {
-      border-radius: 16px; padding: 14px 16px; margin: 0 0 16px;
-      background: var(--surface); border: 1px solid var(--border); border-left: 5px solid var(--success);
-      cursor: pointer;
+      border-radius: 14px; padding: 12px 14px; margin: 0 0 12px;
+      background: var(--surface); border: 1px solid var(--border); border-left: 4px solid var(--success);
     }
     .day-advice-orange { border-left-color: var(--neutral); }
     .day-advice-red { border-left-color: var(--accent2); }
-    .day-advice-head { display: flex; align-items: center; gap: 12px; }
-    .day-advice-icon { font-size: 1.6rem; }
-    .day-advice-main { flex: 1; }
-    .day-advice-title { font-family: 'Bebas Neue', sans-serif; font-size: 1.7rem; letter-spacing: .5px; line-height: 1; }
+    .day-advice-none { border-left-color: #9a70ff; }
+    .day-advice-head { display: flex; align-items: center; gap: 10px; cursor: pointer; user-select: none; }
+    .day-advice-icon { font-size: 1.25rem; }
+    .day-advice-main { flex: 1; min-width: 0; }
+    .day-advice-title { font-family: 'Bebas Neue', sans-serif; font-size: 1.35rem; letter-spacing: .5px; line-height: 1; }
     .day-advice-green .day-advice-title { color: var(--success); }
     .day-advice-orange .day-advice-title { color: var(--neutral); }
     .day-advice-red .day-advice-title { color: var(--accent2); }
-    .day-advice-text { font-size: .85rem; color: var(--text); margin-top: 4px; line-height: 1.35; }
-    .day-advice-body { display: none; margin-top: 12px; border-top: 1px solid var(--border); padding-top: 10px; }
+    .day-advice-none .day-advice-title { color: #9a70ff; }
+    .day-advice-text { font-size: .8rem; color: var(--muted); margin-top: 3px; line-height: 1.35; }
+    .day-advice-alert { font-size: .76rem; color: #ffb347; font-weight: 600; margin-top: 4px; }
+    .day-advice-head .wod-chevron { transition: transform 0.2s; }
+    .day-advice-body { display: none; margin-top: 10px; border-top: 1px solid var(--border); padding-top: 10px; }
     .day-advice.open .day-advice-body { display: block; }
-    .day-advice.open .wod-chevron { transform: rotate(180deg); }
-    .day-advice-reasons { list-style: none; font-size: .82rem; display: grid; gap: 4px; }
+    .day-advice.open .day-advice-head .wod-chevron { transform: rotate(180deg); }
+    .day-advice-reasons { list-style: none; font-size: .8rem; display: grid; gap: 4px; margin-bottom: 8px; }
     .day-advice-reasons li::before { content: '✓ '; color: var(--success); }
     .day-advice-reasons li.da-bad::before { content: '! '; color: var(--accent2); font-weight: 700; }
     .day-advice-note { font-size: .75rem; color: var(--muted); margin-bottom: 6px; }
+    .day-advice-body .recovery-today-block { margin: 10px 0 0; padding: 0.6rem 0.8rem; animation: none; }
+    .day-advice-body .ai-coach-empty { margin-top: 10px; }
+    .da-coach { margin-top: 10px; }
+    .da-coach summary {
+      display: flex; align-items: baseline; gap: 8px; cursor: pointer; list-style: none; padding: 4px 0;
+    }
+    .da-coach summary::-webkit-details-marker { display: none; }
+    .da-coach summary::after { content: '▾'; margin-left: auto; color: var(--accent); }
+    .da-coach[open] summary::after { content: '▴'; }
+    .da-coach .ai-coach-body { font-size: 14px; line-height: 1.65; margin-top: 6px; }
+
+    /* ── Statuspillen (verouderde data, blessures) ─────────── */
+    .today-pills { display: flex; flex-wrap: wrap; gap: 6px; margin: 0 0 10px; }
+    .today-pill {
+      font-size: .74rem; padding: 5px 10px; border-radius: 999px; cursor: pointer;
+      border: 1px solid var(--border); background: var(--surface); color: var(--text);
+      max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    }
+    .today-pill span { color: var(--muted); }
+    .today-pill-warn { background: #3a2a10; border-color: #5a4015; color: #ffd27a; }
+    .today-pill-injury { border-color: var(--accent2); }
 
     /* ── Versheid databronnen ─────────────────────────────── */
-    .fresh-chip {
-      background: #3a2a10; color: #ffd27a; border-radius: 10px; padding: 8px 12px;
-      font-size: .78rem; margin: 0 0 12px; cursor: pointer;
-    }
     .fresh-row { display: flex; align-items: center; gap: 8px; font-size: .84rem; padding: 5px 0; }
     .fresh-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--success); flex: none; }
     .fresh-bad .fresh-dot { background: var(--accent2); }
@@ -2573,17 +2552,6 @@
     .perf-goal { font-size: .82rem; margin-bottom: 8px; }
     .perf-chart-wrap { position: relative; height: 170px; }
     .perf-note { font-size: .7rem; color: var(--muted); margin-top: 8px; line-height: 1.35; }
-
-    /* ── Weekreview ────────────────────────────────────────── */
-    .weekly-review { background: var(--surface); border: 1px solid var(--border); border-radius: 16px; padding: 12px 16px; margin-bottom: 16px; cursor: pointer; }
-    .weekly-review-body { display: none; margin-top: 10px; }
-    .weekly-review.open .weekly-review-body { display: block; }
-    .weekly-review.open .wod-chevron { transform: rotate(180deg); }
-    .wr-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 10px; }
-    .wr-grid div { background: var(--surface2); border-radius: 10px; padding: 8px 10px; display: flex; flex-direction: column; gap: 2px; }
-    .wr-grid span { font-size: .7rem; color: var(--muted); }
-    .wr-grid strong { font-size: .9rem; }
-    .wr-delta { color: var(--muted); font-weight: 400; font-size: .75rem; }
 
     /* ── Vakantiemodus & token-uitleg ─────────────────────── */
     .vac-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; font-size: .85rem; padding: 6px 0; border-bottom: 1px solid var(--border-subtle); }

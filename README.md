@@ -14,7 +14,6 @@ hardloopschema's maken. De PWA (`index.html` + `js/`) toont alles op de telefoon
 - **Data verzamelen** elke 4 uur (health) en dagelijks (SugarWOD).
 - **AI-coaching on-demand**: herstel-advies, workout-plannen, hardloopschema,
   open gym-programma, thuistraining (alleen via knoppen in de app — kostenbesparing).
-- **Weekreview** elke zondagavond: cijfers + kort AI-advies, als pushmelding.
 - **Pushmeldingen** bij nieuwe PR's, mislukte workflows (max. 1× per 12 uur per
   workflow), pre-workout briefing en weekoverzicht.
 
@@ -22,7 +21,7 @@ hardloopschema's maken. De PWA (`index.html` + `js/`) toont alles op de telefoon
 
 | Tab | Inhoud |
 |-----|--------|
-| Vandaag | Dagadvies (vol gas / rustig aan / rust), weekreview, blessures, herstel + AI-coach |
+| Vandaag | Dagadvies met herstelcijfers + AI-coach in één kaart, blessure-/datapillen |
 | Schema | Komende lessen, runs en eigen events; nog niet ingeschreven slots |
 | Hardlopen | Prestatievoorspeller (5K + 12-minutentest), hardloopplan, analyses |
 | CrossFit | PR's, benchmarks, barbell-progressie |
@@ -41,7 +40,6 @@ opstarten direct getoond. Trek omlaag op Vandaag/Schema om te verversen.
 | `cancel_running_workout.yml` | elke 4 uur op :43 |
 | `sync_to_gcal.yml` | dagelijks 07:22 UTC |
 | `preworkout_briefing.yml` | 30 min vóór elke les |
-| `weekly_review.yml` | zondag 17:23 UTC |
 | overige | alleen handmatig / via de app |
 
 Workflows die hetzelfde Gist-bestand schrijven delen een `concurrency`-groep
@@ -65,4 +63,4 @@ onder Acties → Instellingen).
   `sugarwod_coach.py` (AI-coaching) en `sugarwod_config.py` (profiel/constanten).
 - `fetch_*.py` — databronnen; `generate_*.py` — AI-generatie; `gist_utils.py`,
   `notify.py` — gedeelde helpers.
-- `weekly_review.py`, `pr_alerts.py`, `notify_failure.py` — review en meldingen.
+- `pr_alerts.py`, `notify_failure.py` — meldingen.

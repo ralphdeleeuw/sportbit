@@ -39,7 +39,6 @@
     let wodFetchedAt = null;      // sugarwod_wod.json fetched_at (laatste run van fetch_sugarwod.py)
     let sugarwodFetchedAt = null; // laatste échte SugarWOD-scrape
     let workflowStatus = {};      // workflow_status.json — {workflow: {last_failure, run_url, ...}}
-    let weeklyReview = null;      // weekly_review.json — {latest, history}
     let vacations = [];           // sportbit_state.json → vacations [{from, to, note}]
     let activeChartLift = null;
     let liftChart = null;

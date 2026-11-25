@@ -15,59 +15,39 @@
         <button class="refresh-btn" onclick="hardRefresh()" title="Ververs pagina">↻</button>
       </div>`;
 
-      // Waarschuwing als een databron achterloopt of een workflow mislukte
-      h += renderFreshnessChip();
-      // Eén duidelijk dagadvies (HRV, slaap, vorm, belasting, blessures)
-      h += renderDayAdviceCard();
-      // Weekreview (zondag gegenereerd, een week zichtbaar)
-      h += renderWeeklyReviewCard();
+      // Compacte statusregel: verouderde databronnen + actieve blessures als pillen
+      const pills = [];
+      const fresh = renderFreshnessChip();
+      if (fresh) pills.push(fresh);
+      getInjuries().filter(i => i.status !== 'hersteld').forEach(i => {
+        const bits = [i.severity, i.status === 'herstellend' ? 'herstellend' : '', _isWorsened(i) ? 'verergerd' : ''].filter(Boolean);
+        const tip = i.description ? ` title="${escapeHtml(i.description)}"` : '';
+        pills.push(`<div class="today-pill today-pill-injury" onclick="switchTab('acties')"${tip}>🩹 ${escapeHtml(i.area)}${bits.length ? ` <span>· ${escapeHtml(bits.join(', '))}</span>` : ''}</div>`);
+      });
+      if (pills.length) h += `<div class="today-pills">${pills.join('')}</div>`;
 
-      // Actieve blessures — zichtbaar bij de coaching die erop is aangepast
-      const activeInjuries = getInjuries().filter(i => i.status !== 'hersteld');
-      if (activeInjuries.length) {
-        const items = activeInjuries.map(i => {
-          const bits = [i.severity, i.status === 'herstellend' ? 'herstellend' : '', _isWorsened(i) ? `verergerd ${i.worsened_on}` : ''].filter(Boolean);
-          const label = i.area + (bits.length ? ` (${bits.join(', ')})` : '');
-          return `<li>${escapeHtml(label)}${i.description ? ` — ${escapeHtml(i.description)}` : ''}</li>`;
-        }).join('');
-        h += `<div class="injury-banner" onclick="switchTab('acties')">
-          <div class="injury-banner-title">🩹 Actieve blessure${activeInjuries.length > 1 ? 's' : ''}</div>
-          <ul class="injury-banner-list">${items}</ul>
-          <div class="injury-banner-hint">De AI-coaches houden hier rekening mee · tik om te beheren</div>
-        </div>`;
-      }
-
-      h += renderHomeWorkoutCard();
-
-      // Recovery + AI coach
-      const recoveryBlock = renderRecoveryTodayBlock();
-      h += `<div class="recovery-card-wrapper">${recoveryBlock || ''}`;
+      // Eén kaart: dagadvies + herstelcijfers + AI-coach (details klappen open)
+      let coach = '';
       if (recoveryAdvice) {
         const label = recoveryAdviceFromHistory
-          ? `Coach Advies (${recoveryAdviceHistory[recoveryAdviceHistory.length-1].date})`
-          : 'AI Coach advies';
+          ? `Coach-advies (${recoveryAdviceHistory[recoveryAdviceHistory.length-1].date})`
+          : 'AI coach-advies';
         const tsStr = formatAdviceTimestamp(recoveryAdviceGeneratedAt);
-        const tsHtml = tsStr ? `<div class="ai-coach-timestamp">gegenereerd ${tsStr}</div>` : '';
-        h += `<div class="ai-coach-block" onclick="this.classList.toggle('open')">
-          <div class="ai-coach-toggle">
-            <div class="ai-coach-toggle-left">
-              <div class="ai-coach-label">${label}</div>
-              ${tsHtml}
-            </div>
-            <div class="wod-chevron">▾</div>
-          </div>
-          <div class="ai-coach-content">
-            <div class="ai-coach-body">${safeMarkdown(recoveryAdvice)}</div>
-          </div>
-        </div>`;
+        coach = `<details class="da-coach">
+          <summary><span class="ai-coach-label">${label}</span>${tsStr ? `<span class="ai-coach-timestamp">${tsStr}</span>` : ''}</summary>
+          <div class="ai-coach-body">${safeMarkdown(recoveryAdvice)}</div>
+        </details>`;
       } else {
-        h += `<div class="ai-coach-empty">Nog geen AI coach-advies. Genereer het on-demand 👇</div>`;
+        coach = `<div class="ai-coach-empty">Nog geen AI coach-advies.</div>`;
       }
       // On-demand: regenereert herstel-advies + workout-plannen (fetch_sugarwod, AI aan)
-      h += aiGenButton('🧠 Coach-advies genereren', 'fetch_sugarwod.yml', {});
-      h += `</div>`;
+      coach += aiGenButton('🧠 Coach-advies genereren', 'fetch_sugarwod.yml', {});
+      h += renderDayAdviceCard({
+        alert: deloadAlert ? '⚠️ Herstelweek aanbevolen — schaal WODs naar 60–70%.' : '',
+        extra: (renderRecoveryTodayBlock() || '') + coach,
+      });
 
-      if (deloadAlert) h += `<div class="deload-banner">⚠️ Herstelweek aanbevolen — schaal WODs naar 60–70%.</div>`;
+      h += renderHomeWorkoutCard();
 
       // Next two activities — include today's already-done crossfit so they stay
       // visible on the Vandaag tab until midnight (for quick reference after class)
@@ -373,7 +353,6 @@
         { btnId:'homeWorkoutBtn', statusId:'homeWorkoutStatus', lastRunId:'homeWorkoutLastRun', workflowFile:'generate_home_workout.yml', icon:'🏠', title:'Thuistraining Plan', desc:'Genereer een gepersonaliseerd dagelijks thuistraining plan via Claude (HRV, TSB, schema)', fn:'triggerHomeWorkoutPlan()', cls:'info' },
         { btnId:'reviewRunBtn', statusId:'reviewRunStatus', lastRunId:'reviewRunLastRun', workflowFile:'review_running_workout.yml', icon:'🔍', title:'Review Hardloopplan', desc:'Beoordeel en pas hardloopworkouts aan op basis van herstel & belasting', fn:'triggerReviewRunning()', cls:'success',
           extras:[{id:'reviewModeDaily',label:'Dagelijkse review'},{id:'reviewModePrerun',label:'Pre-run briefing'}] },
-        { btnId:'weeklyReviewBtn', statusId:'weeklyReviewStatus', lastRunId:'weeklyReviewLastRun', workflowFile:'weekly_review.yml', icon:'📈', title:'Weekreview', desc:'Samenvatting van de afgelopen 7 dagen + advies voor komende week (draait ook elke zondagavond)', fn:'triggerWeeklyReview()', cls:'info' },
         { btnId:'analyzeRunBtn', statusId:'analyzeRunStatus', lastRunId:'analyzeRunLastRun', workflowFile:'analyze_running_workout.yml', icon:'📊', title:'Analyseer Runs', desc:'Koppel voltooide runs aan het plan, gepland-vs-werkelijk analyse + voorstellen', fn:'triggerAnalyzeRunning()', cls:'success' },
       ];
 
