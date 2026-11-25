@@ -93,7 +93,6 @@
     function triggerGcalSync()       { return _wfButton('gcalSync', 'sync_to_gcal.yml', '📅 Sync naar Google Agenda', {}, 'Sync starten…'); }
     function triggerOpenGymProgram() { return _wfButton('openGym', 'generate_open_gym_program.yml', '🏋️ Open Gym Programma', {}, 'Programma genereren…'); }
     function triggerSignup()         { return _wfButton('signup', 'autosignup.yml', '⚡ Inschrijven', {}, 'Inschrijf-workflow starten…'); }
-    function triggerWeeklyReview()   { return _wfButton('weeklyReview', 'weekly_review.yml', '📈 Weekreview', {}, 'Weekreview genereren…'); }
 
     function triggerReviewRunning() {
       const mode = _isChecked('reviewModePrerun') ? 'prerun' : _isChecked('reviewModeDaily') ? 'daily' : 'auto';
@@ -208,7 +207,6 @@
         { id: 'openGymLastRun',      file: 'generate_open_gym_program.yml' },
         { id: 'homeWorkoutLastRun',  file: 'generate_home_workout.yml' },
         { id: 'reviewRunLastRun',    file: 'review_running_workout.yml' },
-        { id: 'weeklyReviewLastRun', file: 'weekly_review.yml' },
         { id: 'analyzeRunLastRun',   file: 'analyze_running_workout.yml' },
       ];
       await Promise.all(runs.map(async ({ id, file }) => {

@@ -185,9 +185,6 @@
       // workflow_status.json (mislukte runs, geschreven door notify_failure.py)
       try { workflowStatus = JSON.parse(files['workflow_status.json']?.content || '{}') || {}; } catch(e) { workflowStatus = {}; }
 
-      // weekly_review.json (weekly_review.py)
-      try { weeklyReview = JSON.parse(files['weekly_review.json']?.content || 'null'); } catch(e) { weeklyReview = null; }
-
       // workout_overrides.json
       const overridesFile = files['workout_overrides.json'];
       if (overridesFile) {

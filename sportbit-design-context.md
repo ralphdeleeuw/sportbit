@@ -108,7 +108,6 @@ de app op lokaal bewaarde data draait. Meldingen gaan via **toasts** onderaan
 - **Dagadvies**: groen "Vol gas" / oranje "Rustig aan" / rood "Rust", op basis van
   HRV, rusthartslag, slaap, TSB, Garmin-gereedheid, blessures en belasting 7:28;
   uitklapbaar met de redenen
-- Weekreview (zondag gegenereerd, een week zichtbaar)
 - Actieve blessures, thuistraining, herstelblok + AI-coach
 - Pull-to-refresh
 
@@ -268,7 +267,6 @@ sportbit/
 ├── sugarwod_config.py      # Atletenprofiel en constanten
 ├── fetch_intervals.py / fetch_garmin.py / fetch_strava.py / fetch_withings.py / fetch_environmental.py
 ├── generate_*.py           # AI-generatie (hardlopen, open gym, thuistraining, context)
-├── weekly_review.py        # Zondagse weekreview
 ├── pr_alerts.py            # Push bij nieuw PR
 ├── notify.py / notify_failure.py  # Web Push + melding bij mislukte workflow
 ├── gist_utils.py, injuries.py
