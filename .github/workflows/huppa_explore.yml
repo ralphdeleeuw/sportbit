@@ -1,0 +1,44 @@
+name: Huppa API Explore
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# Eén run tegelijk per Gist-bestandsgroep: voorkomt dat twee workflows
+# hetzelfde bestand lezen en elkaars wijzigingen overschrijven.
+concurrency:
+  group: gist-state
+  cancel-in-progress: false
+
+jobs:
+  explore:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Verken Huppa API (routes + GET-probes)
+        env:
+          HUPPA_EMAIL: ${{ secrets.HUPPA_EMAIL }}
+          HUPPA_PASSWORD: ${{ secrets.HUPPA_PASSWORD }}
+          HUPPA_SUBDOMAIN: ${{ secrets.HUPPA_SUBDOMAIN }}
+          GIST_ID: ${{ secrets.GIST_ID }}
+          GITHUB_TOKEN: ${{ secrets.GIST_TOKEN }}
+        run: python3 huppa_explore.py
+
+      - name: Meld mislukte run
+        if: failure()
+        env:
+          GIST_ID: ${{ secrets.GIST_ID }}
+          GITHUB_TOKEN: ${{ secrets.GIST_TOKEN }}
+          VAPID_PRIVATE_KEY: ${{ secrets.VAPID_PRIVATE_KEY }}
+          VAPID_CLAIMS_EMAIL: ${{ secrets.VAPID_CLAIMS_EMAIL }}
+        run: pip install -q requests pywebpush && python3 notify_failure.py
