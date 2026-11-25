@@ -6,12 +6,14 @@
     // Abonnement: maximaal aantal CrossFit-lessen per kalendermaand
     const MONTHLY_CLASS_QUOTA = 13;
     // Sportvrienden — alleen deze deelnemers tonen bij een les. Het naamformaat
-    // van Huppa is al een paar keer gewisseld: "Erik H.", daarna alleen de
-    // voornaam ("Erik"), sinds nov 2026 de volledige naam ("Erik Houtkamp",
-    // "Laura de Leeuw"). Matchen: voornaam moet kloppen; hebben beide kanten een
-    // volledige achternaam, dan moet die exact gelijk zijn, zodat een andere
-    // "Laura ..." niet meematcht. Is één kant alleen een initiaal of helemaal
-    // zonder achternaam (de oude formaten), dan volstaat die initiaal.
+    // van Huppa wisselt: "Erik H.", alleen de voornaam ("Erik"), en sinds nov
+    // 2026 de volledige naam ("Erik Houtkamp", "Laura de Leeuw").
+    // Matchen vereist altijd een achternaam, anders zou elke naamgenoot van een
+    // buddy meematchen. Staat aan beide kanten een volledige achternaam, dan
+    // moet die exact gelijk zijn; is één kant een initiaal ("Erik H."), dan moet
+    // die letter kloppen. Een deelnemer zonder achternaam matcht nooit — levert
+    // Huppa weer alleen voornamen, dan blijft de deelnemersregel dus leeg.
+    // Zet in deze lijst daarom altijd volledige namen.
     const SPORT_FRIENDS = [
       'Erik Houtkamp', 'Linda Westendorp', 'Robbert Schols',
       'Stefan Cornelissen', 'Eva de Leeuw', 'Laura de Leeuw',
@@ -21,15 +23,14 @@
       const rest = parts.slice(1);
       return { first: parts[0] || '', rest, last: rest.join(' ') };
     }
-    const _FRIEND_KEYS = SPORT_FRIENDS.map(_nameParts).filter(f => f.first);
+    const _FRIEND_KEYS = SPORT_FRIENDS.map(_nameParts).filter(f => f.first && f.last);
     function _isInitialOnly(n) { return n.rest.length === 1 && n.rest[0].length === 1; }
     function isSportFriend(name) {
       const p = _nameParts(name);
-      if (!p.first) return false;
+      if (!p.first || !p.last) return false;      // alleen een voornaam is te weinig
       return _FRIEND_KEYS.some(f => {
         if (f.first !== p.first) return false;
-        if (!p.last || !f.last) return true;        // alleen een voornaam bekend
-        if (p.last === f.last) return true;         // volledige achternaam gelijk
+        if (p.last === f.last) return true;       // volledige achternaam gelijk
         if (_isInitialOnly(p) || _isInitialOnly(f)) // oud formaat: "Erik H."
           return p.rest.some(w => f.rest.some(v => v[0] === w[0]));
         return false;
