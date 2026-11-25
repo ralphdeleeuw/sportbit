@@ -150,6 +150,11 @@
         ...cancelled
           .filter(e => e.date && e.late_cancel && !huppaAccount)
           .map(e => ({ date: e.date, time: e.time || '', key: e.event_id || `${e.date}_${e.time}`, pending: false, late: true })),
+        // Late afmeldingen en no-shows uit Huppa (tijdstip van de creditboeking)
+        // nemen een plek in de reeks in, zodat de kaartnummers kloppen met de teller.
+        ...((huppaAccount && huppaAccount.late_cancellations) || [])
+          .filter(c => c.at)
+          .map((c, i) => ({ date: c.at.slice(0, 10), time: c.at.slice(11, 16), key: `huppa_${i}`, pending: false, late: true })),
         ...pendingSlots
           .filter(sl => sl.date && !exclusions[sl.key])
           .map(sl => ({ date: sl.date, time: sl.time || '', key: sl.key, pending: true })),
@@ -190,13 +195,14 @@
     function renderMonthQuotaSummary() {
       const now = new Date();
       const month = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
-      // Late afmeldingen en no-shows uit Huppa kosten ook een credit.
+      // Late afmeldingen en no-shows uit Huppa zitten al in de maandreeks
+      // (buildMonthlyClassIndex); hier alleen nodig voor het label.
       const hm = huppaAccount ? ((huppaAccount.months || {})[month] || {}) : null;
       const hLate = hm ? (hm.late_cancellations || 0) : 0;
       const hNoShow = hm ? (hm.no_shows || 0) : 0;
       const hExtra = hLate + hNoShow;
-      const used = (monthlyClassTotals[month] || 0) + hExtra;
-      const projected = Math.max(used, (monthlyProjectedTotals[month] || 0) + hExtra);
+      const used = monthlyClassTotals[month] || 0;
+      const projected = monthlyProjectedTotals[month] || used;
       const planned = projected - used;
       const left = MONTHLY_CLASS_QUOTA - projected;
       const pct = Math.min(100, Math.round(used / MONTHLY_CLASS_QUOTA * 100));
