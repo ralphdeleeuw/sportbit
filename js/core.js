@@ -7,24 +7,33 @@
     const MONTHLY_CLASS_QUOTA = 13;
     // Sportvrienden — alleen deze deelnemers tonen bij een les. Het naamformaat
     // van Huppa is al een paar keer gewisseld: "Erik H.", daarna alleen de
-    // voornaam ("Erik"), sinds nov 2026 de volledige naam ("Erik Huisman",
-    // "Eline de Roock"). Matchen gaat daarom op voornaam; hebben beide kanten
-    // een achternaam, dan moet één van de achternaamdelen met dezelfde letter
-    // beginnen. Tussenvoegsels tellen als los deel, zodat zowel "Laura D" als
-    // "Laura L" op "Laura de Leeuw" matcht en "Erik Jansen" niet op "Erik H".
-    const SPORT_FRIENDS = ['Erik H', 'Linda W', 'Laura D', 'Eva D', 'Robbert S', 'Stefan C'];
+    // voornaam ("Erik"), sinds nov 2026 de volledige naam ("Erik Houtkamp",
+    // "Laura de Leeuw"). Matchen: voornaam moet kloppen; hebben beide kanten een
+    // volledige achternaam, dan moet die exact gelijk zijn, zodat een andere
+    // "Laura ..." niet meematcht. Is één kant alleen een initiaal of helemaal
+    // zonder achternaam (de oude formaten), dan volstaat die initiaal.
+    const SPORT_FRIENDS = [
+      'Erik Houtkamp', 'Linda Westendorp', 'Robbert Schols',
+      'Stefan Cornelissen', 'Eva de Leeuw', 'Laura de Leeuw',
+    ];
     function _nameParts(name) {
       const parts = (name || '').toLowerCase().replace(/\./g, '').split(/\s+/).filter(Boolean);
-      return { first: parts[0] || '', initials: parts.slice(1).map(w => w[0]) };
+      const rest = parts.slice(1);
+      return { first: parts[0] || '', rest, last: rest.join(' ') };
     }
     const _FRIEND_KEYS = SPORT_FRIENDS.map(_nameParts).filter(f => f.first);
+    function _isInitialOnly(n) { return n.rest.length === 1 && n.rest[0].length === 1; }
     function isSportFriend(name) {
       const p = _nameParts(name);
       if (!p.first) return false;
-      // Ontbreekt aan één van beide kanten de achternaam, dan telt de voornaam.
-      return _FRIEND_KEYS.some(f => f.first === p.first && (
-        !p.initials.length || !f.initials.length || p.initials.some(i => f.initials.includes(i))
-      ));
+      return _FRIEND_KEYS.some(f => {
+        if (f.first !== p.first) return false;
+        if (!p.last || !f.last) return true;        // alleen een voornaam bekend
+        if (p.last === f.last) return true;         // volledige achternaam gelijk
+        if (_isInitialOnly(p) || _isInitialOnly(f)) // oud formaat: "Erik H."
+          return p.rest.some(w => f.rest.some(v => v[0] === w[0]));
+        return false;
+      });
     }
 
     // Blessures — zie het blessure-blok verderop; hier gedeclareerd omdat de eerste
