@@ -224,6 +224,52 @@ def main():
         if off == 0 and items:
             print("  Velden per les: " + ", ".join(sorted(items[0].keys())))
 
+    # Credits: welke types/tekens bestaan er (geen bedragen per datum loggen).
+    print("\n[CREDITS SAMENVATTING]")
+    combos, months = {}, {}
+    for page in range(1, 6):
+        status, body = get(s, "/users/me/credits", {"page": page})
+        if status != 200 or not isinstance(body, dict):
+            break
+        for c in body.get("data", []):
+            sign = "+" if (c.get("amount") or 0) > 0 else ("-" if (c.get("amount") or 0) < 0 else "0")
+            desc = re.sub(r"\d", "#", str(c.get("description") or ""))[:60]
+            k = (c.get("type"), sign, desc, bool(c.get("userMembership")), bool(c.get("userProduct")))
+            combos[k] = combos.get(k, 0) + 1
+            m = (c.get("createdAt") or "")[:7]
+            months[m] = months.get(m, 0) + 1
+        if page == 1:
+            print("  meta: " + json.dumps({k: body.get("meta", {}).get(k) for k in ("per_page", "total", "last_page")}))
+            first = (body.get("data") or [{}])[0]
+            print("  userMembership keys: " + str(list((first.get("userMembership") or {}).keys())))
+        if not (body.get("links") or {}).get("next"):
+            break
+    for k, n in sorted(combos.items(), key=lambda x: -x[1]):
+        print(f"  type={k[0]} teken={k[1]} membership={k[3]} product={k[4]} n={n}  desc='{k[2]}'")
+    print("  per maand: " + json.dumps(dict(sorted(months.items()))))
+
+    # Historie: vorm van een 'past' boeking.
+    print("\n[PAST BOOKINGS]")
+    status, body = get(s, "/users/me/bookings-and-waitlists", {"filter": "past"})
+    if status == 200 and isinstance(body, dict):
+        print("  top keys: " + str(list(body.keys())) + " meta=" + json.dumps(body.get("meta"))[:300])
+        groups = body.get("data", [])
+        print(f"  groepen={len(groups)} datums={[g.get('date') for g in groups][:12]}")
+        if groups and groups[0].get("occurrences"):
+            occ = groups[0]["occurrences"][0]
+            print("  occ keys: " + str(sorted(occ.keys())))
+            print("  booking: " + json.dumps(shape(occ.get("booking"), max_depth=2)))
+            print("  booking statuses: " + str(sorted({
+                str((o.get("booking") or {}).get("status")) for g in groups for o in g.get("occurrences", [])})))
+        for p in (2, 3):
+            st2, b2 = get(s, "/users/me/bookings-and-waitlists", {"filter": "past", "page": p})
+            n2 = sum(len(g.get("occurrences", [])) for g in b2.get("data", [])) if st2 == 200 and isinstance(b2, dict) else None
+            print(f"  page={p} [{st2}] lessen={n2} datums={[g.get('date') for g in (b2.get('data', []) if isinstance(b2, dict) else [])][:3]}")
+    print(f"\n[/users/me tellers] bookingsThisMonth={me.get('bookingsThisMonth')} totalBooking={me.get('totalBooking')} "
+          f"membership={(me.get('activeUserMembership') or {}).get('membershipName')} "
+          f"nextCreditDistributionAt={(me.get('activeUserMembership') or {}).get('nextCreditDistributionAt')} "
+          f"canSeeWorkouts={me.get('canSeeWorkouts')}")
+
     gist_id, token = os.environ.get("GIST_ID"), os.environ.get("GITHUB_TOKEN")
     if gist_id and token:
         r = requests.patch(
