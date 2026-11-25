@@ -122,6 +122,8 @@
           classCapacity = st.class_capacity || {};
           exclusions = st.exclusions || {};
           familyBookings = st.family_bookings || {};
+          huppaAccount = st.huppa_account || null;
+          if (huppaAccount?.membership?.quota) MONTHLY_CLASS_QUOTA = huppaAccount.membership.quota;
           vacations = Array.isArray(st.vacations) ? st.vacations : [];
         } catch(e) {}
       }

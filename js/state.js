@@ -23,6 +23,7 @@
     let monthlyLateCancelTotals = {}; // "YYYY-MM" → late afmeldingen (kosten een credit)
     let exclusions = {};   // {"YYYY-MM-DD_HH:MM": {excluded_at}}
     let familyBookings = {}; // {"YYYY-MM-DD_HH:MM": ["Laura", "Eva"]}
+    let huppaAccount = null; // Huppa-maandoverzicht: abonnement, late afmeldingen, no-shows, historie
     let personalEvents = []; // [{id, title, date, time?, location?, notes?, created_at}]
     let intervalsData = null;   // {wellness: {by_date: {...}}, activities: {by_date: {...}}, fetched_at}
     let withingsData = null;    // {measurements: [...], fetched_at}

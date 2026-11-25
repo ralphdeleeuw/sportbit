@@ -244,6 +244,7 @@
       const el = document.getElementById('stats-content');
       if (!el) return;
       let h = `<div class="tab-page-header"><div class="tab-page-title">Kracht & PR's</div></div>`;
+      h += renderHuppaOverview();
       if (Object.keys(barbellLifts).length > 0) {
         h += `<div class="section-title">Barbell Maxima</div>${renderBarbellSection()}`;
       }
@@ -264,6 +265,42 @@
         h += `<div class="section-title collapsible" onclick="toggleSection(this)">Benchmark Workouts</div><div class="collapsible-body">${renderBenchmarks(benchmarkWorkouts)}</div>`;
       }
       el.innerHTML = h;
+    }
+
+    // Huppa-lessen: abonnement, gevolgde lessen en credits per maand (uit Huppa).
+    function renderHuppaOverview() {
+      if (!huppaAccount) return '';
+      const a = huppaAccount;
+      const shortDate = iso => {
+        if (!iso) return '—';
+        const d = new Date(iso.slice(0, 10) + 'T12:00:00');
+        return isNaN(d) ? '—' : `${d.getDate()} ${MONTH_NL[d.getMonth()]}`;
+      };
+      const quota = MONTHLY_CLASS_QUOTA;
+      const rows = Object.entries(a.months || {})
+        .sort((x, y) => y[0].localeCompare(x[0]))
+        .slice(0, 6)
+        .map(([m, v]) => {
+          const att = v.attended || 0, late = v.late_cancellations || 0, ns = v.no_shows || 0;
+          const credits = att + late + ns;
+          const label = `${MONTH_NL_FULL[parseInt(m.slice(5, 7), 10) - 1]} ${m.slice(0, 4)}`;
+          const cls = credits > quota ? ' over' : (credits === quota ? ' full' : '');
+          return `<tr>
+            <td>${label}</td><td>${att}</td><td>${late || '–'}</td><td>${ns || '–'}</td>
+            <td class="huppa-credits${cls}">${credits}/${quota}</td>
+          </tr>`;
+        }).join('');
+      return `<div class="section-title">Huppa-lessen</div>
+        <div class="stats-row">
+          <div class="stat-card"><div class="stat-value accent">${a.total_bookings ?? '—'}</div><div class="stat-label">Lessen totaal</div></div>
+          <div class="stat-card"><div class="stat-value">${shortDate(a.last_check_in)}</div><div class="stat-label">Laatste check-in</div></div>
+          <div class="stat-card"><div class="stat-value">${shortDate(a.membership?.next_payment_at)}</div><div class="stat-label">Volgende betaling</div></div>
+        </div>
+        ${rows ? `<table class="huppa-months">
+          <thead><tr><th>Maand</th><th>Gevolgd</th><th>Late afm.</th><th>No-show</th><th>Credits</th></tr></thead>
+          <tbody>${rows}</tbody>
+        </table>` : ''}
+        <div class="huppa-meta">${escapeHtml(a.membership?.name || '')}${a.membership?.name ? ' · ' : ''}${escapeHtml(formatHuppaUpdated(a.updated_at))}</div>`;
     }
 
     function renderPlanTab() {
