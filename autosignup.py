@@ -20,6 +20,7 @@ import argparse
 import json
 import logging
 import os
+import re
 import sys
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
@@ -250,6 +251,15 @@ class GistStateManager:
         self._save()
         log.info("Capacity data updated for %d slots.", len(capacity_updates))
 
+    def update_huppa_account(self, account: dict) -> None:
+        """Sla het Huppa-maandoverzicht (abonnement, credits, historie) op."""
+        if not account:
+            return
+        self.state["huppa_account"] = account
+        self._save()
+        log.info("Huppa-overzicht opgeslagen: %d maanden, %d lessen in historie.",
+                 len(account.get("months", {})), len(account.get("history", [])))
+
     def update_family_bookings(self, bookings: dict[str, list[str]]) -> None:
         """Sla family bookings op in state en persist naar gist."""
         self.state["family_bookings"] = bookings
@@ -451,6 +461,52 @@ class HuppaClient:
         """Set van occurrence-ids waarvoor een actieve boeking bestaat."""
         return {b["id"] for b in self.get_bookings()}
 
+    def get_me(self) -> dict:
+        resp = self._get_with_reauth(f"{HUPPA_API_BASE}/users/me", timeout=20)
+        resp.raise_for_status()
+        data = resp.json()
+        return data.get("data", data) if isinstance(data, dict) else {}
+
+    def get_credits(self, since: str, max_pages: int = 10) -> list[dict]:
+        """Creditlog (nieuwste eerst) tot en met de maand `since` ('YYYY-MM')."""
+        entries: list[dict] = []
+        for page in range(1, max_pages + 1):
+            resp = self._get_with_reauth(f"{HUPPA_API_BASE}/users/me/credits",
+                                         params={"page": page}, timeout=20)
+            resp.raise_for_status()
+            body = resp.json()
+            rows = body.get("data", [])
+            entries.extend(rows)
+            oldest = min((r.get("createdAt") or "9999" for r in rows), default="")
+            if not rows or not (body.get("links") or {}).get("next") or oldest[:7] < since:
+                break
+        return entries
+
+    def get_past_bookings(self, max_pages: int = 6) -> list[dict]:
+        """Gevolgde lessen (nieuwste eerst) uit bookings-and-waitlists?filter=past."""
+        out: list[dict] = []
+        for page in range(1, max_pages + 1):
+            resp = self._get_with_reauth(f"{HUPPA_API_BASE}/users/me/bookings-and-waitlists",
+                                         params={"filter": "past", "page": page}, timeout=20)
+            resp.raise_for_status()
+            body = resp.json()
+            for group in body.get("data", []):
+                for occ in group.get("occurrences", []):
+                    booking = occ.get("booking") or {}
+                    if booking.get("cancelledAt") or not occ.get("startsAt"):
+                        continue
+                    dt = datetime.fromisoformat(occ["startsAt"].replace("Z", "+00:00")).astimezone(AMS)
+                    out.append({
+                        "date": dt.strftime("%Y-%m-%d"),
+                        "time": dt.strftime("%H:%M"),
+                        "name": occ.get("name", ""),
+                        "status": booking.get("status"),
+                        "checked_in": bool(booking.get("checkedInAt")),
+                    })
+            if (body.get("meta") or {}).get("last_page", 1) <= page:
+                break
+        return out
+
     def signup(self, event: dict) -> bool:
         org_id = event.get("organization_id")
         occ_id = event.get("id")
@@ -626,6 +682,76 @@ def fetch_family_bookings(subdomain: str, days_ahead: int) -> dict[str, list[str
             log.error("Fout bij ophalen inschrijvingen voor %s: %s", member["name"], exc)
 
     return family_bookings
+
+
+def _ams(iso: str) -> datetime | None:
+    if not iso:
+        return None
+    try:
+        return datetime.fromisoformat(iso.replace("Z", "+00:00")).astimezone(AMS)
+    except ValueError:
+        return None
+
+
+def fetch_account_overview(client: "HuppaClient") -> dict:
+    """Bouw het Huppa-maandoverzicht: abonnement, credits per maand en historie.
+
+    Late afmeldingen en no-shows komen uit de creditlog van Huppa, zodat ze
+    niet meer handmatig gemarkeerd hoeven te worden. Gevolgde lessen komen uit
+    de boekingshistorie (per lesdatum).
+    """
+    me = client.get_me()
+    membership = me.get("activeUserMembership") or {}
+    quota_match = re.match(r"\s*(\d+)\s*x", membership.get("membershipName") or "")
+    today = datetime.now(AMS).date()
+    first = today.replace(day=1)
+    since = (first - timedelta(days=150)).strftime("%Y-%m")  # ~6 maanden
+
+    months: dict[str, dict] = {}
+
+    def month(key: str) -> dict:
+        return months.setdefault(key, {"attended": 0, "late_cancellations": 0, "no_shows": 0})
+
+    late_list = []
+    for c in client.get_credits(since):
+        dt = _ams(c.get("createdAt"))
+        if not dt or dt.strftime("%Y-%m") < since or dt.date() > today:
+            continue
+        reason = c.get("description")
+        key = dt.strftime("%Y-%m")
+        if reason == "late_cancellation":
+            month(key)["late_cancellations"] += 1
+        elif reason == "no_show":
+            month(key)["no_shows"] += 1
+        else:
+            continue
+        late_list.append({"at": dt.strftime("%Y-%m-%d %H:%M"), "type": reason,
+                          "activity": c.get("activityName") or ""})
+
+    history = [h for h in client.get_past_bookings() if h["date"][:7] >= since]
+    for h in history:
+        # Een no-show staat ook in de historie; die telt via de creditlog.
+        if h["status"] in (None, "attended") or h["checked_in"]:
+            month(h["date"][:7])["attended"] += 1
+
+    last_check_in = _ams(me.get("lastCheckIn"))
+    next_payment = _ams(membership.get("nextPaymentAt"))
+    return {
+        "updated_at": datetime.now(AMS).isoformat(timespec="seconds"),
+        "membership": {
+            "name": membership.get("membershipName"),
+            "status": membership.get("status"),
+            "quota": int(quota_match.group(1)) if quota_match else None,
+            "next_payment_at": next_payment.strftime("%Y-%m-%d") if next_payment else None,
+            "contract_ends_at": (membership.get("contractEndsAt") or None),
+        },
+        "bookings_this_month": me.get("bookingsThisMonth"),
+        "total_bookings": me.get("totalBooking"),
+        "last_check_in": last_check_in.strftime("%Y-%m-%d %H:%M") if last_check_in else None,
+        "months": dict(sorted(months.items())),
+        "late_cancellations": late_list,
+        "history": history,
+    }
 
 
 def find_target_slots(days_ahead: int) -> list[tuple]:
@@ -952,6 +1078,14 @@ def run(email: str, password: str, subdomain: str, dry_run: bool, days_ahead: in
     # Persist capacity data to gist (single save for all slots)
     if state and capacity_updates:
         state.batch_update_capacity(capacity_updates)
+
+    # Huppa-maandoverzicht (alleen lezen): abonnement, late afmeldingen,
+    # no-shows en gevolgde lessen. Een fout hier mag de inschrijving niet raken.
+    if state:
+        try:
+            state.update_huppa_account(fetch_account_overview(client))
+        except Exception as exc:
+            log.warning("Huppa-overzicht ophalen mislukt: %s", exc)
 
     # Summary
     log.info("=== Summary ===")

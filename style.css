@@ -1758,6 +1758,26 @@
     .month-quota.over .month-quota-fill { background: var(--accent2); }
     .month-quota.over .month-quota-fill.projected { opacity: 0.3; }
 
+    /* Huppa-lessen per maand (tab Kracht & PR's) */
+    .huppa-months {
+      width: 100%; border-collapse: collapse; font-size: 12px;
+      background: var(--surface); border: 1px solid var(--border);
+      border-radius: var(--radius-sm); overflow: hidden;
+      font-variant-numeric: tabular-nums;
+    }
+    .huppa-months th {
+      font-size: 10px; font-weight: 500; color: var(--faint);
+      text-transform: uppercase; letter-spacing: 0.05em; text-align: right;
+      padding: 8px 10px; border-bottom: 1px solid var(--border);
+    }
+    .huppa-months td { padding: 7px 10px; text-align: right; color: var(--text); }
+    .huppa-months th:first-child, .huppa-months td:first-child { text-align: left; }
+    .huppa-months tr + tr td { border-top: 1px solid var(--border); }
+    .huppa-months .huppa-credits { font-weight: 600; }
+    .huppa-months .huppa-credits.full { color: var(--neutral); }
+    .huppa-months .huppa-credits.over { color: var(--accent2); }
+    .huppa-meta { margin: 6px 0 18px; font-size: 11px; color: var(--faint); }
+
     /* ── Barbell lift table ──────────────────────────────────── */
     .barbell-lift-list {
       display: flex;

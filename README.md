@@ -8,7 +8,8 @@ hardloopschema's maken. De PWA (`index.html` + `js/`) toont alles op de telefoon
 ## Wat het doet
 
 - **Automatisch inschrijven** voor de vaste lessen (ma 20:00, wo 08:00, do 20:00,
-  zo 09:00) via Huppa, incl. Google Agenda-sync. **Vakantiemodus** pauzeert dit
+  zo 09:00) via Huppa, incl. Google Agenda-sync. Haalt ook het Huppa-maandoverzicht op
+  (abonnement, late afmeldingen, no-shows, gevolgde lessen). **Vakantiemodus** pauzeert dit
   voor een datumbereik.
 - **Data verzamelen** elke 4 uur (health) en dagelijks (SugarWOD).
 - **AI-coaching on-demand**: herstel-advies, workout-plannen, hardloopschema,

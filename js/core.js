@@ -3,8 +3,9 @@
     const MONTH_NL = ['jan', 'feb', 'mrt', 'apr', 'mei', 'jun', 'jul', 'aug', 'sep', 'okt', 'nov', 'dec'];
     // Vaste CrossFit rooster — spiegelt SCHEDULE in autosignup.py (JS getDay: 0=Zo, 6=Za)
     const CROSSFIT_SCHEDULE = [[1,"20:00"],[3,"08:00"],[4,"20:00"],[0,"09:00"]];
-    // Abonnement: maximaal aantal CrossFit-lessen per kalendermaand
-    const MONTHLY_CLASS_QUOTA = 13;
+    // Abonnement: maximaal aantal CrossFit-lessen per kalendermaand.
+    // Wordt overschreven door het abonnement uit Huppa ("13x per month").
+    let MONTHLY_CLASS_QUOTA = 13;
     // Sportvrienden — alleen deze deelnemers tonen bij een les. Het naamformaat
     // van Huppa wisselt: "Erik H.", alleen de voornaam ("Erik"), en sinds nov
     // 2026 de volledige naam ("Erik Houtkamp", "Laura de Leeuw").
@@ -144,8 +145,10 @@
         ...signedUp
           .filter(e => e.date)
           .map(e => ({ date: e.date, time: e.time || '', key: e.event_id || `${e.date}_${e.time}`, pending: false })),
+        // Met Huppa-data komen late afmeldingen uit de creditlog van Huppa
+        // (zie renderMonthQuotaSummary); handmatige markeringen tellen dan niet.
         ...cancelled
-          .filter(e => e.date && e.late_cancel)
+          .filter(e => e.date && e.late_cancel && !huppaAccount)
           .map(e => ({ date: e.date, time: e.time || '', key: e.event_id || `${e.date}_${e.time}`, pending: false, late: true })),
         ...pendingSlots
           .filter(sl => sl.date && !exclusions[sl.key])
@@ -187,8 +190,13 @@
     function renderMonthQuotaSummary() {
       const now = new Date();
       const month = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
-      const used = monthlyClassTotals[month] || 0;
-      const projected = monthlyProjectedTotals[month] || used;
+      // Late afmeldingen en no-shows uit Huppa kosten ook een credit.
+      const hm = huppaAccount ? ((huppaAccount.months || {})[month] || {}) : null;
+      const hLate = hm ? (hm.late_cancellations || 0) : 0;
+      const hNoShow = hm ? (hm.no_shows || 0) : 0;
+      const hExtra = hLate + hNoShow;
+      const used = (monthlyClassTotals[month] || 0) + hExtra;
+      const projected = Math.max(used, (monthlyProjectedTotals[month] || 0) + hExtra);
       const planned = projected - used;
       const left = MONTHLY_CLASS_QUOTA - projected;
       const pct = Math.min(100, Math.round(used / MONTHLY_CLASS_QUOTA * 100));
@@ -198,9 +206,15 @@
         ? `nog ${left} te gaan`
         : (left === 0 ? 'tegoed precies op' : `${-left} boven je abonnement`);
       const late = monthlyLateCancelTotals[month] || 0;
-      const usedLabel = late > 0
+      let usedLabel = late > 0
         ? `${used - late} ingeschreven + ${late} late afmelding${late > 1 ? 'en' : ''}`
         : `${used} ingeschreven`;
+      if (hm) {
+        const extra = [];
+        if (hLate) extra.push(`${hLate} late afmelding${hLate > 1 ? 'en' : ''}`);
+        if (hNoShow) extra.push(`${hNoShow} no-show${hNoShow > 1 ? 's' : ''}`);
+        usedLabel = `${used - hExtra} ingeschreven` + (extra.length ? ` + ${extra.join(' + ')}` : '');
+      }
       const note = planned > 0
         ? `${usedLabel} + ${planned} gepland → ${projected}/${MONTHLY_CLASS_QUOTA} · ${outlook}`
         : `${usedLabel} · ${outlook}`;
@@ -214,7 +228,15 @@
           <div class="month-quota-fill" style="width:${pct}%"></div>
         </div>
         <div class="month-quota-note">${note}</div>
+        ${huppaAccount ? `<div class="month-quota-note">Late afmeldingen &amp; no-shows: Huppa · ${escapeHtml(formatHuppaUpdated(huppaAccount.updated_at))}</div>` : ''}
       </div>`;
+    }
+
+    function formatHuppaUpdated(iso) {
+      if (!iso) return '';
+      const d = new Date(iso);
+      if (isNaN(d)) return '';
+      return `bijgewerkt ${d.getDate()} ${MONTH_NL[d.getMonth()]} ${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
     }
 
     function renderCard(item, type, delay, wods) {
@@ -224,8 +246,8 @@
       const metaHtml = `<div class="card-meta">
         <span class="card-time">${item.time}</span>
         ${_coach ? `<span class="card-coach">· ${escapeHtml(_coach)}</span>` : ''}
-        ${cancelled && !item.late_cancel ? '' : renderMonthCountBadge(item)}
-        ${cancelled && item.late_cancel ? '<span class="late-cancel-label">Late afmelding · kost credit</span>' : ''}
+        ${cancelled && (!item.late_cancel || huppaAccount) ? '' : renderMonthCountBadge(item)}
+        ${cancelled && item.late_cancel && !huppaAccount ? '<span class="late-cancel-label">Late afmelding · kost credit</span>' : ''}
       </div>` + (cancelled ? '' : renderParticipants(item.date, item.time));
 
       // Open Gym: toon gegenereerd programma als beschikbaar
@@ -306,10 +328,10 @@
             onclick="markOngedaanGemaakt('${item.event_id}','${item.date}','${item.time}','${escapeHtml(item.title)}',this)">
             Ongedaan maken
           </button>
-          <button class="niet-gedaan-btn" id="late-${item.event_id}"
+          ${huppaAccount ? '' : `<button class="niet-gedaan-btn" id="late-${item.event_id}"
             onclick="toggleLateCancel('${item.event_id}',${item.late_cancel ? 'false' : 'true'},this)">
             ${item.late_cancel ? 'Geen late afmelding' : 'Late afmelding (kost credit)'}
-          </button>
+          </button>`}
         </div>` : '';
 
       return `
